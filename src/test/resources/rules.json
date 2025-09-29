@@ -1,0 +1,112 @@
+[
+  {
+    "rule_code": "FRAUD_HIGH_VALUE",
+    "conditions": [
+      {
+        "field": "transaction_type",
+        "operator": "EQUAL_TO",
+        "value": "PAYMENT"
+      },
+      {
+        "field": "amount",
+        "operator": "EQUAL_TO",
+        "value": 10000
+      },
+      {
+        "field": "merchant_category",
+        "operator": "EQUAL_TO",
+        "value": "HIGH_RISK"
+      }
+    ],
+    "priority": 100,
+    "description": "High-value transactions in high-risk categories",
+    "enabled": true
+  },
+  {
+    "rule_code": "PREMIUM_CUSTOMER_OFFER",
+    "conditions": [
+      {
+        "field": "customer_tier",
+        "operator": "EQUAL_TO",
+        "value": "PREMIUM"
+      },
+      {
+        "field": "account_status",
+        "operator": "EQUAL_TO",
+        "value": "ACTIVE"
+      },
+      {
+        "field": "region",
+        "operator": "EQUAL_TO",
+        "value": "US"
+      }
+    ],
+    "priority": 50,
+    "description": "Special offers for premium US customers",
+    "enabled": true
+  },
+  {
+    "rule_code": "NEW_USER_ONBOARDING",
+    "conditions": [
+      {
+        "field": "user_type",
+        "operator": "EQUAL_TO",
+        "value": "NEW"
+      },
+      {
+        "field": "registration_complete",
+        "operator": "EQUAL_TO",
+        "value": true
+      }
+    ],
+    "priority": 30,
+    "description": "Onboarding flow for new registered users",
+    "enabled": true
+  },
+  {
+    "rule_code": "COMPLIANCE_CHECK",
+    "conditions": [
+      {
+        "field": "requires_kyc",
+        "operator": "EQUAL_TO",
+        "value": true
+      },
+      {
+        "field": "document_status",
+        "operator": "EQUAL_TO",
+        "value": "PENDING"
+      },
+      {
+        "field": "risk_score",
+        "operator": "EQUAL_TO",
+        "value": 75
+      }
+    ],
+    "priority": 90,
+    "description": "Compliance verification for high-risk pending documents",
+    "enabled": true
+  },
+  {
+    "rule_code": "INVENTORY_ALERT",
+    "conditions": [
+      {
+        "field": "product_type",
+        "operator": "EQUAL_TO",
+        "value": "ELECTRONICS"
+      },
+      {
+        "field": "stock_level",
+        "operator": "EQUAL_TO",
+        "value": 10
+      },
+      {
+        "field": "demand_forecast",
+        "operator": "EQUAL_TO",
+        "value": "HIGH"
+      }
+    ],
+    "priority": 60,
+    "description": "Low stock alert for high-demand electronics",
+    "enabled": true
+  }
+]
