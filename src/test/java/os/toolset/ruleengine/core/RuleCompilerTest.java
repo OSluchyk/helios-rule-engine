@@ -1,11 +1,13 @@
 package os.toolset.ruleengine.core;
 
+import it.unimi.dsi.fastutil.ints.IntList;
 import org.junit.jupiter.api.*;
 import os.toolset.ruleengine.model.Predicate;
 import os.toolset.ruleengine.model.Rule;
 
 import java.io.IOException;
 import java.nio.file.*;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -58,7 +60,7 @@ class RuleCompilerTest {
         Path rulesFile = writeRules(rulesJson);
         EngineModel model = compiler.compile(rulesFile);
 
-        assertThat(model.getRuleStore()).hasSize(3); // 1 from RULE_001, 2 from RULE_002
+        assertThat(model.getNumRules()).isEqualTo(3); // 1 from RULE_001, 2 from RULE_002
         assertThat(model.getPredicateRegistry()).hasSize(3);
     }
 
@@ -81,14 +83,21 @@ class RuleCompilerTest {
         EngineModel model = compiler.compile(rulesFile);
 
         // 1 (status) * 2 (tier) * 2 (device) = 4 internal rules
-        assertThat(model.getRuleStore()).hasSize(4);
+        assertThat(model.getNumRules()).isEqualTo(4);
         assertThat(model.getRulesByCode("COMPLEX_EXPANSION")).hasSize(4);
 
         // Check that all rules have the same static predicate
         int staticPredicateId = model.getPredicateId(new os.toolset.ruleengine.model.Predicate("STATUS", Predicate.Operator.EQUAL_TO, "ACTIVE"));
-        for (Rule rule : model.getRuleStore()) {
-            assertThat(rule.getPredicateIds()).contains(staticPredicateId);
-            assertThat(rule.getPredicateCount()).isEqualTo(3);
+
+        // After the fix, this lookup should succeed
+        assertThat(staticPredicateId).isNotEqualTo(-1);
+
+        for (int i = 0; i < model.getNumRules(); i++) {
+            if (model.getRuleCode(i).equals("COMPLEX_EXPANSION")) {
+                IntList predicateIds = model.getRule(i).getPredicateIds();
+                assertThat(new ArrayList<>(predicateIds)).contains(staticPredicateId);
+                assertThat(model.getRule(i).getPredicateCount()).isEqualTo(3);
+            }
         }
     }
 
@@ -117,7 +126,7 @@ class RuleCompilerTest {
         EngineModel model = compiler.compile(rulesFile);
 
         // Total internal rules: 2 (from US_CUSTOMERS) + 4 (from ALL_CUSTOMERS) = 6
-        assertThat(model.getRuleStore()).hasSize(6);
+        assertThat(model.getNumRules()).isEqualTo(6);
 
         // Total unique predicates should be 6, not 8.
         // type=A, type=B, state=CA, state=TX, state=WA, state=FL
@@ -127,6 +136,8 @@ class RuleCompilerTest {
         // Verify that the predicate IDs for "CA" and "TX" are reused.
         int caPredicateId = model.getPredicateId(new Predicate("STATE", Predicate.Operator.EQUAL_TO, "CA"));
         int txPredicateId = model.getPredicateId(new Predicate("STATE", Predicate.Operator.EQUAL_TO, "TX"));
+
+        // After the fix, these lookups should succeed
         assertThat(caPredicateId).isNotEqualTo(-1);
         assertThat(txPredicateId).isNotEqualTo(-1);
 
@@ -163,7 +174,7 @@ class RuleCompilerTest {
         Path rulesFile = writeRules(rulesJson);
         EngineModel model = compiler.compile(rulesFile);
 
-        assertThat(model.getRuleStore()).hasSize(5);
+        assertThat(model.getNumRules()).isEqualTo(5);
         assertThat(model.getPredicateRegistry()).hasSize(5);
         assertThat(model.getRulesByCode("GT_RULE")).isNotNull();
     }
@@ -205,7 +216,7 @@ class RuleCompilerTest {
         EngineModel model = compiler.compile(rulesFile);
 
         // Should compile to a single rule with a single predicate, not expanded
-        assertThat(model.getRuleStore()).hasSize(1);
+        assertThat(model.getNumRules()).isEqualTo(1);
         Rule rule = model.getRule(0);
         assertThat(rule.getPredicateCount()).isEqualTo(1);
 
@@ -230,13 +241,13 @@ class RuleCompilerTest {
                     "rule_code": "DISABLED_RULE",
                     "conditions": [{"field": "status", "operator": "EQUAL_TO", "value": "INACTIVE"}],
                     "enabled": false
-                } 
+                }
             ]
             """;
         Path rulesFile = writeRules(rulesJson);
         EngineModel model = compiler.compile(rulesFile);
 
-        assertThat(model.getRuleStore()).hasSize(1);
+        assertThat(model.getNumRules()).isEqualTo(1);
         assertThat(model.getRulesByCode("ENABLED_RULE")).isNotNull();
         assertThat(model.getRulesByCode("DISABLED_RULE")).isNull();
     }

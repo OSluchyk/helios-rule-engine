@@ -1,26 +1,27 @@
 // File: src/main/java/com/google/ruleengine/model/Rule.java
 package os.toolset.ruleengine.model;
 
-import java.util.List;
+import it.unimi.dsi.fastutil.ints.IntList;
 import java.util.Objects;
 
 /**
  * Represents a compiled rule with its predicates and metadata.
+ * Uses IntList for memory efficiency.
  */
 public final class Rule {
     private final int id;
     private final String ruleCode;
     private final int predicateCount;  // The 'needs' value for counter-based matching
-    private final List<Integer> predicateIds;  // References to predicate registry
+    private final IntList predicateIds;  // References to predicate registry
     private final int priority;
     private final String description;
 
     public Rule(int id, String ruleCode, int predicateCount,
-                List<Integer> predicateIds, int priority, String description) {
+                IntList predicateIds, int priority, String description) {
         this.id = id;
         this.ruleCode = Objects.requireNonNull(ruleCode);
         this.predicateCount = predicateCount;
-        this.predicateIds = List.copyOf(predicateIds);
+        this.predicateIds = predicateIds; // Already an efficient primitive list
         this.priority = priority;
         this.description = description;
     }
@@ -28,7 +29,7 @@ public final class Rule {
     public int getId() { return id; }
     public String getRuleCode() { return ruleCode; }
     public int getPredicateCount() { return predicateCount; }
-    public List<Integer> getPredicateIds() { return predicateIds; }
+    public IntList getPredicateIds() { return predicateIds; }
     public int getPriority() { return priority; }
     public String getDescription() { return description; }
 

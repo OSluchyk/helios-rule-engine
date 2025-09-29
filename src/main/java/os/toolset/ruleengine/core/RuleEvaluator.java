@@ -1,14 +1,11 @@
 package os.toolset.ruleengine.core;
 
-import it.unimi.dsi.fastutil.ints.IntArrayList;
-import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
-import it.unimi.dsi.fastutil.ints.IntSet;
+import it.unimi.dsi.fastutil.ints.*;
 import org.roaringbitmap.IntIterator;
 import org.roaringbitmap.RoaringBitmap;
 import os.toolset.ruleengine.model.Event;
 import os.toolset.ruleengine.model.MatchResult;
 import os.toolset.ruleengine.model.Predicate;
-import os.toolset.ruleengine.model.Rule;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -17,7 +14,8 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * High-performance rule evaluation engine using high-performance collections and selection strategies.
+ * Phase 4: High-performance rule evaluation engine using SoA memory layout
+ * and weight-based predicate evaluation for optimal CPU cache efficiency.
  */
 public class RuleEvaluator {
     private static final Logger logger = Logger.getLogger(RuleEvaluator.class.getName());
@@ -29,7 +27,7 @@ public class RuleEvaluator {
     public RuleEvaluator(EngineModel model) {
         this.model = Objects.requireNonNull(model);
         this.metrics = new EvaluatorMetrics();
-        this.contextPool = ThreadLocal.withInitial(() -> new EvaluationContext(model.getRuleStore().length));
+        this.contextPool = ThreadLocal.withInitial(() -> new EvaluationContext(model.getNumRules()));
     }
 
     public MatchResult evaluate(Event event) {
@@ -41,9 +39,9 @@ public class RuleEvaluator {
             logger.fine("Evaluating event '" + event.getEventId() + "' with attributes: " + event.getFlattenedAttributes());
         }
 
-        evaluatePredicates(event, ctx);
+        evaluatePredicatesWeighted(event, ctx);
         updateCounters(ctx);
-        List<MatchResult.MatchedRule> allMatches = detectMatches(ctx);
+        List<MatchResult.MatchedRule> allMatches = detectMatchesSoA(ctx);
         List<MatchResult.MatchedRule> selectedMatches = selectMatches(allMatches);
 
         long evaluationTime = System.nanoTime() - startTime;
@@ -51,8 +49,8 @@ public class RuleEvaluator {
 
         if (logger.isLoggable(Level.FINE)) {
             String matchedCodes = selectedMatches.stream().map(MatchResult.MatchedRule::ruleCode).collect(Collectors.joining(", "));
-            logger.fine(String.format("Event '%s' evaluation complete in %.3f ms. Matches: [%s]",
-                    event.getEventId(), evaluationTime / 1_000_000.0, matchedCodes));
+            logger.fine(String.format("Event '%s' evaluation complete in %.3f ms. Predicates evaluated: %d, Matches: [%s]",
+                    event.getEventId(), evaluationTime / 1_000_000.0, ctx.predicatesEvaluated, matchedCodes));
         }
 
         return new MatchResult(
@@ -64,11 +62,17 @@ public class RuleEvaluator {
         );
     }
 
-    private void evaluatePredicates(Event event, EvaluationContext ctx) {
+    /**
+     * OPTIMIZED: Evaluate predicates by iterating through event attributes and looking up
+     * the pre-sorted list of candidate predicates for that field.
+     */
+    private void evaluatePredicatesWeighted(Event event, EvaluationContext ctx) {
         Map<String, Object> flattenedEvent = event.getFlattenedAttributes();
+
         for (Map.Entry<String, Object> eventEntry : flattenedEvent.entrySet()) {
             List<Predicate> candidatePredicates = model.getFieldToPredicates().get(eventEntry.getKey());
             if (candidatePredicates != null) {
+                // This list is already sorted by weight (cheapest first) by the compiler
                 for (Predicate p : candidatePredicates) {
                     ctx.predicatesEvaluated++;
                     if (p.evaluate(eventEntry.getValue())) {
@@ -82,7 +86,6 @@ public class RuleEvaluator {
         }
 
         if (logger.isLoggable(Level.FINER)) {
-            // Corrected: use map() for Stream<Integer>, not mapToObj()
             String truePredicateDetails = ctx.truePredicates.stream()
                     .map(model::getPredicate)
                     .map(Objects::toString)
@@ -104,17 +107,23 @@ public class RuleEvaluator {
         });
     }
 
-    private List<MatchResult.MatchedRule> detectMatches(EvaluationContext ctx) {
+    /**
+     * Detect matches using Structure of Arrays for optimal cache performance.
+     */
+    private List<MatchResult.MatchedRule> detectMatchesSoA(EvaluationContext ctx) {
         List<MatchResult.MatchedRule> matches = new ArrayList<>();
-        for (int ruleId : ctx.touchedRules) {
+        int[] touchedArray = ctx.touchedRules.toIntArray();
+        Arrays.sort(touchedArray); // Improve cache locality through sequential access
+
+        for (int ruleId : touchedArray) {
             ctx.rulesEvaluated++;
-            Rule rule = model.getRule(ruleId);
-            if (rule != null && ctx.counters[ruleId] == rule.getPredicateCount()) {
+            // Direct array access (cache-friendly)
+            if (ctx.counters[ruleId] == model.getRulePredicateCount(ruleId)) {
                 matches.add(new MatchResult.MatchedRule(
-                        rule.getId(),
-                        rule.getRuleCode(),
-                        rule.getPriority(),
-                        rule.getDescription()
+                        ruleId,
+                        model.getRuleCode(ruleId),
+                        model.getRulePriority(ruleId),
+                        model.getRule(ruleId).getDescription() // Construct full Rule only when needed
                 ));
             }
         }
@@ -125,13 +134,11 @@ public class RuleEvaluator {
         if (allMatches.size() <= 1) {
             return allMatches;
         }
-
         Map<String, MatchResult.MatchedRule> maxPriorityMatches = new HashMap<>();
         for (MatchResult.MatchedRule match : allMatches) {
             maxPriorityMatches.merge(match.ruleCode(), match,
                     (existing, newMatch) -> newMatch.priority() > existing.priority() ? newMatch : existing);
         }
-
         List<MatchResult.MatchedRule> selected = new ArrayList<>(maxPriorityMatches.values());
         selected.sort(Comparator.comparingInt(MatchResult.MatchedRule::priority).reversed());
         return selected;

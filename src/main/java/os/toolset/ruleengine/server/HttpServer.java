@@ -9,6 +9,7 @@ import os.toolset.ruleengine.core.EngineModel;
 import os.toolset.ruleengine.core.RuleEvaluator;
 import os.toolset.ruleengine.model.Event;
 import os.toolset.ruleengine.model.MatchResult;
+import os.toolset.ruleengine.model.Rule;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -17,6 +18,7 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.logging.Logger;
+import java.util.stream.IntStream;
 
 /**
  * High-performance HTTP server using JDK HttpServer.
@@ -80,11 +82,13 @@ public class HttpServer {
             try {
                 // Parse request body
                 String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                @SuppressWarnings("unchecked")
                 Map<String, Object> request = objectMapper.readValue(body, Map.class);
 
                 // Extract event data
                 String eventId = (String) request.getOrDefault("event_id", java.util.UUID.randomUUID().toString());
                 String eventType = (String) request.get("event_type");
+                @SuppressWarnings("unchecked")
                 Map<String, Object> attributes = (Map<String, Object>) request.getOrDefault("attributes", Map.of());
 
                 // Create and evaluate event
@@ -155,11 +159,13 @@ public class HttpServer {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             if ("GET".equals(exchange.getRequestMethod())) {
-                // Return summary of loaded rules
+                // Use the new efficient SoA accessors
+                int numRules = model.getNumRules();
                 Map<String, Object> summary = Map.of(
-                        "total_internal_rules", model.getRuleStore().length,
+                        "total_internal_rules", numRules,
                         "total_predicates", model.getPredicateRegistry().size(),
-                        "rules", java.util.Arrays.stream(model.getRuleStore())
+                        "rules", IntStream.range(0, numRules)
+                                .mapToObj(model::getRule) // construct Rule on-the-fly
                                 .map(rule -> Map.of(
                                         "id", rule.getId(),
                                         "code", rule.getRuleCode(),
