@@ -110,8 +110,8 @@ public class HttpServer {
             Map<String, Object> health = Map.of(
                     "status", "UP",
                     "timestamp", System.currentTimeMillis(),
-                    "rules_loaded", model.getRuleStore().length,
-                    "predicates_registered", model.getPredicateRegistry().size(),
+                    "rules_loaded", model.getStats().totalRules(),
+                    "predicates_registered", model.getStats().totalPredicates(),
                     "thread_pool", Map.of(
                             "active", executor.getActiveCount(),
                             "pool_size", executor.getPoolSize(),
@@ -132,13 +132,13 @@ public class HttpServer {
             Map<String, Object> metrics = Map.of(
                     "evaluator", evaluator.getMetrics().getSnapshot(),
                     "model", Map.of(
-                            "total_rules", model.getRuleStore().length,
-                            "total_predicates", model.getPredicateRegistry().size(),
+                            "total_internal_rules", model.getStats().totalRules(),
+                            "total_predicates", model.getStats().totalPredicates(),
                             "compilation_time_ms", model.getStats().compilationTimeNanos() / 1_000_000,
                             "metadata", model.getStats().metadata()
                     ),
                     "jvm", Map.of(
-                            "heap_used_mb", Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory() / 1024 / 1024,
+                            "heap_used_mb", (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / 1024 / 1024,
                             "heap_max_mb", Runtime.getRuntime().maxMemory() / 1024 / 1024,
                             "processors", Runtime.getRuntime().availableProcessors()
                     )
@@ -157,7 +157,7 @@ public class HttpServer {
             if ("GET".equals(exchange.getRequestMethod())) {
                 // Return summary of loaded rules
                 Map<String, Object> summary = Map.of(
-                        "total_rules", model.getRuleStore().length,
+                        "total_internal_rules", model.getRuleStore().length,
                         "total_predicates", model.getPredicateRegistry().size(),
                         "rules", java.util.Arrays.stream(model.getRuleStore())
                                 .map(rule -> Map.of(

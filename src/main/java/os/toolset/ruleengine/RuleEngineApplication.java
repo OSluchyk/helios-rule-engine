@@ -38,14 +38,13 @@ public class RuleEngineApplication {
             Thread.currentThread().join();
 
         } catch (Exception e) {
-            logger.severe("Application failed to start: " + e.getMessage());
-            e.printStackTrace();
+            logger.log(Level.SEVERE, "Application failed to start: " + e.getMessage(), e);
             System.exit(1);
         }
     }
 
     private void start(String[] args) throws IOException, RuleCompiler.CompilationException {
-        logger.info("Starting High-Performance Rule Engine MVP");
+        logger.info("Starting High-Performance Rule Engine - Phase 3");
 
         // Parse configuration
         String rulesFile = System.getProperty("rules.file", "rules.json");
@@ -57,10 +56,6 @@ public class RuleEngineApplication {
         logger.info("Compiling rules from: " + rulesPath);
         RuleCompiler compiler = new RuleCompiler();
         model = compiler.compile(rulesPath);
-
-        logger.info(String.format("Compiled %d rules with %d unique predicates",
-                model.getRuleStore().length,
-                model.getPredicateRegistry().size()));
 
         // Initialize evaluator
         evaluator = new RuleEvaluator(model);
@@ -93,30 +88,32 @@ public class RuleEngineApplication {
         Logger rootLogger = Logger.getLogger("");
 
         ConsoleHandler consoleHandler = new ConsoleHandler();
-        consoleHandler.setLevel(Level.INFO);
+        consoleHandler.setLevel(Level.INFO); // Set to FINE or FINER for debug logs
         consoleHandler.setFormatter(new SimpleFormatter() {
             @Override
             public String format(LogRecord record) {
-                return String.format("[%1$tF %1$tT] [%2$s] %3$s %n",
+                return String.format("[%1$tF %1$tT.%1$tL] [%2$-7s] %3$s - %4$s%n",
                         new java.util.Date(record.getMillis()),
                         record.getLevel(),
+                        record.getLoggerName(),
                         record.getMessage());
             }
         });
 
         rootLogger.addHandler(consoleHandler);
-        rootLogger.setLevel(Level.INFO);
+        rootLogger.setLevel(Level.ALL); // Capture all levels
     }
 
     private void printStartupBanner(int port) {
         System.out.println("""
             ╔═══════════════════════════════════════════════════╗
-            ║   HIGH-PERFORMANCE RULE ENGINE - MVP v1.0.0      ║
-            ║   Google-Grade Engineering | Counter-Based Logic  ║
+            ║  HIGH-PERFORMANCE RULE ENGINE - PHASE 3          ║
+            ║  Advanced Operators & Selection Logic Active      ║
             ╠═══════════════════════════════════════════════════╣
             ║   Status: RUNNING                                 ║
             ║   Port: %d                                      ║
-            ║   Rules: %d                                      ║
+            ║   Logical Rules: %.0f                             ║
+            ║   Internal Rules: %d                             ║
             ║   Predicates: %d                                 ║
             ╚═══════════════════════════════════════════════════╝
             
@@ -125,6 +122,9 @@ public class RuleEngineApplication {
               GET  /health   - Health status
               GET  /metrics  - Performance metrics
               GET  /rules    - List loaded rules
-            """.formatted(port, model.getRuleStore().length, model.getPredicateRegistry().size()));
+            """.formatted(port,
+                (double)model.getStats().totalRules() / (double)model.getStats().metadata().getOrDefault("expansionFactor", 1.0),
+                model.getStats().totalRules(),
+                model.getStats().totalPredicates()));
     }
 }
