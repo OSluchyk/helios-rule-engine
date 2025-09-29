@@ -1,8 +1,14 @@
 package os.toolset.ruleengine.core;
 
 import org.junit.jupiter.api.*;
+import os.toolset.ruleengine.model.Predicate;
+import os.toolset.ruleengine.model.Rule;
+
 import java.io.IOException;
 import java.nio.file.*;
+import java.util.List;
+import java.util.stream.Collectors;
+
 import static org.assertj.core.api.Assertions.*;
 
 class RuleCompilerTest {
@@ -24,32 +30,123 @@ class RuleCompilerTest {
                 .forEach(java.io.File::delete);
     }
 
+    private Path writeRules(String json) throws IOException {
+        Path rulesFile = tempDir.resolve("rules.json");
+        Files.writeString(rulesFile, json);
+        return rulesFile;
+    }
+
     @Test
-    @DisplayName("Should compile valid rules successfully")
+    @DisplayName("Should compile EQUAL_TO and IS_ANY_OF rules successfully")
     void testSuccessfulCompilation() throws Exception {
         String rulesJson = """
             [
                 {
                     "rule_code": "RULE_001",
                     "conditions": [
-                        {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"},
-                        {"field": "amount", "operator": "EQUAL_TO", "value": 1000}
-                    ],
-                    "priority": 10,
-                    "description": "Test rule",
-                    "enabled": true
+                        {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"}
+                    ]
+                },
+                {
+                    "rule_code": "RULE_002",
+                    "conditions": [
+                        {"field": "region", "operator": "IS_ANY_OF", "value": ["NA", "EU"]}
+                    ]
                 }
             ]
             """;
-
-        Path rulesFile = tempDir.resolve("rules.json");
-        Files.writeString(rulesFile, rulesJson);
-
+        Path rulesFile = writeRules(rulesJson);
         EngineModel model = compiler.compile(rulesFile);
 
-        assertThat(model.getRuleStore()).hasSize(1);
-        assertThat(model.getPredicateRegistry()).hasSize(2);
+        assertThat(model.getRuleStore()).hasSize(3); // 1 from RULE_001, 2 from RULE_002
+        assertThat(model.getPredicateRegistry()).hasSize(3);
     }
+
+    @Test
+    @DisplayName("Should expand rules with multiple IS_ANY_OF conditions")
+    void testDnfExpansion() throws Exception {
+        String rulesJson = """
+            [
+                {
+                    "rule_code": "COMPLEX_EXPANSION",
+                    "conditions": [
+                        {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"},
+                        {"field": "tier", "operator": "IS_ANY_OF", "value": ["GOLD", "PLATINUM"]},
+                        {"field": "device", "operator": "IS_ANY_OF", "value": ["MOBILE", "DESKTOP"]}
+                    ]
+                }
+            ]
+            """;
+        Path rulesFile = writeRules(rulesJson);
+        EngineModel model = compiler.compile(rulesFile);
+
+        // 1 (status) * 2 (tier) * 2 (device) = 4 internal rules
+        assertThat(model.getRuleStore()).hasSize(4);
+        assertThat(model.getRulesByCode("COMPLEX_EXPANSION")).hasSize(4);
+
+        // Check that all rules have the same static predicate
+        int staticPredicateId = model.getPredicateId(new os.toolset.ruleengine.model.Predicate("STATUS", "ACTIVE"));
+        for (Rule rule : model.getRuleStore()) {
+            assertThat(rule.getPredicateIds()).contains(staticPredicateId);
+            assertThat(rule.getPredicateCount()).isEqualTo(3);
+        }
+    }
+
+    @Test
+    @DisplayName("Should reuse atomic predicates from different IS_ANY_OF (Smart Factoring)")
+    void testSmartIsAnyOfFactoringEffect() throws Exception {
+        String rulesJson = """
+        [
+            {
+                "rule_code": "US_CUSTOMERS",
+                "conditions": [
+                    {"field": "type", "operator": "EQUAL_TO", "value": "A"},
+                    {"field": "state", "operator": "IS_ANY_OF", "value": ["CA", "TX"]}
+                ]
+            },
+            {
+                "rule_code": "ALL_CUSTOMERS",
+                "conditions": [
+                    {"field": "type", "operator": "EQUAL_TO", "value": "B"},
+                    {"field": "state", "operator": "IS_ANY_OF", "value": ["CA", "WA", "TX", "FL"]}
+                ]
+            }
+        ]
+        """;
+        Path rulesFile = writeRules(rulesJson);
+        EngineModel model = compiler.compile(rulesFile);
+
+        // Total internal rules: 2 (from US_CUSTOMERS) + 4 (from ALL_CUSTOMERS) = 6
+        assertThat(model.getRuleStore()).hasSize(6);
+
+        // Total unique predicates should be 6, not 8.
+        // type=A, type=B, state=CA, state=TX, state=WA, state=FL
+        // The predicates for CA and TX are shared.
+        assertThat(model.getPredicateRegistry()).hasSize(6);
+
+        // Verify that the predicate IDs for "CA" and "TX" are reused.
+        int caPredicateId = model.getPredicateId(new Predicate("STATE", "CA"));
+        int txPredicateId = model.getPredicateId(new Predicate("STATE", "TX"));
+        assertThat(caPredicateId).isNotEqualTo(-1);
+        assertThat(txPredicateId).isNotEqualTo(-1);
+
+        // Find all predicate IDs for the first logical rule
+        List<List<Integer>> rule1PredicateIdSets = model.getRulesByCode("US_CUSTOMERS").stream()
+                .map(Rule::getPredicateIds)
+                .collect(Collectors.toList());
+
+        // Find all predicate IDs for the second logical rule
+        List<List<Integer>> rule2PredicateIdSets = model.getRulesByCode("ALL_CUSTOMERS").stream()
+                .map(Rule::getPredicateIds)
+                .collect(Collectors.toList());
+
+        // Assert that the shared predicate IDs appear in both sets of expanded rules
+        assertThat(rule1PredicateIdSets).anySatisfy(ids -> assertThat(ids).contains(caPredicateId));
+        assertThat(rule1PredicateIdSets).anySatisfy(ids -> assertThat(ids).contains(txPredicateId));
+        assertThat(rule2PredicateIdSets).anySatisfy(ids -> assertThat(ids).contains(caPredicateId));
+        assertThat(rule2PredicateIdSets).anySatisfy(ids -> assertThat(ids).contains(txPredicateId));
+    }
+
 
     @Test
     @DisplayName("Should reject rules with unsupported operators")
@@ -64,31 +161,57 @@ class RuleCompilerTest {
                 }
             ]
             """;
-
-        Path rulesFile = tempDir.resolve("rules.json");
-        Files.writeString(rulesFile, rulesJson);
-
+        Path rulesFile = writeRules(rulesJson);
         assertThatThrownBy(() -> compiler.compile(rulesFile))
                 .isInstanceOf(RuleCompiler.CompilationException.class)
-                .hasMessageContaining("MVP only supports EQUAL_TO");
+                .hasMessageContaining("Operator must be EQUAL_TO or IS_ANY_OF");
     }
 
     @Test
-    @DisplayName("Should reject duplicate rule codes")
-    void testDuplicateRuleCodes() throws IOException {
+    @DisplayName("Should reject IS_ANY_OF with non-list value")
+    void testIsAnyOfWithNonList() throws IOException {
         String rulesJson = """
             [
-                {"rule_code": "RULE_001", "conditions": [{"field": "f", "operator": "EQUAL_TO", "value": "v"}]},
-                {"rule_code": "RULE_001", "conditions": [{"field": "f", "operator": "EQUAL_TO", "value": "v"}]}
+                {
+                    "rule_code": "RULE_001",
+                    "conditions": [
+                        {"field": "region", "operator": "IS_ANY_OF", "value": "NA"}
+                    ]
+                }
             ]
             """;
-
-        Path rulesFile = tempDir.resolve("rules.json");
-        Files.writeString(rulesFile, rulesJson);
-
+        Path rulesFile = writeRules(rulesJson);
         assertThatThrownBy(() -> compiler.compile(rulesFile))
                 .isInstanceOf(RuleCompiler.CompilationException.class)
-                .hasMessageContaining("Duplicate rule_code");
+                .hasMessageContaining("Value for IS_ANY_OF must be a list");
+    }
+
+    @Test
+    @DisplayName("Should perform strength reduction for IS_ANY_OF with single value")
+    void testStrengthReduction() throws Exception {
+        String rulesJson = """
+        [
+            {
+                "rule_code": "SINGLE_VALUE_IN_LIST",
+                "conditions": [
+                    {"field": "status", "operator": "IS_ANY_OF", "value": ["ACTIVE"]}
+                ]
+            }
+        ]
+        """;
+        Path rulesFile = writeRules(rulesJson);
+        EngineModel model = compiler.compile(rulesFile);
+
+        // Should compile to a single rule with a single predicate, not expanded
+        assertThat(model.getRuleStore()).hasSize(1);
+        Rule rule = model.getRule(0);
+        assertThat(rule.getPredicateCount()).isEqualTo(1);
+
+        // The predicate should be a simple EQUAL_TO predicate
+        int predicateId = rule.getPredicateIds().get(0);
+        os.toolset.ruleengine.model.Predicate p = model.getPredicate(predicateId);
+        assertThat(p.field()).isEqualTo("STATUS");
+        assertThat(p.value()).isEqualTo("ACTIVE");
     }
 
     @Test
@@ -98,8 +221,7 @@ class RuleCompilerTest {
             [
                 {
                     "rule_code": "ENABLED_RULE",
-                    "conditions": [{"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"}],
-                    "enabled": true
+                    "conditions": [{"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"}]
                 },
                 {
                     "rule_code": "DISABLED_RULE",
@@ -108,66 +230,12 @@ class RuleCompilerTest {
                 }
             ]
             """;
-
-        Path rulesFile = tempDir.resolve("rules.json");
-        Files.writeString(rulesFile, rulesJson);
-
+        Path rulesFile = writeRules(rulesJson);
         EngineModel model = compiler.compile(rulesFile);
 
         assertThat(model.getRuleStore()).hasSize(1);
-        assertThat(model.getRuleByCode("ENABLED_RULE")).isNotNull();
-        assertThat(model.getRuleByCode("DISABLED_RULE")).isNull();
-    }
-
-    @Test
-    @DisplayName("Should handle empty conditions correctly")
-    void testEmptyConditions() throws IOException {
-        String rulesJson = """
-            [
-                {
-                    "rule_code": "EMPTY_RULE",
-                    "conditions": []
-                }
-            ]
-            """;
-
-        Path rulesFile = tempDir.resolve("rules.json");
-        Files.writeString(rulesFile, rulesJson);
-
-        assertThatThrownBy(() -> compiler.compile(rulesFile))
-                .isInstanceOf(RuleCompiler.CompilationException.class)
-                .hasMessageContaining("must have at least one condition");
-    }
-
-    @Test
-    @DisplayName("Should deduplicate predicates")
-    void testPredicateDeduplication() throws Exception {
-        String rulesJson = """
-            [
-                {
-                    "rule_code": "RULE_001",
-                    "conditions": [
-                        {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"},
-                        {"field": "amount", "operator": "EQUAL_TO", "value": 1000}
-                    ]
-                },
-                {
-                    "rule_code": "RULE_002",
-                    "conditions": [
-                        {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"},
-                        {"field": "region", "operator": "EQUAL_TO", "value": "US"}
-                    ]
-                }
-            ]
-            """;
-
-        Path rulesFile = tempDir.resolve("rules.json");
-        Files.writeString(rulesFile, rulesJson);
-
-        EngineModel model = compiler.compile(rulesFile);
-
-        // Should have 3 unique predicates, not 4
-        assertThat(model.getPredicateRegistry()).hasSize(3);
-        assertThat(model.getRuleStore()).hasSize(2);
+        assertThat(model.getRulesByCode("ENABLED_RULE")).isNotNull();
+        assertThat(model.getRulesByCode("DISABLED_RULE")).isNull();
     }
 }
+

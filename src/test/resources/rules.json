@@ -1,6 +1,6 @@
 [
   {
-    "rule_code": "FRAUD_HIGH_VALUE",
+    "rule_code": "FRAUD_HIGH_VALUE_MULTI_REGION",
     "conditions": [
       {
         "field": "transaction_type",
@@ -13,13 +13,13 @@
         "value": 10000
       },
       {
-        "field": "merchant_category",
-        "operator": "EQUAL_TO",
-        "value": "HIGH_RISK"
+        "field": "region",
+        "operator": "IS_ANY_OF",
+        "value": ["NA", "EU", "APAC"]
       }
     ],
     "priority": 100,
-    "description": "High-value transactions in high-risk categories",
+    "description": "High-value transactions in multiple regions",
     "enabled": true
   },
   {
@@ -27,18 +27,13 @@
     "conditions": [
       {
         "field": "customer_tier",
-        "operator": "EQUAL_TO",
-        "value": "PREMIUM"
+        "operator": "IS_ANY_OF",
+        "value": ["PREMIUM", "PLATINUM"]
       },
       {
         "field": "account_status",
         "operator": "EQUAL_TO",
         "value": "ACTIVE"
-      },
-      {
-        "field": "region",
-        "operator": "EQUAL_TO",
-        "value": "US"
       }
     ],
     "priority": 50,
@@ -46,12 +41,17 @@
     "enabled": true
   },
   {
-    "rule_code": "NEW_USER_ONBOARDING",
+    "rule_code": "MULTI_CONDITION_EXPANSION",
     "conditions": [
       {
         "field": "user_type",
-        "operator": "EQUAL_TO",
-        "value": "NEW"
+        "operator": "IS_ANY_OF",
+        "value": ["NEW", "RETURNING"]
+      },
+      {
+        "field": "platform",
+        "operator": "IS_ANY_OF",
+        "value": ["IOS", "ANDROID"]
       },
       {
         "field": "registration_complete",
@@ -64,49 +64,29 @@
     "enabled": true
   },
   {
-    "rule_code": "COMPLIANCE_CHECK",
-    "conditions": [
-      {
-        "field": "requires_kyc",
-        "operator": "EQUAL_TO",
-        "value": true
-      },
-      {
-        "field": "document_status",
-        "operator": "EQUAL_TO",
-        "value": "PENDING"
-      },
-      {
-        "field": "risk_score",
-        "operator": "EQUAL_TO",
-        "value": 75
-      }
-    ],
-    "priority": 90,
-    "description": "Compliance verification for high-risk pending documents",
-    "enabled": true
-  },
-  {
-    "rule_code": "INVENTORY_ALERT",
+    "rule_code": "SIMPLE_EQUAL_TO",
     "conditions": [
       {
         "field": "product_type",
         "operator": "EQUAL_TO",
         "value": "ELECTRONICS"
-      },
-      {
-        "field": "stock_level",
-        "operator": "EQUAL_TO",
-        "value": 10
-      },
-      {
-        "field": "demand_forecast",
-        "operator": "EQUAL_TO",
-        "value": "HIGH"
       }
     ],
-    "priority": 60,
-    "description": "Low stock alert for high-demand electronics",
+    "priority": 10,
+    "description": "Basic electronics rule",
     "enabled": true
+  },
+  {
+    "rule_code": "DISABLED_RULE",
+    "conditions": [
+      {
+        "field": "customer_tier",
+        "operator": "EQUAL_TO",
+        "value": "DISABLED"
+      }
+    ],
+    "priority": 1,
+    "description": "This rule should not be loaded",
+    "enabled": false
   }
 ]

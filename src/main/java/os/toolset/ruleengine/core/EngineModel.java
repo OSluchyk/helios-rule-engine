@@ -22,7 +22,8 @@ public final class EngineModel {
     private final Int2ObjectMap<Predicate> predicateLookup;
     private final Int2ObjectMap<RoaringBitmap> invertedIndex;
     private final Rule[] ruleStore;
-    private final Object2ObjectMap<String, Rule> ruleByCode; // Added for lookup
+    // A rule code can map to multiple internal rules after expansion
+    private final Object2ObjectMap<String, List<Rule>> rulesByCode;
     private final EngineStats stats;
 
     private EngineModel(Builder builder) {
@@ -30,7 +31,7 @@ public final class EngineModel {
         this.predicateLookup = builder.predicateLookup;
         this.invertedIndex = builder.invertedIndex;
         this.ruleStore = builder.ruleStore.toArray(new Rule[0]);
-        this.ruleByCode = builder.ruleByCode; // Initialize from builder
+        this.rulesByCode = builder.rulesByCode;
         this.stats = builder.stats;
     }
 
@@ -40,7 +41,7 @@ public final class EngineModel {
     public Rule getRule(int id) { return id >= 0 && id < ruleStore.length ? ruleStore[id] : null; }
     public Predicate getPredicate(int id) { return predicateLookup.get(id); }
     public int getPredicateId(Predicate p) { return predicateRegistry.getInt(p); }
-    public Rule getRuleByCode(String code) { return ruleByCode.get(code); } // Added method
+    public List<Rule> getRulesByCode(String code) { return rulesByCode.get(code); }
     public EngineStats getStats() { return stats; }
 
     public static class Builder {
@@ -48,12 +49,10 @@ public final class EngineModel {
         final Int2ObjectMap<Predicate> predicateLookup = new Int2ObjectOpenHashMap<>();
         final Int2ObjectMap<RoaringBitmap> invertedIndex = new Int2ObjectOpenHashMap<>();
         final List<Rule> ruleStore = new ArrayList<>();
-        final Object2ObjectMap<String, Rule> ruleByCode = new Object2ObjectOpenHashMap<>(); // Added map
+        final Object2ObjectMap<String, List<Rule>> rulesByCode = new Object2ObjectOpenHashMap<>();
         EngineStats stats;
 
         public int registerPredicate(Predicate predicate) {
-            // Explicitly typing the lambda parameter 'p' resolves the compiler's
-            // type inference ambiguity between different 'computeIfAbsent' method signatures.
             return predicateRegistry.computeIfAbsent(predicate, (Predicate p) -> {
                 int id = predicateRegistry.size();
                 predicateLookup.put(id, p);
@@ -67,7 +66,7 @@ public final class EngineModel {
 
         public Builder addRule(Rule rule) {
             ruleStore.add(rule);
-            ruleByCode.put(rule.getRuleCode(), rule); // Populate the map
+            rulesByCode.computeIfAbsent(rule.getRuleCode(), k -> new ArrayList<>()).add(rule);
 
             for (int predicateId : rule.getPredicateIds()) {
                 invertedIndex.computeIfAbsent(predicateId, k -> new RoaringBitmap()).add(rule.getId());
@@ -81,7 +80,6 @@ public final class EngineModel {
         }
 
         public EngineModel build() {
-            // Set defaultReturnValue for predicateRegistry for safer lookups
             predicateRegistry.defaultReturnValue(-1);
             return new EngineModel(this);
         }
