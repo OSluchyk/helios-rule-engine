@@ -22,8 +22,9 @@ public final class EngineModel {
     private final Int2ObjectMap<Predicate> predicateLookup;
     private final Int2ObjectMap<RoaringBitmap> invertedIndex;
     private final Rule[] ruleStore;
-    // A rule code can map to multiple internal rules after expansion
     private final Object2ObjectMap<String, List<Rule>> rulesByCode;
+    // New structure for efficient predicate lookup during evaluation
+    private final Object2ObjectMap<String, List<Predicate>> fieldToPredicates;
     private final EngineStats stats;
 
     private EngineModel(Builder builder) {
@@ -32,6 +33,7 @@ public final class EngineModel {
         this.invertedIndex = builder.invertedIndex;
         this.ruleStore = builder.ruleStore.toArray(new Rule[0]);
         this.rulesByCode = builder.rulesByCode;
+        this.fieldToPredicates = builder.fieldToPredicates;
         this.stats = builder.stats;
     }
 
@@ -42,6 +44,7 @@ public final class EngineModel {
     public Predicate getPredicate(int id) { return predicateLookup.get(id); }
     public int getPredicateId(Predicate p) { return predicateRegistry.getInt(p); }
     public List<Rule> getRulesByCode(String code) { return rulesByCode.get(code); }
+    public Object2ObjectMap<String, List<Predicate>> getFieldToPredicates() { return fieldToPredicates; }
     public EngineStats getStats() { return stats; }
 
     public static class Builder {
@@ -50,12 +53,18 @@ public final class EngineModel {
         final Int2ObjectMap<RoaringBitmap> invertedIndex = new Int2ObjectOpenHashMap<>();
         final List<Rule> ruleStore = new ArrayList<>();
         final Object2ObjectMap<String, List<Rule>> rulesByCode = new Object2ObjectOpenHashMap<>();
+        final Object2ObjectMap<String, List<Predicate>> fieldToPredicates = new Object2ObjectOpenHashMap<>();
         EngineStats stats;
 
         public int registerPredicate(Predicate predicate) {
             return predicateRegistry.computeIfAbsent(predicate, (Predicate p) -> {
                 int id = predicateRegistry.size();
                 predicateLookup.put(id, p);
+                // Also index the predicate by its field for fast evaluation lookup.
+                // We do not index IS_ANY_OF as it's a compiler-only instruction.
+                if (p.operator() != Predicate.Operator.IS_ANY_OF) {
+                    fieldToPredicates.computeIfAbsent(p.field(), k -> new ArrayList<>()).add(p);
+                }
                 return id;
             });
         }

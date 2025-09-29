@@ -11,7 +11,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
@@ -35,7 +34,7 @@ public class RuleCompiler {
         EngineModel.Builder builder = buildCoreModel(validRules);
 
         long compilationTime = System.nanoTime() - startTime;
-        logger.info(String.format("Phase 2 Compilation completed in %.2f ms", compilationTime / 1_000_000.0));
+        logger.info(String.format("Phase 3 Compilation completed in %.2f ms", compilationTime / 1_000_000.0));
 
         // Create final stats before building the model
         Map<String, Object> metadata = new HashMap<>();
@@ -70,25 +69,26 @@ public class RuleCompiler {
 
     private List<RuleDefinition> validateAndCanonize(List<RuleDefinition> definitions) throws CompilationException {
         List<RuleDefinition> valid = new ArrayList<>();
-        Set<String> ruleCodes = new HashSet<>();
+        // Removed Set<String> ruleCodes to allow duplicate rule_codes for families.
 
         for (RuleDefinition def : definitions) {
             if (def.enabled() == null || !def.enabled()) continue;
             if (def.ruleCode() == null || def.ruleCode().isBlank()) {
                 throw new CompilationException("Rule must have a non-empty rule_code");
             }
-            if (!ruleCodes.add(def.ruleCode())) {
-                throw new CompilationException("Duplicate rule_code: " + def.ruleCode());
-            }
+            // This check is now removed to support rule families
+            // if (!ruleCodes.add(def.ruleCode())) {
+            //     throw new CompilationException("Duplicate rule_code: " + def.ruleCode());
+            // }
             if (def.conditions() == null || def.conditions().isEmpty()) {
                 throw new CompilationException("Rule " + def.ruleCode() + " must have at least one condition");
             }
             for (RuleDefinition.Condition cond : def.conditions()) {
-                if (!"EQUAL_TO".equals(cond.operator()) && !"IS_ANY_OF".equals(cond.operator())) {
-                    throw new CompilationException("Operator must be EQUAL_TO or IS_ANY_OF for rule '"
-                            + def.ruleCode() + "', but got: " + cond.operator());
+                Predicate.Operator op = Predicate.Operator.fromString(cond.operator());
+                if (op == null) {
+                    throw new CompilationException("Unsupported operator '" + cond.operator() + "' in rule '" + def.ruleCode() + "'");
                 }
-                if ("IS_ANY_OF".equals(cond.operator()) && !(cond.value() instanceof List)) {
+                if (op == Predicate.Operator.IS_ANY_OF && !(cond.value() instanceof List)) {
                     throw new CompilationException("Value for IS_ANY_OF must be a list for rule '" + def.ruleCode() + "'");
                 }
             }
@@ -100,32 +100,30 @@ public class RuleCompiler {
     private EngineModel.Builder buildCoreModel(List<RuleDefinition> definitions) {
         EngineModel.Builder builder = new EngineModel.Builder();
         AtomicInteger ruleIdGen = new AtomicInteger(0);
-        logger.fine("Starting core model build...");
 
         for (RuleDefinition def : definitions) {
-            logger.finer("Processing logical rule: " + def.ruleCode());
             // 1. Separate static predicates from expandable ones
             List<Predicate> staticPredicates = new ArrayList<>();
             List<List<Predicate>> expandablePredicates = new ArrayList<>();
 
             for (RuleDefinition.Condition cond : def.conditions()) {
                 String normalizedField = cond.field().toUpperCase().replace('-', '_');
-                if ("EQUAL_TO".equals(cond.operator())) {
-                    staticPredicates.add(new Predicate(normalizedField, cond.value()));
-                } else { // IS_ANY_OF
+                Predicate.Operator operator = Predicate.Operator.fromString(cond.operator());
+
+                if (operator == Predicate.Operator.IS_ANY_OF) {
                     List<?> values = (List<?>) cond.value();
-                    // Strength reduction: if IS_ANY_OF has one value, treat it as EQUAL_TO
-                    if (values.size() == 1) {
-                        logger.finer("Performing strength reduction for '" + def.ruleCode() + "' on field '" + cond.field() + "'");
-                        staticPredicates.add(new Predicate(normalizedField, values.get(0)));
+                    if (values.size() == 1) { // Strength reduction
+                        staticPredicates.add(new Predicate(normalizedField, Predicate.Operator.EQUAL_TO, values.get(0)));
                     } else {
                         List<Predicate> variants = values.stream()
-                                .map(val -> new Predicate(normalizedField, val))
+                                .map(val -> new Predicate(normalizedField, Predicate.Operator.EQUAL_TO, val))
                                 .collect(Collectors.toList());
                         if (!variants.isEmpty()) {
                             expandablePredicates.add(variants);
                         }
                     }
+                } else { // All other operators are static
+                    staticPredicates.add(new Predicate(normalizedField, operator, cond.value()));
                 }
             }
 
@@ -159,7 +157,6 @@ public class RuleCompiler {
                 builder.addRule(rule);
             }
         }
-        logger.fine("Core model build finished.");
         return builder;
     }
 

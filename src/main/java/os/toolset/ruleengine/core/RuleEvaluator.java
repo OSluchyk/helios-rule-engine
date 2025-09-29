@@ -12,10 +12,12 @@ import os.toolset.ruleengine.model.Rule;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 /**
- * High-performance rule evaluation engine using high-performance collections.
+ * High-performance rule evaluation engine using high-performance collections and selection strategies.
  */
 public class RuleEvaluator {
     private static final Logger logger = Logger.getLogger(RuleEvaluator.class.getName());
@@ -35,16 +37,27 @@ public class RuleEvaluator {
         EvaluationContext ctx = contextPool.get();
         ctx.reset();
 
+        if (logger.isLoggable(Level.FINE)) {
+            logger.fine("Evaluating event '" + event.getEventId() + "' with attributes: " + event.getFlattenedAttributes());
+        }
+
         evaluatePredicates(event, ctx);
         updateCounters(ctx);
-        List<MatchResult.MatchedRule> matches = detectMatches(ctx);
+        List<MatchResult.MatchedRule> allMatches = detectMatches(ctx);
+        List<MatchResult.MatchedRule> selectedMatches = selectMatches(allMatches);
 
         long evaluationTime = System.nanoTime() - startTime;
         metrics.recordEvaluation(evaluationTime, ctx.predicatesEvaluated, ctx.rulesEvaluated);
 
+        if (logger.isLoggable(Level.FINE)) {
+            String matchedCodes = selectedMatches.stream().map(MatchResult.MatchedRule::ruleCode).collect(Collectors.joining(", "));
+            logger.fine(String.format("Event '%s' evaluation complete in %.3f ms. Matches: [%s]",
+                    event.getEventId(), evaluationTime / 1_000_000.0, matchedCodes));
+        }
+
         return new MatchResult(
                 event.getEventId(),
-                matches,
+                selectedMatches,
                 evaluationTime,
                 ctx.predicatesEvaluated,
                 ctx.rulesEvaluated
@@ -54,17 +67,32 @@ public class RuleEvaluator {
     private void evaluatePredicates(Event event, EvaluationContext ctx) {
         Map<String, Object> flattenedEvent = event.getFlattenedAttributes();
         for (Map.Entry<String, Object> eventEntry : flattenedEvent.entrySet()) {
-            Predicate p = new Predicate(eventEntry.getKey(), eventEntry.getValue());
-            int predicateId = model.getPredicateId(p);
-            if (predicateId != -1) { // fastutil default 'not found' value
-                ctx.addTruePredicate(predicateId);
+            List<Predicate> candidatePredicates = model.getFieldToPredicates().get(eventEntry.getKey());
+            if (candidatePredicates != null) {
+                for (Predicate p : candidatePredicates) {
+                    ctx.predicatesEvaluated++;
+                    if (p.evaluate(eventEntry.getValue())) {
+                        int predicateId = model.getPredicateId(p);
+                        if (predicateId != -1) {
+                            ctx.addTruePredicate(predicateId);
+                        }
+                    }
+                }
             }
-            ctx.predicatesEvaluated++;
+        }
+
+        if (logger.isLoggable(Level.FINER)) {
+            // Corrected: use map() for Stream<Integer>, not mapToObj()
+            String truePredicateDetails = ctx.truePredicates.stream()
+                    .map(model::getPredicate)
+                    .map(Objects::toString)
+                    .collect(Collectors.joining(", "));
+            logger.finer("Event '" + event.getEventId() + "' matched " + ctx.truePredicates.size()
+                    + " predicates: [" + truePredicateDetails + "]");
         }
     }
 
     private void updateCounters(EvaluationContext ctx) {
-        // fastutil's forEach is efficient for primitive iteration
         ctx.truePredicates.forEach((int predicateId) -> {
             RoaringBitmap affectedRules = model.getInvertedIndex().get(predicateId);
             if (affectedRules != null) {
@@ -78,8 +106,8 @@ public class RuleEvaluator {
 
     private List<MatchResult.MatchedRule> detectMatches(EvaluationContext ctx) {
         List<MatchResult.MatchedRule> matches = new ArrayList<>();
-        // Iterate efficiently over the primitive set of touched rules
         for (int ruleId : ctx.touchedRules) {
+            ctx.rulesEvaluated++;
             Rule rule = model.getRule(ruleId);
             if (rule != null && ctx.counters[ruleId] == rule.getPredicateCount()) {
                 matches.add(new MatchResult.MatchedRule(
@@ -89,22 +117,30 @@ public class RuleEvaluator {
                         rule.getDescription()
                 ));
             }
-            ctx.rulesEvaluated++;
         }
-        // Sorting is required to meet the functional need for prioritized results.
-        // For future optimization, if this becomes a bottleneck with many matches,
-        // a bounded priority queue could be a more efficient alternative.
-        matches.sort(Comparator.comparingInt(MatchResult.MatchedRule::priority).reversed());
         return matches;
+    }
+
+    private List<MatchResult.MatchedRule> selectMatches(List<MatchResult.MatchedRule> allMatches) {
+        if (allMatches.size() <= 1) {
+            return allMatches;
+        }
+
+        Map<String, MatchResult.MatchedRule> maxPriorityMatches = new HashMap<>();
+        for (MatchResult.MatchedRule match : allMatches) {
+            maxPriorityMatches.merge(match.ruleCode(), match,
+                    (existing, newMatch) -> newMatch.priority() > existing.priority() ? newMatch : existing);
+        }
+
+        List<MatchResult.MatchedRule> selected = new ArrayList<>(maxPriorityMatches.values());
+        selected.sort(Comparator.comparingInt(MatchResult.MatchedRule::priority).reversed());
+        return selected;
     }
 
     public EvaluatorMetrics getMetrics() {
         return metrics;
     }
 
-    /**
-     * Thread-local evaluation context using high-performance primitive collections.
-     */
     private static class EvaluationContext {
         final int[] counters;
         final IntArrayList truePredicates;

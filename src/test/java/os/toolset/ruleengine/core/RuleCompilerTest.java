@@ -85,7 +85,7 @@ class RuleCompilerTest {
         assertThat(model.getRulesByCode("COMPLEX_EXPANSION")).hasSize(4);
 
         // Check that all rules have the same static predicate
-        int staticPredicateId = model.getPredicateId(new os.toolset.ruleengine.model.Predicate("STATUS", "ACTIVE"));
+        int staticPredicateId = model.getPredicateId(new os.toolset.ruleengine.model.Predicate("STATUS", Predicate.Operator.EQUAL_TO, "ACTIVE"));
         for (Rule rule : model.getRuleStore()) {
             assertThat(rule.getPredicateIds()).contains(staticPredicateId);
             assertThat(rule.getPredicateCount()).isEqualTo(3);
@@ -125,8 +125,8 @@ class RuleCompilerTest {
         assertThat(model.getPredicateRegistry()).hasSize(6);
 
         // Verify that the predicate IDs for "CA" and "TX" are reused.
-        int caPredicateId = model.getPredicateId(new Predicate("STATE", "CA"));
-        int txPredicateId = model.getPredicateId(new Predicate("STATE", "TX"));
+        int caPredicateId = model.getPredicateId(new Predicate("STATE", Predicate.Operator.EQUAL_TO, "CA"));
+        int txPredicateId = model.getPredicateId(new Predicate("STATE", Predicate.Operator.EQUAL_TO, "TX"));
         assertThat(caPredicateId).isNotEqualTo(-1);
         assertThat(txPredicateId).isNotEqualTo(-1);
 
@@ -149,23 +149,25 @@ class RuleCompilerTest {
 
 
     @Test
-    @DisplayName("Should reject rules with unsupported operators")
-    void testUnsupportedOperator() throws IOException {
+    @DisplayName("Should handle all advanced operators correctly")
+    void testAdvancedOperators() throws Exception {
         String rulesJson = """
             [
-                {
-                    "rule_code": "RULE_001",
-                    "conditions": [
-                        {"field": "amount", "operator": "GREATER_THAN", "value": 1000}
-                    ]
-                }
+                {"rule_code": "GT_RULE", "conditions": [{"field": "amount", "operator": "GREATER_THAN", "value": 100}]},
+                {"rule_code": "LT_RULE", "conditions": [{"field": "amount", "operator": "LESS_THAN", "value": 100}]},
+                {"rule_code": "BT_RULE", "conditions": [{"field": "amount", "operator": "BETWEEN", "value": [50, 150]}]},
+                {"rule_code": "RX_RULE", "conditions": [{"field": "code", "operator": "REGEX", "value": "A.C"}]},
+                {"rule_code": "CN_RULE", "conditions": [{"field": "code", "operator": "CONTAINS", "value": "B"}]}
             ]
             """;
         Path rulesFile = writeRules(rulesJson);
-        assertThatThrownBy(() -> compiler.compile(rulesFile))
-                .isInstanceOf(RuleCompiler.CompilationException.class)
-                .hasMessageContaining("Operator must be EQUAL_TO or IS_ANY_OF");
+        EngineModel model = compiler.compile(rulesFile);
+
+        assertThat(model.getRuleStore()).hasSize(5);
+        assertThat(model.getPredicateRegistry()).hasSize(5);
+        assertThat(model.getRulesByCode("GT_RULE")).isNotNull();
     }
+
 
     @Test
     @DisplayName("Should reject IS_ANY_OF with non-list value")
@@ -211,6 +213,7 @@ class RuleCompilerTest {
         int predicateId = rule.getPredicateIds().get(0);
         os.toolset.ruleengine.model.Predicate p = model.getPredicate(predicateId);
         assertThat(p.field()).isEqualTo("STATUS");
+        assertThat(p.operator()).isEqualTo(Predicate.Operator.EQUAL_TO);
         assertThat(p.value()).isEqualTo("ACTIVE");
     }
 
@@ -227,7 +230,7 @@ class RuleCompilerTest {
                     "rule_code": "DISABLED_RULE",
                     "conditions": [{"field": "status", "operator": "EQUAL_TO", "value": "INACTIVE"}],
                     "enabled": false
-                }
+                } 
             ]
             """;
         Path rulesFile = writeRules(rulesJson);

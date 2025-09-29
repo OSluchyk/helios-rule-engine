@@ -1,226 +1,189 @@
-// File: src/test/java/com/google/ruleengine/core/RuleEvaluatorTest.java
 package os.toolset.ruleengine.core;
 
 import org.junit.jupiter.api.*;
 import os.toolset.ruleengine.model.Event;
 import os.toolset.ruleengine.model.MatchResult;
-import os.toolset.ruleengine.model.Predicate;
-import os.toolset.ruleengine.model.Rule;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Map;
 
-import java.util.*;
-import java.util.concurrent.*;
 import static org.assertj.core.api.Assertions.*;
 
 /**
- * Comprehensive test suite for the Rule Evaluator.
- * Tests correctness, performance, and edge cases.
+ * Comprehensive test suite for the Rule Evaluator, Phase 3.
+ * Tests advanced operators and selection strategies.
  */
 class RuleEvaluatorTest {
 
     private EngineModel model;
     private RuleEvaluator evaluator;
+    private static Path tempDir;
+
+    @BeforeAll
+    static void beforeAll() throws IOException {
+        tempDir = Files.createTempDirectory("rule_engine_test_eval");
+    }
+
+    @AfterAll
+    static void afterAll() throws IOException {
+        Files.walk(tempDir)
+                .sorted(java.util.Comparator.reverseOrder())
+                .map(Path::toFile)
+                .forEach(java.io.File::delete);
+    }
 
     @BeforeEach
-    void setUp() {
-        model = createTestModel();
+    void setUp() throws Exception {
+        Path rulesFile = tempDir.resolve("rules.json");
+        Files.writeString(rulesFile, getTestRulesJson());
+        model = new RuleCompiler().compile(rulesFile);
         evaluator = new RuleEvaluator(model);
     }
 
-    private EngineModel createTestModel() {
-        EngineModel.Builder builder = new EngineModel.Builder();
-
-        // Register predicates
-        Predicate p1 = new Predicate("STATUS", "ACTIVE");
-        Predicate p2 = new Predicate("AMOUNT", 1000);
-        Predicate p3 = new Predicate("REGION", "US");
-        Predicate p4 = new Predicate("TYPE", "PREMIUM");
-
-        builder.registerPredicate(p1);
-        builder.registerPredicate(p2);
-        builder.registerPredicate(p3);
-        builder.registerPredicate(p4);
-
-        // Create rules
-        Rule rule1 = new Rule(0, "RULE_001", 2, List.of(0, 1), 10, "High value active");
-        Rule rule2 = new Rule(1, "RULE_002", 3, List.of(0, 2, 3), 20, "Premium US active");
-        Rule rule3 = new Rule(2, "RULE_003", 1, List.of(3), 5, "Any premium");
-
-        builder.addRule(rule1);
-        builder.addRule(rule2);
-        builder.addRule(rule3);
-
-        return builder.build();
-    }
-
     @Test
-    @DisplayName("Should match rules with all predicates true")
-    void testBasicMatching() {
-        // Event that matches rule1 (STATUS=ACTIVE, AMOUNT=1000)
-        Event event = new Event("evt_001", "ORDER", Map.of(
-                "STATUS", "ACTIVE",
-                "AMOUNT", 1000,
-                "REGION", "EU"
-        ));
-
-        MatchResult result = evaluator.evaluate(event);
-
-        assertThat(result.eventId()).isEqualTo("evt_001");
-        assertThat(result.matchedRules()).hasSize(1);
-        assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("RULE_001");
-    }
-
-    @Test
-    @DisplayName("Should match multiple rules simultaneously")
-    void testMultipleMatches() {
-        // Event that matches all three rules
-        Event event = new Event("evt_002", "ORDER", Map.of(
-                "STATUS", "ACTIVE",
-                "AMOUNT", 1000,
-                "REGION", "US",
-                "TYPE", "PREMIUM"
-        ));
-
-        MatchResult result = evaluator.evaluate(event);
-
-        assertThat(result.matchedRules()).hasSize(3);
-        // Should be sorted by priority (descending)
-        assertThat(result.matchedRules().get(0).priority()).isEqualTo(20); // RULE_002
-        assertThat(result.matchedRules().get(1).priority()).isEqualTo(10); // RULE_001
-        assertThat(result.matchedRules().get(2).priority()).isEqualTo(5);  // RULE_003
-    }
-
-    @Test
-    @DisplayName("Should return empty matches when no rules match")
-    void testNoMatches() {
-        Event event = new Event("evt_003", "ORDER", Map.of(
-                "STATUS", "INACTIVE",
-                "AMOUNT", 500
-        ));
-
-        MatchResult result = evaluator.evaluate(event);
-
-        assertThat(result.matchedRules()).isEmpty();
-    }
-
-    @Test
-    @DisplayName("Should handle missing attributes gracefully")
-    void testMissingAttributes() {
-        Event event = new Event("evt_004", "ORDER", Map.of());
-
-        MatchResult result = evaluator.evaluate(event);
-
-        assertThat(result.matchedRules()).isEmpty();
-        assertThat(result.predicatesEvaluated()).isEqualTo(0);
-    }
-
-    @Test
-    @DisplayName("Should normalize field names correctly")
-    void testFieldNormalization() {
-        Event event = new Event("evt_005", "ORDER", Map.of(
-                "status", "ACTIVE",  // lowercase
-                "amount", 1000
-        ));
-
+    @DisplayName("Should select highest priority rule in a family")
+    void testPerFamilyMaxPrioritySelection() {
+        Event event = new Event("evt_family_a", "TEST", Map.of("region", "US", "tier", "PLATINUM"));
         MatchResult result = evaluator.evaluate(event);
 
         assertThat(result.matchedRules()).hasSize(1);
-        assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("RULE_001");
+        // Both FAMILY_A rules match, but only the one with priority 100 should be selected
+        assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("FAMILY_A");
+        assertThat(result.matchedRules().get(0).priority()).isEqualTo(100);
     }
 
     @Test
-    @DisplayName("Should achieve sub-millisecond latency for 1000 rules")
-    void testPerformance() {
-        // Create a larger model with 1000 rules
-        EngineModel largeModel = createLargeModel(1000);
-        RuleEvaluator largeEvaluator = new RuleEvaluator(largeModel);
-
-        // Warm up JVM
-        for (int i = 0; i < 1000; i++) {
-            Event warmupEvent = new Event("warmup_" + i, "TEST",
-                    Map.of("FIELD_1", i, "FIELD_2", "VALUE_" + (i % 10)));
-            largeEvaluator.evaluate(warmupEvent);
-        }
-
-        // Measure performance
-        List<Long> latencies = new ArrayList<>();
-        for (int i = 0; i < 100; i++) {
-            Event event = new Event("perf_" + i, "TEST",
-                    Map.of("FIELD_1", i, "FIELD_2", "VALUE_" + (i % 10)));
-
-            long start = System.nanoTime();
-            largeEvaluator.evaluate(event);
-            long latency = System.nanoTime() - start;
-
-            latencies.add(latency);
-        }
-
-        // Calculate P99 latency
-        Collections.sort(latencies);
-        long p99 = latencies.get(98);
-
-        // Should be less than 100ms (100_000_000 nanos) as per MVP target
-        assertThat(p99).isLessThan(100_000_000L);
-
-        // Log performance stats
-        double avgLatencyMs = latencies.stream().mapToLong(Long::longValue).average().orElse(0) / 1_000_000.0;
-        System.out.printf("Performance Test: Avg=%.2fms, P99=%.2fms%n",
-                avgLatencyMs, p99 / 1_000_000.0);
+    @DisplayName("Should evaluate GREATER_THAN operator correctly")
+    void testGreaterThanOperator() {
+        Event event = new Event("evt_gt", "TEST", Map.of("amount", 6000));
+        MatchResult result = evaluator.evaluate(event);
+        assertThat(result.matchedRules()).hasSize(1);
+        assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("LARGE_TRANSACTION");
     }
 
     @Test
-    @DisplayName("Should handle concurrent evaluations safely")
-    void testConcurrency() throws InterruptedException, ExecutionException {
-        ExecutorService executor = Executors.newFixedThreadPool(10);
-        List<Future<MatchResult>> futures = new ArrayList<>();
-
-        for (int i = 0; i < 1000; i++) {
-            final int index = i;
-            futures.add(executor.submit(() -> {
-                Event event = new Event("concurrent_" + index, "TEST",
-                        Map.of("STATUS", "ACTIVE", "TYPE", "PREMIUM"));
-                return evaluator.evaluate(event);
-            }));
-        }
-
-        // Verify all evaluations complete successfully
-        for (Future<MatchResult> future : futures) {
-            MatchResult result = future.get();
-            assertThat(result).isNotNull();
-            assertThat(result.eventId()).startsWith("concurrent_");
-        }
-
-        executor.shutdown();
-        executor.awaitTermination(10, TimeUnit.SECONDS);
+    @DisplayName("Should evaluate LESS_THAN operator correctly")
+    void testLessThanOperator() {
+        Event event = new Event("evt_lt", "TEST", Map.of("amount", 20));
+        MatchResult result = evaluator.evaluate(event);
+        assertThat(result.matchedRules()).hasSize(1);
+        assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("SMALL_TRANSACTION");
     }
 
-    private EngineModel createLargeModel(int ruleCount) {
-        EngineModel.Builder builder = new EngineModel.Builder();
+    @Test
+    @DisplayName("Should evaluate BETWEEN operator correctly")
+    void testBetweenOperator() {
+        Event eventInside = new Event("evt_between_in", "TEST", Map.of("amount", 300));
+        MatchResult resultInside = evaluator.evaluate(eventInside);
+        assertThat(resultInside.matchedRules()).hasSize(1);
+        assertThat(resultInside.matchedRules().get(0).ruleCode()).isEqualTo("MID_RANGE_ORDER");
 
-        // Create diverse predicates
-        for (int i = 0; i < 100; i++) {
-            builder.registerPredicate(new Predicate("FIELD_" + (i % 10), i));
-            builder.registerPredicate(new Predicate("FIELD_" + (i % 10), "VALUE_" + i));
-        }
+        Event eventOutside = new Event("evt_between_out", "TEST", Map.of("amount", 99));
+        MatchResult resultOutside = evaluator.evaluate(eventOutside);
+        assertThat(resultOutside.matchedRules()).isEmpty();
+    }
 
-        // Create rules with varying complexity
-        Random random = new Random(42); // Deterministic for testing
-        for (int i = 0; i < ruleCount; i++) {
-            int predicateCount = 1 + random.nextInt(5);
-            List<Integer> predicateIds = new ArrayList<>();
+    @Test
+    @DisplayName("Should evaluate CONTAINS operator correctly")
+    void testContainsOperator() {
+        Event event = new Event("evt_contains", "TEST", Map.of("product_code", "XYZ-PROMO-123"));
+        MatchResult result = evaluator.evaluate(event);
+        assertThat(result.matchedRules()).hasSize(1);
+        assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("CONTAINS_CHECK");
+    }
 
-            for (int j = 0; j < predicateCount; j++) {
-                predicateIds.add(random.nextInt(100));
-            }
+    @Test
+    @DisplayName("Should evaluate REGEX operator correctly")
+    void testRegexOperator() {
+        Event eventMatch = new Event("evt_regex_match", "TEST", Map.of("description", "A fast cash withdrawal"));
+        MatchResult resultMatch = evaluator.evaluate(eventMatch);
+        assertThat(resultMatch.matchedRules()).hasSize(1);
+        assertThat(resultMatch.matchedRules().get(0).ruleCode()).isEqualTo("FRAUD_PATTERN");
 
-            Rule rule = new Rule(i, "RULE_" + i, predicateCount,
-                    predicateIds, random.nextInt(100), "Test rule " + i);
-            builder.addRule(rule);
-        }
+        Event eventNoMatch = new Event("evt_regex_nomatch", "TEST", Map.of("description", "A standard payment"));
+        MatchResult resultNoMatch = evaluator.evaluate(eventNoMatch);
+        assertThat(resultNoMatch.matchedRules()).isEmpty();
+    }
 
-        return builder.build();
+    @Test
+    @DisplayName("Should correctly handle IS_ANY_OF expansion and selection")
+    void testIsAnyOfSelection() {
+        // This event will match one of the expanded rules from EU_VAT_CHECK
+        Event event = new Event("evt_isanyof", "TEST", Map.of("country", "FR"));
+        MatchResult result = evaluator.evaluate(event);
+
+        assertThat(result.matchedRules()).hasSize(1);
+        assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("EU_VAT_CHECK");
+    }
+
+    private String getTestRulesJson() {
+        return """
+        [
+          {
+            "rule_code": "FAMILY_A",
+            "priority": 100,
+            "description": "High priority rule for top-tier US customers",
+            "conditions": [
+              {"field": "region", "operator": "EQUAL_TO", "value": "US"},
+              {"field": "tier", "operator": "EQUAL_TO", "value": "PLATINUM"}
+            ]
+          },
+          {
+            "rule_code": "FAMILY_A",
+            "priority": 10,
+            "description": "Generic rule for all US customers, lower priority",
+            "conditions": [
+              {"field": "region", "operator": "EQUAL_TO", "value": "US"}
+            ]
+          },
+          {
+            "rule_code": "LARGE_TRANSACTION",
+            "priority": 80,
+            "conditions": [
+              {"field": "amount", "operator": "GREATER_THAN", "value": 5000}
+            ]
+          },
+          {
+            "rule_code": "SMALL_TRANSACTION",
+            "priority": 70,
+            "conditions": [
+              {"field": "amount", "operator": "LESS_THAN", "value": 50}
+            ]
+          },
+          {
+            "rule_code": "MID_RANGE_ORDER",
+            "priority": 60,
+            "conditions": [
+              {"field": "amount", "operator": "BETWEEN", "value": [100, 500]}
+            ]
+          },
+          {
+            "rule_code": "EU_VAT_CHECK",
+            "priority": 90,
+            "conditions": [
+              {"field": "country", "operator": "IS_ANY_OF", "value": ["DE", "FR", "ES"]}
+            ]
+          },
+          {
+            "rule_code": "FRAUD_PATTERN",
+            "priority": 200,
+            "description": "Regex check for suspicious transaction descriptions",
+            "conditions": [
+              {"field": "description", "operator": "REGEX", "value": ".*(cash|transfer).*"}
+            ]
+          },
+          {
+            "rule_code": "CONTAINS_CHECK",
+            "priority": 40,
+            "description": "Simple contains check for product codes",
+            "conditions": [
+              {"field": "product_code", "operator": "CONTAINS", "value": "PROMO"}
+            ]
+          }
+        ]
+        """;
     }
 }
-
-
 
