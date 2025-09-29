@@ -74,7 +74,7 @@ public class Phase4Benchmark {
         System.out.printf("  Total internal rules: %d%n", model.getNumRules());
         System.out.printf("  Unique predicates: %d%n", model.getPredicateRegistry().size());
         System.out.printf("  Avg selectivity: %.3f%n",
-                (double) model.getStats().metadata().getOrDefault("avgSelectivity", 0.5));
+                (float) model.getStats().metadata().getOrDefault("avgSelectivity", 0.5));
         System.out.printf("  Expansion factor: %.2fx%n",
                 (double) model.getStats().metadata().getOrDefault("expansionFactor", 1.0));
 
