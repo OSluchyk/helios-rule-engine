@@ -233,7 +233,7 @@ public class BaseConditionEvaluator {
         BitSet matchingRules = new BitSet(model.getNumRules());
         matchingRules.set(0, model.getNumRules()); // Start with all rules
 
-        Map<String, Object> eventAttrs = event.getFlattenedAttributes();
+        Int2ObjectMap<Object> eventAttrs = event.getEncodedAttributes(model.getFieldDictionary(), model.getValueDictionary());
         int totalPredicatesEvaluated = 0;
 
         // Evaluate each base condition set
@@ -242,7 +242,7 @@ public class BaseConditionEvaluator {
 
             for (int predId : set.staticPredicateIds) {
                 Predicate pred = model.getPredicate(predId);
-                Object eventValue = eventAttrs.get(pred.field());
+                Object eventValue = eventAttrs.get(pred.fieldId());
                 totalPredicatesEvaluated++;
 
                 if (!pred.evaluate(eventValue)) {
@@ -294,7 +294,8 @@ public class BaseConditionEvaluator {
                 "TIMESTAMP", "RANDOM", "SESSION_ID", "REQUEST_ID", "CORRELATION_ID"
         );
 
-        if (dynamicFields.contains(pred.field())) {
+        String fieldName = model.getFieldDictionary().decode(pred.fieldId());
+        if (dynamicFields.contains(fieldName)) {
             return false;
         }
 
@@ -317,15 +318,16 @@ public class BaseConditionEvaluator {
     private String generateCacheKey(Event event, List<BaseConditionSet> sets) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
+            Int2ObjectMap<Object> attrs = event.getEncodedAttributes(model.getFieldDictionary(), model.getValueDictionary());
 
             // Include relevant event attributes
-            Map<String, Object> attrs = event.getFlattenedAttributes();
             for (BaseConditionSet set : sets) {
                 for (int predId : set.staticPredicateIds) {
                     Predicate pred = model.getPredicate(predId);
-                    Object value = attrs.get(pred.field());
+                    Object value = attrs.get(pred.fieldId());
                     if (value != null) {
-                        md.update(pred.field().getBytes(StandardCharsets.UTF_8));
+                        String fieldName = model.getFieldDictionary().decode(pred.fieldId());
+                        md.update(fieldName.getBytes(StandardCharsets.UTF_8));
                         md.update((byte) 0); // Separator
                         md.update(value.toString().getBytes(StandardCharsets.UTF_8));
                         md.update((byte) 0); // Separator
@@ -364,7 +366,8 @@ public class BaseConditionEvaluator {
         StringBuilder sb = new StringBuilder();
         for (int id : sorted) {
             Predicate pred = model.getPredicate(id);
-            sb.append(pred.field()).append("::")
+            String fieldName = model.getFieldDictionary().decode(pred.fieldId());
+            sb.append(fieldName).append("::")
                     .append(pred.operator()).append("::")
                     .append(pred.value()).append(";");
         }

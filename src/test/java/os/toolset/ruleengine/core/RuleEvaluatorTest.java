@@ -12,8 +12,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.*;
 
 /**
- * Comprehensive test suite for the Rule Evaluator, Phase 3.
- * Tests advanced operators and selection strategies.
+ * Comprehensive test suite for the Rule Evaluator, updated for Dictionary Encoding.
  */
 class RuleEvaluatorTest {
 
@@ -49,7 +48,6 @@ class RuleEvaluatorTest {
         MatchResult result = evaluator.evaluate(event);
 
         assertThat(result.matchedRules()).hasSize(1);
-        // Both FAMILY_A rules match, but only the one with priority 100 should be selected
         assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("FAMILY_A");
         assertThat(result.matchedRules().get(0).priority()).isEqualTo(100);
     }
@@ -110,7 +108,6 @@ class RuleEvaluatorTest {
     @Test
     @DisplayName("Should correctly handle IS_ANY_OF expansion and selection")
     void testIsAnyOfSelection() {
-        // This event will match one of the expanded rules from EU_VAT_CHECK
         Event event = new Event("evt_isanyof", "TEST", Map.of("country", "FR"));
         MatchResult result = evaluator.evaluate(event);
 
@@ -186,4 +183,3 @@ class RuleEvaluatorTest {
         """;
     }
 }
-

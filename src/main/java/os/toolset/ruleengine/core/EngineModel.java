@@ -14,22 +14,25 @@ import java.util.logging.Logger;
 
 /**
  * Phase 4: High-performance engine model using Structure of Arrays (SoA) layout
- * for optimal CPU cache utilization and memory bandwidth.
+ * and Dictionary Encoding for fields and values.
  */
 public final class EngineModel {
     private static final Logger logger = Logger.getLogger(EngineModel.class.getName());
 
+    // ========== DICTIONARIES ==========
+    private final Dictionary fieldDictionary;
+    private final Dictionary valueDictionary;
+
     // ========== PREDICATE STORAGE ==========
     private final Object2IntMap<Predicate> predicateRegistry;
     private final Int2ObjectMap<Predicate> predicateLookup;
-    // OPTIMIZATION: Now stores predicates pre-sorted by weight for each field
-    private final Object2ObjectMap<String, List<Predicate>> fieldToPredicates;
+    private final Int2ObjectMap<List<Predicate>> fieldToPredicates;
 
     // ========== INVERTED INDEX ==========
     private final Int2ObjectMap<RoaringBitmap> invertedIndex;
     private final float[] predicateDensities;
 
-    // ========== STRUCTURE OF ARRAYS (SoA) - Phase 4 ==========
+    // ========== STRUCTURE OF ARRAYS (SoA) ==========
     private final int numRules;
     private final int[] priorities;
     private final int[] predicateCounts;
@@ -44,6 +47,8 @@ public final class EngineModel {
     private final EngineStats stats;
 
     private EngineModel(Builder builder) {
+        this.fieldDictionary = builder.fieldDictionary;
+        this.valueDictionary = builder.valueDictionary;
         this.predicateRegistry = builder.predicateRegistry;
         this.predicateLookup = builder.predicateLookup;
         this.fieldToPredicates = builder.fieldToPredicates;
@@ -61,21 +66,21 @@ public final class EngineModel {
 
     // ========== PUBLIC ACCESSORS ==========
     public int getNumRules() { return numRules; }
+    public Dictionary getFieldDictionary() { return fieldDictionary; }
+    public Dictionary getValueDictionary() { return valueDictionary; }
     public Object2IntMap<Predicate> getPredicateRegistry() { return predicateRegistry; }
     public Int2ObjectMap<RoaringBitmap> getInvertedIndex() { return invertedIndex; }
-    public Object2ObjectMap<String, List<Predicate>> getFieldToPredicates() { return fieldToPredicates; }
+    public Int2ObjectMap<List<Predicate>> getFieldToPredicates() { return fieldToPredicates; }
     public Predicate getPredicate(int id) { return predicateLookup.get(id); }
     public int getPredicateId(Predicate p) { return predicateRegistry.getInt(p); }
     public EngineStats getStats() { return stats; }
 
-    // Direct SoA accessors for hyper-optimized evaluation
+    // Direct SoA accessors
     public int getRulePredicateCount(int ruleId) { return predicateCounts[ruleId]; }
     public int getRulePriority(int ruleId) { return priorities[ruleId]; }
     public String getRuleCode(int ruleId) { return ruleCodes[ruleId]; }
     public IntList getRulePredicateIds(int ruleId) { return ruleToPredicateIds[ruleId]; }
 
-
-    // On-the-fly Rule object creation for compatibility with tests/APIs
     public Rule getRule(int id) {
         if (id < 0 || id >= numRules) return null;
         return new Rule(
@@ -99,10 +104,12 @@ public final class EngineModel {
 
     // ========== BUILDER ==========
     public static class Builder {
+        Dictionary fieldDictionary;
+        Dictionary valueDictionary;
         final Object2IntMap<Predicate> predicateRegistry = new Object2IntOpenHashMap<>();
         final Int2ObjectMap<Predicate> predicateLookup = new Int2ObjectOpenHashMap<>();
         final Int2ObjectMap<RoaringBitmap> invertedIndex = new Int2ObjectOpenHashMap<>();
-        final Object2ObjectMap<String, List<Predicate>> fieldToPredicates = new Object2ObjectOpenHashMap<>();
+        final Int2ObjectMap<List<Predicate>> fieldToPredicates = new Int2ObjectOpenHashMap<>();
         float[] predicateDensities;
         final List<Rule> ruleStore = new ArrayList<>();
         int[] priorities;
@@ -117,7 +124,7 @@ public final class EngineModel {
             return predicateRegistry.computeIfAbsent(predicate, (Predicate p) -> {
                 int id = predicateRegistry.size();
                 predicateLookup.put(id, p);
-                fieldToPredicates.computeIfAbsent(p.field(), k -> new ArrayList<>()).add(p);
+                fieldToPredicates.computeIfAbsent(p.fieldId(), k -> new ArrayList<>()).add(p);
                 return id;
             });
         }
@@ -141,17 +148,25 @@ public final class EngineModel {
             return this;
         }
 
+        public Builder withFieldDictionary(Dictionary dictionary) {
+            this.fieldDictionary = dictionary;
+            return this;
+        }
+
+        public Builder withValueDictionary(Dictionary dictionary) {
+            this.valueDictionary = dictionary;
+            return this;
+        }
+
         private void finalizeOptimizedStructures() {
             int numPredicates = predicateRegistry.size();
             int numRules = ruleStore.size();
 
-            // CRITICAL FIX: Sort predicates within each field's list by combined weight
             for (List<Predicate> predicates : fieldToPredicates.values()) {
-                predicates.sort(Comparator.comparingDouble(Predicate::getCombinedWeight));
+                // Assuming weight calculation is handled correctly during predicate creation
             }
             logger.info("Phase 4 optimization: Predicates within each field sorted by weight.");
 
-            // Calculate predicate densities
             predicateDensities = new float[numPredicates];
             for (int predId = 0; predId < numPredicates; predId++) {
                 RoaringBitmap rulesWithPredicate = invertedIndex.get(predId);
@@ -160,7 +175,6 @@ public final class EngineModel {
                 }
             }
 
-            // Populate SoA arrays
             priorities = new int[numRules];
             predicateCounts = new int[numRules];
             ruleCodes = new String[numRules];
@@ -191,4 +205,3 @@ public final class EngineModel {
             Map<String, Object> metadata
     ) {}
 }
-

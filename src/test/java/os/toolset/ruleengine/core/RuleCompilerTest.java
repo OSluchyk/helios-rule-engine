@@ -87,7 +87,10 @@ class RuleCompilerTest {
         assertThat(model.getRulesByCode("COMPLEX_EXPANSION")).hasSize(4);
 
         // Check that all rules have the same static predicate
-        int staticPredicateId = model.getPredicateId(new os.toolset.ruleengine.model.Predicate("STATUS", Predicate.Operator.EQUAL_TO, "ACTIVE"));
+        int fieldId = model.getFieldDictionary().getId("STATUS");
+        int valueId = model.getValueDictionary().getId("ACTIVE");
+        int staticPredicateId = model.getPredicateId(new Predicate(fieldId, Predicate.Operator.EQUAL_TO, valueId));
+
 
         // After the fix, this lookup should succeed
         assertThat(staticPredicateId).isNotEqualTo(-1);
@@ -134,8 +137,12 @@ class RuleCompilerTest {
         assertThat(model.getPredicateRegistry()).hasSize(6);
 
         // Verify that the predicate IDs for "CA" and "TX" are reused.
-        int caPredicateId = model.getPredicateId(new Predicate("STATE", Predicate.Operator.EQUAL_TO, "CA"));
-        int txPredicateId = model.getPredicateId(new Predicate("STATE", Predicate.Operator.EQUAL_TO, "TX"));
+        int fieldId = model.getFieldDictionary().getId("STATE");
+        int caValueId = model.getValueDictionary().getId("CA");
+        int txValueId = model.getValueDictionary().getId("TX");
+
+        int caPredicateId = model.getPredicateId(new Predicate(fieldId, Predicate.Operator.EQUAL_TO, caValueId));
+        int txPredicateId = model.getPredicateId(new Predicate(fieldId, Predicate.Operator.EQUAL_TO, txValueId));
 
         // After the fix, these lookups should succeed
         assertThat(caPredicateId).isNotEqualTo(-1);
@@ -144,11 +151,13 @@ class RuleCompilerTest {
         // Find all predicate IDs for the first logical rule
         List<List<Integer>> rule1PredicateIdSets = model.getRulesByCode("US_CUSTOMERS").stream()
                 .map(Rule::getPredicateIds)
+                .map(ArrayList::new) // Convert to standard list for assertion
                 .collect(Collectors.toList());
 
         // Find all predicate IDs for the second logical rule
         List<List<Integer>> rule2PredicateIdSets = model.getRulesByCode("ALL_CUSTOMERS").stream()
                 .map(Rule::getPredicateIds)
+                .map(ArrayList::new) // Convert to standard list for assertion
                 .collect(Collectors.toList());
 
         // Assert that the shared predicate IDs appear in both sets of expanded rules
@@ -221,11 +230,15 @@ class RuleCompilerTest {
         assertThat(rule.getPredicateCount()).isEqualTo(1);
 
         // The predicate should be a simple EQUAL_TO predicate
-        int predicateId = rule.getPredicateIds().get(0);
-        os.toolset.ruleengine.model.Predicate p = model.getPredicate(predicateId);
-        assertThat(p.field()).isEqualTo("STATUS");
+        int predicateId = rule.getPredicateIds().getInt(0);
+        Predicate p = model.getPredicate(predicateId);
+
+        int fieldId = model.getFieldDictionary().getId("STATUS");
+        int valueId = model.getValueDictionary().getId("ACTIVE");
+
+        assertThat(p.fieldId()).isEqualTo(fieldId);
         assertThat(p.operator()).isEqualTo(Predicate.Operator.EQUAL_TO);
-        assertThat(p.value()).isEqualTo("ACTIVE");
+        assertThat(p.value()).isEqualTo(valueId);
     }
 
     @Test
@@ -252,4 +265,3 @@ class RuleCompilerTest {
         assertThat(model.getRulesByCode("DISABLED_RULE")).isNull();
     }
 }
-
