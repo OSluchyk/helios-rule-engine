@@ -159,18 +159,17 @@ public class HttpServer {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             if ("GET".equals(exchange.getRequestMethod())) {
-                // Use the new efficient SoA accessors
-                int numRules = model.getNumRules();
+                // Use the new efficient SoA accessors for combinations
+                int numCombinations = model.getNumRules();
                 Map<String, Object> summary = Map.of(
-                        "total_internal_rules", numRules,
+                        "total_unique_combinations", numCombinations,
                         "total_predicates", model.getPredicateRegistry().size(),
-                        "rules", IntStream.range(0, numRules)
-                                .mapToObj(model::getRule) // construct Rule on-the-fly
-                                .map(rule -> Map.of(
-                                        "id", rule.getId(),
-                                        "code", rule.getRuleCode(),
-                                        "predicate_count", rule.getPredicateCount(),
-                                        "priority", rule.getPriority()
+                        "combinations", IntStream.range(0, numCombinations)
+                                .mapToObj(i -> Map.of(
+                                        "id", i,
+                                        "code", model.getCombinationRuleCode(i),
+                                        "predicate_count", model.getCombinationPredicateCount(i),
+                                        "priority", model.getCombinationPriority(i)
                                 ))
                                 .toList()
                 );

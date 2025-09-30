@@ -3,6 +3,7 @@ package os.toolset.ruleengine.core;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.type.TypeFactory;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
 import os.toolset.ruleengine.model.Predicate;
 import os.toolset.ruleengine.model.Rule;
 import os.toolset.ruleengine.model.RuleDefinition;
@@ -17,8 +18,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * Phase 4: Enhanced rule compiler with selectivity profiling, weight calculation,
- * and Dictionary Encoding.
+ * Phase 4: Enhanced rule compiler with Post-Expansion Deduplication.
  */
 public class RuleCompiler {
     private static final Logger logger = Logger.getLogger(RuleCompiler.class.getName());
@@ -26,15 +26,11 @@ public class RuleCompiler {
 
     public EngineModel compile(Path rulesPath) throws IOException, CompilationException {
         long startTime = System.nanoTime();
-        logger.info("Starting Phase 4 rule compilation from: " + rulesPath);
+        logger.info("Starting rule compilation with deduplication from: " + rulesPath);
 
         List<RuleDefinition> definitions = loadRules(rulesPath);
-        logger.info("Loaded " + definitions.size() + " rule definitions");
-
         List<RuleDefinition> validRules = validateAndCanonize(definitions);
-        logger.info("Validated " + validRules.size() + " rules are valid and enabled");
 
-        // Dictionary Encoding
         Dictionary fieldDictionary = new Dictionary();
         Dictionary valueDictionary = new Dictionary();
         buildDictionaries(validRules, fieldDictionary, valueDictionary);
@@ -42,27 +38,25 @@ public class RuleCompiler {
                 fieldDictionary.size(), valueDictionary.size()));
 
         SelectivityProfile profile = profileSelectivity(validRules, fieldDictionary, valueDictionary);
-        logger.info("Selectivity profiling complete: " + profile.getSummary());
 
-        EngineModel.Builder builder = buildCoreModel(validRules, profile, fieldDictionary, valueDictionary);
+        EngineModel.Builder builder = buildCoreModelWithDeduplication(validRules, profile, fieldDictionary, valueDictionary);
 
         long compilationTime = System.nanoTime() - startTime;
-        logger.info(String.format("Phase 4 Compilation completed in %.2f ms",
-                compilationTime / 1_000_000.0));
+        logger.info(String.format("Compilation completed in %.2f ms", compilationTime / 1_000_000.0));
 
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("avgPredicatesPerLogicalRule",
-                validRules.stream()
-                        .mapToInt(def -> def.conditions().size())
-                        .average()
-                        .orElse(0));
-        metadata.put("expansionFactor",
-                validRules.isEmpty() ? 0 : (double) builder.ruleStore.size() / validRules.size());
-        metadata.put("avgSelectivity", profile.getAverageSelectivity());
-        metadata.put("uniqueFieldCount", profile.getUniqueFieldCount());
+        int logicalRuleCount = validRules.size();
+        int totalExpandedCombinations = builder.getTotalExpandedCombinations();
+        int uniqueCombinations = builder.getUniqueCombinationCount();
+        double deduplicationRate = totalExpandedCombinations > 0 ? (1.0 - (double) uniqueCombinations / totalExpandedCombinations) * 100 : 0;
+
+        metadata.put("logicalRules", logicalRuleCount);
+        metadata.put("totalExpandedCombinations", totalExpandedCombinations);
+        metadata.put("uniqueCombinations", uniqueCombinations);
+        metadata.put("deduplicationRatePercent", String.format("%.2f", deduplicationRate));
 
         EngineModel.EngineStats stats = new EngineModel.EngineStats(
-                builder.ruleStore.size(),
+                uniqueCombinations, // The number of "rules" is now the number of unique predicate sets
                 builder.getPredicateCount(),
                 compilationTime,
                 metadata
@@ -73,12 +67,115 @@ public class RuleCompiler {
                 .withValueDictionary(valueDictionary)
                 .build();
 
-        logger.info(String.format("Final Model: %d internal rules, %d unique predicates, avg selectivity: %.3f",
-                model.getNumRules(),
-                model.getPredicateRegistry().size(),
-                profile.getAverageSelectivity()));
+        logger.info(String.format("Final Model: %d unique predicate combinations (from %d total expanded), %d unique predicates. Deduplication saved %.2f%%.",
+                model.getNumRules(), totalExpandedCombinations, model.getPredicateRegistry().size(), deduplicationRate));
 
         return model;
+    }
+
+    private EngineModel.Builder buildCoreModelWithDeduplication(List<RuleDefinition> definitions,
+                                                                SelectivityProfile profile,
+                                                                Dictionary fieldDictionary,
+                                                                Dictionary valueDictionary) {
+        EngineModel.Builder builder = new EngineModel.Builder();
+
+        for (RuleDefinition def : definitions) {
+            // Step 1: Generate all predicate combinations for the logical rule
+            List<List<Predicate>> combinations = generatePredicateCombinations(def, profile, fieldDictionary, valueDictionary);
+            if (combinations.isEmpty()) continue;
+
+            // Step 2: For each combination, register it and get a unique ID
+            for (List<Predicate> combination : combinations) {
+                // Get a list of predicate IDs for the current combination
+                List<Integer> predicateIds = combination.stream()
+                        .map(builder::registerPredicate)
+                        .collect(Collectors.toList());
+
+                // Create a canonical, sorted list for deduplication
+                IntList canonicalKey = new IntArrayList(predicateIds);
+                canonicalKey.sort(null);
+
+                // Register the unique combination and get its ID
+                int combinationId = builder.registerCombination(canonicalKey);
+
+                // Map the logical rule properties to this unique combination ID
+                builder.addLogicalRuleMapping(def.ruleCode(), def.priority(), def.description(), combinationId);
+            }
+        }
+        return builder;
+    }
+
+    private List<List<Predicate>> generatePredicateCombinations(RuleDefinition def,
+                                                                SelectivityProfile profile,
+                                                                Dictionary fieldDictionary,
+                                                                Dictionary valueDictionary) {
+        List<Predicate> staticPredicates = new ArrayList<>();
+        List<List<Predicate>> expandablePredicates = new ArrayList<>();
+
+        for (RuleDefinition.Condition cond : def.conditions()) {
+            int fieldId = fieldDictionary.getId(cond.field().toUpperCase().replace('-', '_'));
+            Predicate.Operator operator = Predicate.Operator.fromString(cond.operator());
+            float selectivity = profile.calculateSelectivity(fieldId, operator, cond.value());
+            float weight = 1.0f - selectivity;
+
+            if (operator == Predicate.Operator.IS_ANY_OF) {
+                List<?> values = (List<?>) cond.value();
+                if (values.size() == 1) { // Strength Reduction
+                    int valueId = valueDictionary.getId(String.valueOf(values.get(0)));
+                    staticPredicates.add(new Predicate(fieldId, Predicate.Operator.EQUAL_TO, valueId, null, weight, selectivity));
+                } else {
+                    List<Predicate> variants = values.stream()
+                            .map(val -> new Predicate(fieldId, Predicate.Operator.EQUAL_TO, valueDictionary.getId(String.valueOf(val)), null, weight, selectivity))
+                            .collect(Collectors.toList());
+                    if (!variants.isEmpty()) {
+                        expandablePredicates.add(variants);
+                    }
+                }
+            } else if (operator == Predicate.Operator.EQUAL_TO) {
+                int valueId = valueDictionary.getId(String.valueOf(cond.value()));
+                staticPredicates.add(new Predicate(fieldId, operator, valueId, null, weight, selectivity));
+            } else { // Non-encodable operators
+                Pattern pattern = operator == Predicate.Operator.REGEX ? Pattern.compile((String) cond.value()) : null;
+                staticPredicates.add(new Predicate(fieldId, operator, cond.value(), pattern, weight, selectivity));
+            }
+        }
+
+        List<List<Predicate>> combinations = new ArrayList<>();
+        List<List<Predicate>> expandedParts = generateCombinations(expandablePredicates);
+
+        if (expandedParts.isEmpty()) {
+            if (!staticPredicates.isEmpty()) {
+                combinations.add(staticPredicates);
+            }
+        } else {
+            for (List<Predicate> expanded : expandedParts) {
+                List<Predicate> fullCombination = new ArrayList<>(staticPredicates);
+                fullCombination.addAll(expanded);
+                combinations.add(fullCombination);
+            }
+        }
+        return combinations;
+    }
+
+    // (Helper methods: loadRules, validateAndCanonize, buildDictionaries, profileSelectivity, generateCombinations remain the same)
+
+    private List<List<Predicate>> generateCombinations(List<List<Predicate>> lists) {
+        List<List<Predicate>> result = new ArrayList<>();
+        if (lists.isEmpty()) return result;
+        generateCombinationsRecursive(lists, 0, new ArrayList<>(), result);
+        return result;
+    }
+
+    private void generateCombinationsRecursive(List<List<Predicate>> lists, int index, List<Predicate> current, List<List<Predicate>> result) {
+        if (index == lists.size()) {
+            result.add(new ArrayList<>(current));
+            return;
+        }
+        for (Predicate p : lists.get(index)) {
+            current.add(p);
+            generateCombinationsRecursive(lists, index + 1, current, result);
+            current.remove(current.size() - 1);
+        }
     }
 
     private void buildDictionaries(List<RuleDefinition> definitions, Dictionary fieldDictionary, Dictionary valueDictionary) {
@@ -156,98 +253,6 @@ public class RuleCompiler {
             }
         }
         return new SelectivityProfile(fieldValues);
-    }
-
-    private EngineModel.Builder buildCoreModel(List<RuleDefinition> definitions,
-                                               SelectivityProfile profile,
-                                               Dictionary fieldDictionary,
-                                               Dictionary valueDictionary) {
-        EngineModel.Builder builder = new EngineModel.Builder();
-        AtomicInteger ruleIdGen = new AtomicInteger(0);
-
-        for (RuleDefinition def : definitions) {
-            List<Predicate> staticPredicates = new ArrayList<>();
-            List<List<Predicate>> expandablePredicates = new ArrayList<>();
-
-            for (RuleDefinition.Condition cond : def.conditions()) {
-                int fieldId = fieldDictionary.getId(cond.field().toUpperCase().replace('-', '_'));
-                Predicate.Operator operator = Predicate.Operator.fromString(cond.operator());
-                float selectivity = profile.calculateSelectivity(fieldId, operator, cond.value());
-                float weight = 1.0f - selectivity;
-
-                if (operator == Predicate.Operator.IS_ANY_OF) {
-                    List<?> values = (List<?>) cond.value();
-                    if (values.size() == 1) { // Strength Reduction
-                        int valueId = valueDictionary.getId(String.valueOf(values.get(0)));
-                        staticPredicates.add(new Predicate(fieldId, Predicate.Operator.EQUAL_TO, valueId, null, weight, selectivity));
-                    } else {
-                        List<Predicate> variants = values.stream()
-                                .map(val -> {
-                                    int valueId = valueDictionary.getId(String.valueOf(val));
-                                    return new Predicate(fieldId, Predicate.Operator.EQUAL_TO, valueId, null, weight, selectivity);
-                                })
-                                .collect(Collectors.toList());
-                        if (!variants.isEmpty()) {
-                            expandablePredicates.add(variants);
-                        }
-                    }
-                } else if (operator == Predicate.Operator.EQUAL_TO) {
-                    int valueId = valueDictionary.getId(String.valueOf(cond.value()));
-                    staticPredicates.add(new Predicate(fieldId, operator, valueId, null, weight, selectivity));
-                } else { // Non-encodable operators
-                    Pattern pattern = operator == Predicate.Operator.REGEX ? Pattern.compile((String) cond.value()) : null;
-                    staticPredicates.add(new Predicate(fieldId, operator, cond.value(), pattern, weight, selectivity));
-                }
-            }
-
-            List<List<Predicate>> combinations = generateCombinations(expandablePredicates);
-            if (combinations.isEmpty() && !staticPredicates.isEmpty()) {
-                combinations.add(new ArrayList<>());
-            }
-
-            if (combinations.size() > 1) {
-                logger.info("Expanding rule '" + def.ruleCode() + "' into " + combinations.size() + " internal rules.");
-            }
-
-            for (List<Predicate> combination : combinations) {
-                List<Predicate> allPredicates = new ArrayList<>(staticPredicates);
-                allPredicates.addAll(combination);
-
-                List<Integer> predicateIds = allPredicates.stream()
-                        .map(builder::registerPredicate)
-                        .collect(Collectors.toList());
-
-                Rule rule = new Rule(
-                        ruleIdGen.getAndIncrement(),
-                        def.ruleCode(),
-                        predicateIds.size(),
-                        new IntArrayList(predicateIds),
-                        def.priority(),
-                        def.description()
-                );
-                builder.addRule(rule);
-            }
-        }
-        return builder;
-    }
-
-    private List<List<Predicate>> generateCombinations(List<List<Predicate>> lists) {
-        List<List<Predicate>> result = new ArrayList<>();
-        if (lists.isEmpty()) return result;
-        generateCombinationsRecursive(lists, 0, new ArrayList<>(), result);
-        return result;
-    }
-
-    private void generateCombinationsRecursive(List<List<Predicate>> lists, int index, List<Predicate> current, List<List<Predicate>> result) {
-        if (index == lists.size()) {
-            result.add(new ArrayList<>(current));
-            return;
-        }
-        for (Predicate p : lists.get(index)) {
-            current.add(p);
-            generateCombinationsRecursive(lists, index + 1, current, result);
-            current.remove(current.size() - 1);
-        }
     }
 
     private static class SelectivityProfile {

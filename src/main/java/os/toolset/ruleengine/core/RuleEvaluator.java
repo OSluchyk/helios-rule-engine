@@ -18,7 +18,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * Phase 5: Rule evaluation engine adapted for Dictionary Encoding.
+ * Finalized Rule Evaluation Engine with integrated Base Condition Caching.
  */
 public class RuleEvaluator {
     private static final Logger logger = Logger.getLogger(RuleEvaluator.class.getName());
@@ -26,7 +26,10 @@ public class RuleEvaluator {
     private final EngineModel model;
     private final EvaluatorMetrics metrics;
     private final ThreadLocal<EvaluationContext> contextPool;
+
+    // Base condition caching components
     private final BaseConditionCache cache;
+    private final BaseConditionEvaluator baseEvaluator;
     private final boolean cacheEnabled;
 
     public RuleEvaluator(EngineModel model) {
@@ -39,6 +42,14 @@ public class RuleEvaluator {
         this.contextPool = ThreadLocal.withInitial(() -> new EvaluationContext(model.getNumRules()));
         this.cache = cache;
         this.cacheEnabled = enableCache && cache != null;
+
+        if (this.cacheEnabled) {
+            this.baseEvaluator = new BaseConditionEvaluator(model, cache);
+            logger.info("RuleEvaluator initialized with Base Condition Caching ENABLED.");
+        } else {
+            this.baseEvaluator = null;
+            logger.info("RuleEvaluator initialized with Base Condition Caching DISABLED.");
+        }
     }
 
     private static BaseConditionCache createDefaultCache() {
@@ -49,74 +60,137 @@ public class RuleEvaluator {
     }
 
     public MatchResult evaluate(Event event) {
+        if (cacheEnabled) {
+            try {
+                // Default path is now async with caching, blocking for the result.
+                return evaluateAsync(event).get();
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "Error during async evaluation, falling back to sync", e);
+                return evaluateSync(event); // Fallback to non-cached version on error
+            }
+        }
+        return evaluateSync(event);
+    }
+
+    public CompletableFuture<MatchResult> evaluateAsync(Event event) {
         long startTime = System.nanoTime();
         EvaluationContext ctx = contextPool.get();
         ctx.reset();
 
-        evaluatePredicates(event, ctx);
-        updateCounters(ctx);
+        return baseEvaluator.evaluateBaseConditions(event)
+                .thenApply(baseResult -> {
+                    ctx.predicatesEvaluated += baseResult.predicatesEvaluated;
+                    BitSet eligibleCombinations = baseResult.matchingRules;
+
+                    evaluateRemainingPredicates(event, ctx, eligibleCombinations);
+                    updateCountersFiltered(ctx, eligibleCombinations);
+
+                    List<MatchResult.MatchedRule> allMatches = detectMatchesSoA(ctx);
+                    List<MatchResult.MatchedRule> selectedMatches = selectMatches(allMatches);
+
+                    long evaluationTime = System.nanoTime() - startTime;
+                    metrics.recordEvaluation(evaluationTime, ctx.predicatesEvaluated, ctx.rulesEvaluated);
+
+                    return new MatchResult(
+                            event.getEventId(),
+                            selectedMatches,
+                            evaluationTime,
+                            ctx.predicatesEvaluated,
+                            ctx.rulesEvaluated
+                    );
+                });
+    }
+
+    private MatchResult evaluateSync(Event event) {
+        long startTime = System.nanoTime();
+        EvaluationContext ctx = contextPool.get();
+        ctx.reset();
+
+        evaluateAllPredicates(event, ctx);
+        updateAllCounters(ctx);
         List<MatchResult.MatchedRule> allMatches = detectMatchesSoA(ctx);
         List<MatchResult.MatchedRule> selectedMatches = selectMatches(allMatches);
 
         long evaluationTime = System.nanoTime() - startTime;
         metrics.recordEvaluation(evaluationTime, ctx.predicatesEvaluated, ctx.rulesEvaluated);
 
-        return new MatchResult(
-                event.getEventId(),
-                selectedMatches,
-                evaluationTime,
-                ctx.predicatesEvaluated,
-                ctx.rulesEvaluated
-        );
+        return new MatchResult(event.getEventId(), selectedMatches, evaluationTime, ctx.predicatesEvaluated, ctx.rulesEvaluated);
     }
 
-    private void evaluatePredicates(Event event, EvaluationContext ctx) {
+
+    private void evaluateRemainingPredicates(Event event, EvaluationContext ctx, BitSet eligibleCombinations) {
         Int2ObjectMap<Object> encodedEvent = event.getEncodedAttributes(model.getFieldDictionary(), model.getValueDictionary());
+        IntSet evaluatedPredicates = new IntOpenHashSet();
 
-        for (Int2ObjectMap.Entry<Object> entry : encodedEvent.int2ObjectEntrySet()) {
-            int fieldId = entry.getIntKey();
-            Object eventValue = entry.getValue();
-
-            List<Predicate> candidatePredicates = model.getFieldToPredicates().get(fieldId);
-            if (candidatePredicates != null) {
-                for (Predicate p : candidatePredicates) {
-                    ctx.predicatesEvaluated++;
-                    if (p.evaluate(eventValue)) {
-                        int predicateId = model.getPredicateId(p);
-                        if (predicateId != -1) {
-                            ctx.addTruePredicate(predicateId);
+        for (int combinationId = eligibleCombinations.nextSetBit(0); combinationId >= 0; combinationId = eligibleCombinations.nextSetBit(combinationId + 1)) {
+            IntList predicateIds = model.getCombinationPredicateIds(combinationId);
+            for (int predId : predicateIds) {
+                if (evaluatedPredicates.add(predId)) { // Evaluate each predicate only once
+                    Predicate p = model.getPredicate(predId);
+                    if (!baseEvaluator.isStaticPredicate(p)) {
+                        ctx.predicatesEvaluated++;
+                        if (p.evaluate(encodedEvent.get(p.fieldId()))) {
+                            ctx.addTruePredicate(predId);
                         }
+                    } else {
+                        // Base predicates are true if we're here, so just add them
+                        ctx.addTruePredicate(predId);
                     }
                 }
             }
         }
     }
 
-    private void updateCounters(EvaluationContext ctx) {
-        ctx.truePredicates.forEach((int predicateId) -> {
-            RoaringBitmap affectedRules = model.getInvertedIndex().get(predicateId);
-            if (affectedRules != null) {
-                IntIterator it = affectedRules.getIntIterator();
-                while (it.hasNext()) {
-                    ctx.incrementCounter(it.next());
+    private void evaluateAllPredicates(Event event, EvaluationContext ctx) {
+        Int2ObjectMap<Object> encodedEvent = event.getEncodedAttributes(model.getFieldDictionary(), model.getValueDictionary());
+        for (Int2ObjectMap.Entry<Object> entry : encodedEvent.int2ObjectEntrySet()) {
+            List<Predicate> candidates = model.getFieldToPredicates().get(entry.getIntKey());
+            if (candidates != null) {
+                for (Predicate p : candidates) {
+                    ctx.predicatesEvaluated++;
+                    if (p.evaluate(entry.getValue())) {
+                        int predicateId = model.getPredicateId(p);
+                        if (predicateId != -1) ctx.addTruePredicate(predicateId);
+                    }
                 }
+            }
+        }
+    }
+
+    private void updateCountersFiltered(EvaluationContext ctx, BitSet eligibleCombinations) {
+        ctx.truePredicates.forEach((int predicateId) -> {
+            RoaringBitmap affected = model.getInvertedIndex().get(predicateId);
+            if (affected != null) {
+                IntIterator it = affected.getIntIterator();
+                while (it.hasNext()) {
+                    int combinationId = it.next();
+                    if (eligibleCombinations.get(combinationId)) {
+                        ctx.incrementCounter(combinationId);
+                    }
+                }
+            }
+        });
+    }
+
+    private void updateAllCounters(EvaluationContext ctx) {
+        ctx.truePredicates.forEach((int predicateId) -> {
+            RoaringBitmap affected = model.getInvertedIndex().get(predicateId);
+            if (affected != null) {
+                affected.forEach((int combinationId) -> ctx.incrementCounter(combinationId));
             }
         });
     }
 
     private List<MatchResult.MatchedRule> detectMatchesSoA(EvaluationContext ctx) {
         List<MatchResult.MatchedRule> matches = new ArrayList<>();
-        int[] touchedArray = ctx.touchedRules.toIntArray();
-        Arrays.sort(touchedArray);
-
-        for (int ruleId : touchedArray) {
+        for (int combinationId : ctx.touchedRules) {
             ctx.rulesEvaluated++;
-            if (ctx.counters[ruleId] == model.getRulePredicateCount(ruleId)) {
+            if (ctx.counters[combinationId] == model.getCombinationPredicateCount(combinationId)) {
                 matches.add(new MatchResult.MatchedRule(
-                        ruleId,
-                        model.getRuleCode(ruleId),
-                        model.getRulePriority(ruleId),
-                        model.getRule(ruleId).getDescription()
+                        combinationId,
+                        model.getCombinationRuleCode(combinationId),
+                        model.getCombinationPriority(combinationId),
+                        ""
                 ));
             }
         }
@@ -124,23 +198,19 @@ public class RuleEvaluator {
     }
 
     private List<MatchResult.MatchedRule> selectMatches(List<MatchResult.MatchedRule> allMatches) {
-        if (allMatches.size() <= 1) {
-            return allMatches;
-        }
+        if (allMatches.size() <= 1) return allMatches;
         Map<String, MatchResult.MatchedRule> maxPriorityMatches = new HashMap<>();
         for (MatchResult.MatchedRule match : allMatches) {
-            maxPriorityMatches.merge(match.ruleCode(), match,
-                    (existing, newMatch) -> newMatch.priority() > existing.priority() ? newMatch : existing);
+            maxPriorityMatches.merge(match.ruleCode(), match, (e, n) -> n.priority() > e.priority() ? n : e);
         }
-        List<MatchResult.MatchedRule> selected = new ArrayList<>(maxPriorityMatches.values());
+        ArrayList<MatchResult.MatchedRule> selected = new ArrayList<>(maxPriorityMatches.values());
         selected.sort(Comparator.comparingInt(MatchResult.MatchedRule::priority).reversed());
         return selected;
     }
 
-    public EvaluatorMetrics getMetrics() {
-        return metrics;
-    }
+    public EvaluatorMetrics getMetrics() { return metrics; }
 
+    // (Context and Metrics inner classes remain the same)
     private static class EvaluationContext {
         final int[] counters;
         final IntArrayList truePredicates;
@@ -148,29 +218,24 @@ public class RuleEvaluator {
         int predicatesEvaluated;
         int rulesEvaluated;
 
-        EvaluationContext(int maxRules) {
-            this.counters = new int[maxRules];
+        EvaluationContext(int maxCombinations) {
+            this.counters = new int[maxCombinations];
             this.truePredicates = new IntArrayList();
             this.touchedRules = new IntOpenHashSet();
         }
 
         void reset() {
-            for (int ruleId : touchedRules) {
-                counters[ruleId] = 0;
-            }
+            for (int ruleId : touchedRules) counters[ruleId] = 0;
             truePredicates.clear();
             touchedRules.clear();
             predicatesEvaluated = 0;
             rulesEvaluated = 0;
         }
 
-        void addTruePredicate(int predicateId) {
-            truePredicates.add(predicateId);
-        }
-
-        void incrementCounter(int ruleId) {
-            counters[ruleId]++;
-            touchedRules.add(ruleId);
+        void addTruePredicate(int predicateId) { truePredicates.add(predicateId); }
+        void incrementCounter(int combinationId) {
+            counters[combinationId]++;
+            touchedRules.add(combinationId);
         }
     }
 
