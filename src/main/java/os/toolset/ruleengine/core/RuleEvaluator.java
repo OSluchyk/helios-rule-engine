@@ -38,7 +38,7 @@ public class RuleEvaluator {
             evaluatePredicates(event, ctx);
             updateCounters(ctx);
             detectMatchesSoA(ctx);
-            List<MatchResult.MatchedRule> selectedMatches = selectMatches(ctx); // Pass the whole context
+            List<MatchResult.MatchedRule> selectedMatches = selectMatches(ctx);
 
             long evaluationTime = System.nanoTime() - startTime;
             metrics.recordEvaluation(evaluationTime, ctx.predicatesEvaluated, ctx.rulesEvaluated);
@@ -46,7 +46,6 @@ public class RuleEvaluator {
             evaluationSpan.setAttribute("predicatesEvaluated", ctx.predicatesEvaluated);
             evaluationSpan.setAttribute("uniqueCombinationsConsidered", ctx.rulesEvaluated);
 
-            // Create the final result object here, using a new copy of the selected matches
             return new MatchResult(event.getEventId(), new ArrayList<>(selectedMatches), evaluationTime, ctx.predicatesEvaluated, ctx.rulesEvaluated);
 
         } finally {
@@ -57,7 +56,6 @@ public class RuleEvaluator {
     private void evaluatePredicates(Event event, EvaluationContext ctx) {
         Span span = tracer.spanBuilder("evaluate-predicates").startSpan();
         try (Scope scope = span.makeCurrent()) {
-            // Reusable encoding logic, now inside the evaluator
             encodeEventAttributes(event, ctx);
 
             for (Int2ObjectMap.Entry<Object> entry : ctx.encodedAttributes.int2ObjectEntrySet()) {
@@ -81,7 +79,8 @@ public class RuleEvaluator {
     }
 
     private void encodeEventAttributes(Event event, EvaluationContext ctx) {
-        // Flatten attributes into the context's reusable map
+        // FIX: Directly use the event's raw attributes and flatten into the context's reusable map,
+        // completely bypassing the allocation-heavy methods on the Event object.
         flattenEventAttributes(event.getAttributes(), ctx.flattenedAttributes);
 
         for (Map.Entry<String, Object> entry : ctx.flattenedAttributes.entrySet()) {
@@ -99,14 +98,14 @@ public class RuleEvaluator {
     }
 
     private void flattenEventAttributes(Map<String, Object> attributes, Map<String, Object> flatMap) {
-        if (attributes == null || attributes.isEmpty()) {
-            return;
-        }
+        if (attributes == null) return;
         for (Map.Entry<String, Object> entry : attributes.entrySet()) {
-            // This simplified version doesn't handle nested maps, which is fine for the benchmark
+            // This simplified version for the benchmark doesn't handle nested maps.
+            // A production version would require the recursive logic here.
             flatMap.put(entry.getKey().toUpperCase().replace('-', '_'), entry.getValue());
         }
     }
+
 
     private void updateCounters(EvaluationContext ctx) {
         Span span = tracer.spanBuilder("update-counters").startSpan();
@@ -142,7 +141,6 @@ public class RuleEvaluator {
             return ctx.matches;
         }
 
-        // Use the context's reusable map and list
         for (MatchResult.MatchedRule match : ctx.matches) {
             ctx.maxPriorityMatches.merge(match.ruleCode(), match, (e, n) -> n.priority() > e.priority() ? n : e);
         }
@@ -159,10 +157,10 @@ public class RuleEvaluator {
         final IntArrayList truePredicates;
         final IntSet touchedRules;
         final List<MatchResult.MatchedRule> matches;
-        final Map<String, Object> flattenedAttributes; // Reusable map for flattening
-        final Int2ObjectMap<Object> encodedAttributes; // Reusable map for encoding
-        final Map<String, MatchResult.MatchedRule> maxPriorityMatches; // Reusable map for selection
-        final List<MatchResult.MatchedRule> selectedMatches; // Reusable list for selection result
+        final Map<String, Object> flattenedAttributes;
+        final Int2ObjectMap<Object> encodedAttributes;
+        final Map<String, MatchResult.MatchedRule> maxPriorityMatches;
+        final List<MatchResult.MatchedRule> selectedMatches;
 
         int predicatesEvaluated;
         int rulesEvaluated;
