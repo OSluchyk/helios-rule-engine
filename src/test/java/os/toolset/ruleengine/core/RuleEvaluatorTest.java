@@ -63,7 +63,8 @@ class RuleEvaluatorTest {
 
         RuleCompiler compiler = new RuleCompiler(tracer);
         engineModel = compiler.compile(rulesPath);
-        ruleEvaluator = new RuleEvaluator(engineModel);
+        // **FIXED**: Use the new constructor to inject the test tracer
+        ruleEvaluator = new RuleEvaluator(engineModel, tracer);
     }
 
     @Test
@@ -153,7 +154,7 @@ class RuleEvaluatorTest {
 
         RuleCompiler compiler = new RuleCompiler(tracer);
         EngineModel priorityModel = compiler.compile(rulesPath);
-        RuleEvaluator priorityEvaluator = new RuleEvaluator(priorityModel);
+        RuleEvaluator priorityEvaluator = new RuleEvaluator(priorityModel, tracer);
 
         Event event = new Event("evt-4", "TRANSACTION", Map.of(
                 "transaction_amount", 6000,
@@ -166,7 +167,6 @@ class RuleEvaluatorTest {
         // Then
         assertNotNull(result);
         assertEquals(1, result.matchedRules().size());
-        // The highest priority rule should be the only one returned by the selectMatches logic
         assertEquals("HIGH_VALUE_USD_TRANSACTION", result.matchedRules().get(0).ruleCode());
     }
 
@@ -191,7 +191,6 @@ class RuleEvaluatorTest {
 
         // Check for attributes in the main span
         SpanData mainSpan = spans.stream().filter(s -> s.getName().equals("rule-evaluation")).findFirst().get();
-        // **FIXED**: Cast the attribute values to Long before comparison
         assertTrue((Long) mainSpan.getAttributes().asMap().get(AttributeKey.longKey("predicatesEvaluated")) > 0);
         assertTrue((Long) mainSpan.getAttributes().asMap().get(AttributeKey.longKey("uniqueCombinationsConsidered")) > 0);
     }

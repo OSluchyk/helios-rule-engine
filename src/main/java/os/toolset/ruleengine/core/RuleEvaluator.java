@@ -23,9 +23,14 @@ public class RuleEvaluator {
     private final VectorizedPredicateEvaluator vectorizedEvaluator;
 
     public RuleEvaluator(EngineModel model) {
+        this(model, TracingService.getInstance().getTracer());
+    }
+
+    // Constructor for testing purposes
+    public RuleEvaluator(EngineModel model, Tracer tracer) {
         this.model = Objects.requireNonNull(model);
         this.metrics = new EvaluatorMetrics();
-        this.tracer = TracingService.getInstance().getTracer();
+        this.tracer = tracer;
         this.contextPool = ThreadLocal.withInitial(() -> new OptimizedEvaluationContext(model.getNumRules()));
         this.vectorizedEvaluator = new VectorizedPredicateEvaluator(model);
     }
@@ -107,7 +112,6 @@ public class RuleEvaluator {
             return Collections.emptyList();
         }
 
-        // **FIXED LOGIC**: Find the single highest priority rule among all matches.
         return ctx.getMatchedRules().stream()
                 .max(Comparator.comparingInt(MatchResult.MatchedRule::priority))
                 .map(List::of)
