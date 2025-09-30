@@ -18,12 +18,19 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
+@BenchmarkMode(Mode.AverageTime)
+@OutputTimeUnit(TimeUnit.NANOSECONDS)
 @State(Scope.Benchmark)
-@BenchmarkMode(Mode.Throughput)
-@OutputTimeUnit(TimeUnit.SECONDS)
+@Fork(value = 2, jvmArgs = {
+        "-XX:+UnlockExperimentalVMOptions",
+        "-XX:+UseCompactObjectHeaders",
+        "-XX:+UseZGC",
+        "-XX:+ZGenerational",
+        "--add-modules=jdk.incubator.vector",
+        "-Djdk.incubator.vector.VECTOR_ACCESS_OOB_CHECK=0"
+})
 @Warmup(iterations = 5, time = 1)
-@Measurement(iterations = 500, time = 1)
-@Fork(1)
+@Measurement(iterations = 10, time = 1)
 public class HeliosJMHBenchmark {
 
     private RuleEvaluator evaluator;

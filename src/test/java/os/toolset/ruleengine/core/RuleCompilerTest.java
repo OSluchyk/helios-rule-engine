@@ -11,6 +11,7 @@ import os.toolset.ruleengine.model.Predicate;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -63,24 +64,31 @@ class RuleCompilerTest {
         Path rulesFile = writeRules(rulesJson);
         EngineModel model = compiler.compile(rulesFile);
 
-        assertThat(model.getNumRules()).isEqualTo(3);
+        // Corrected Assertions
         assertThat(model.getStats().metadata().get("totalExpandedCombinations")).isEqualTo(4);
         assertThat(model.getStats().metadata().get("uniqueCombinations")).isEqualTo(3);
+        assertThat(model.getNumRules()).isEqualTo(3);
+
 
         int statusFieldId = model.getFieldDictionary().getId("STATUS");
         int countryFieldId = model.getFieldDictionary().getId("COUNTRY");
         int activeValueId = model.getValueDictionary().getId("ACTIVE");
         int usValueId = model.getValueDictionary().getId("US");
 
-        int p1Id = model.getPredicateId(new Predicate(statusFieldId, Predicate.Operator.EQUAL_TO, activeValueId));
-        int p2Id = model.getPredicateId(new Predicate(countryFieldId, Predicate.Operator.EQUAL_TO, usValueId));
+        // Corrected Predicate constructor call
+        Predicate p1 = new Predicate(statusFieldId, Predicate.Operator.EQUAL_TO, activeValueId, null, 0.5f, 0.5f);
+        Predicate p2 = new Predicate(countryFieldId, Predicate.Operator.EQUAL_TO, usValueId, null, 0.5f, 0.5f);
+
+        int p1Id = model.getPredicateId(p1);
+        int p2Id = model.getPredicateId(p2);
 
         IntList sharedCombination = new IntArrayList(new int[]{p1Id, p2Id});
         sharedCombination.sort(null);
 
         boolean foundSharedCombination = false;
         for (int i = 0; i < model.getNumRules(); i++) {
-            IntList combinationPreds = model.getCombinationPredicateIds(i);
+            IntList combinationPreds = new IntArrayList(model.getCombinationPredicateIds(i));
+            combinationPreds.sort(null);
             if (combinationPreds.equals(sharedCombination)) {
                 foundSharedCombination = true;
                 break;

@@ -1,12 +1,12 @@
 package os.toolset.ruleengine.core;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.type.TypeFactory;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
+import os.toolset.ruleengine.core.optimization.SmartIsAnyOfFactorizer;
 import os.toolset.ruleengine.model.Predicate;
 import os.toolset.ruleengine.model.RuleDefinition;
 
@@ -39,18 +39,21 @@ public class RuleCompiler {
 
             List<RuleDefinition> validRules = validateAndCanonize(definitions);
 
+            // Apply Smart IS_ANY_OF Factoring
+            SmartIsAnyOfFactorizer factorizer = new SmartIsAnyOfFactorizer();
+            List<RuleDefinition> factoredRules = factorizer.factorize(validRules);
+
             Dictionary fieldDictionary = new Dictionary();
             Dictionary valueDictionary = new Dictionary();
-            buildDictionaries(validRules, fieldDictionary, valueDictionary);
+            buildDictionaries(factoredRules, fieldDictionary, valueDictionary);
 
-            SelectivityProfile profile = profileSelectivity(validRules, fieldDictionary, valueDictionary);
+            SelectivityProfile profile = profileSelectivity(factoredRules, fieldDictionary, valueDictionary);
 
-            EngineModel.Builder builder = buildCoreModelWithDeduplication(validRules, profile, fieldDictionary, valueDictionary);
+            EngineModel.Builder builder = buildCoreModelWithDeduplication(factoredRules, profile, fieldDictionary, valueDictionary);
 
             long compilationTime = System.nanoTime() - startTime;
             span.setAttribute("compilationTimeMs", TimeUnit.NANOSECONDS.toMillis(compilationTime));
 
-            // (The rest of the method remains the same)
             Map<String, Object> metadata = new HashMap<>();
             int logicalRuleCount = validRules.size();
             int totalExpandedCombinations = builder.getTotalExpandedCombinations();
@@ -64,7 +67,6 @@ public class RuleCompiler {
 
             span.setAttribute("uniqueCombinationCount", uniqueCombinations);
             span.setAttribute("deduplicationRate", String.format("%.2f%%", deduplicationRate));
-
 
             EngineModel.EngineStats stats = new EngineModel.EngineStats(
                     uniqueCombinations,
@@ -109,7 +111,6 @@ public class RuleCompiler {
         }
     }
 
-    // (Other methods remain unchanged)
     private EngineModel.Builder buildCoreModelWithDeduplication(List<RuleDefinition> definitions,
                                                                 SelectivityProfile profile,
                                                                 Dictionary fieldDictionary,

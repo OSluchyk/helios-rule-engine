@@ -1,78 +1,198 @@
 package os.toolset.ruleengine.core;
 
-import org.junit.jupiter.api.*;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
+import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.sdk.trace.data.SpanData;
+import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import os.toolset.ruleengine.core.RuleCompiler.CompilationException;
 import os.toolset.ruleengine.model.Event;
 import os.toolset.ruleengine.model.MatchResult;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.*;
 
 class RuleEvaluatorTest {
 
-    private EngineModel model;
-    private RuleEvaluator evaluator;
-    private static Path tempDir;
-
-    @BeforeAll
-    static void beforeAll() throws IOException {
-        tempDir = Files.createTempDirectory("rule_engine_test_eval");
-    }
-
-    @AfterAll
-    static void afterAll() throws IOException {
-        Files.walk(tempDir)
-                .sorted(java.util.Comparator.reverseOrder())
-                .map(Path::toFile)
-                .forEach(java.io.File::delete);
-    }
+    private EngineModel engineModel;
+    private RuleEvaluator ruleEvaluator;
+    private InMemorySpanExporter spanExporter;
+    private Tracer tracer;
 
     @BeforeEach
-    void setUp() throws Exception {
-        Path rulesFile = tempDir.resolve("rules.json");
-        Files.writeString(rulesFile, getTestRulesJson());
-        model = new RuleCompiler(TracingService.getInstance().getTracer()).compile(rulesFile);
-        evaluator = new RuleEvaluator(model);
+    void setUp() throws IOException, CompilationException {
+        // Setup OpenTelemetry for testing
+        spanExporter = InMemorySpanExporter.create();
+        SdkTracerProvider tracerProvider = SdkTracerProvider.builder()
+                .addSpanProcessor(SimpleSpanProcessor.create(spanExporter))
+                .build();
+        tracer = tracerProvider.get("test-tracer");
+
+        // Compile a sample set of rules
+        String rulesJson = """
+                [
+                  {
+                    "rule_code": "HIGH_VALUE_TRANSACTION",
+                    "priority": 100,
+                    "description": "Flags transactions over 10000 in specific countries",
+                    "conditions": [
+                      { "field": "transaction_amount", "operator": "GREATER_THAN", "value": 10000 },
+                      { "field": "country_code", "operator": "IS_ANY_OF", "value": ["US", "CA", "GB"] }
+                    ]
+                  },
+                  {
+                    "rule_code": "NEW_USER_ALERT",
+                    "priority": 50,
+                    "description": "Flags activity from new users",
+                    "conditions": [
+                      { "field": "user_age_days", "operator": "LESS_THAN", "value": 2 }
+                    ]
+                  }
+                ]
+                """;
+        Path rulesPath = Files.createTempFile("test-rules", ".json");
+        Files.writeString(rulesPath, rulesJson);
+
+        RuleCompiler compiler = new RuleCompiler(tracer);
+        engineModel = compiler.compile(rulesPath);
+        ruleEvaluator = new RuleEvaluator(engineModel);
     }
 
     @Test
-    @DisplayName("Should select highest priority rule in a family")
-    void testPerFamilyMaxPrioritySelection() {
-        Event event = new Event("evt_family_a", "TEST", Map.of("region", "US", "tier", "PLATINUM"));
-        MatchResult result = evaluator.evaluate(event);
-        assertThat(result.matchedRules()).hasSize(1);
-        assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("FAMILY_A");
-        assertThat(result.matchedRules().get(0).priority()).isEqualTo(100);
+    void evaluate_shouldMatchHighValueTransaction() {
+        // Given
+        Event event = new Event("evt-1", "TRANSACTION", Map.of(
+                "transaction_amount", 20000,
+                "country_code", "US",
+                "user_age_days", 30
+        ));
+
+        // When
+        MatchResult result = ruleEvaluator.evaluate(event);
+
+        // Then
+        assertNotNull(result);
+        assertEquals(1, result.matchedRules().size());
+        MatchResult.MatchedRule matchedRule = result.matchedRules().get(0);
+        assertEquals("HIGH_VALUE_TRANSACTION", matchedRule.ruleCode());
+        assertEquals(100, matchedRule.priority());
+
+        // Verify metrics
+        Map<String, Object> metrics = ruleEvaluator.getMetrics().getSnapshot();
+        assertEquals(1L, metrics.get("totalEvaluations"));
+        assertTrue((long) metrics.get("avgLatencyMicros") > 0);
     }
 
     @Test
-    @DisplayName("Should correctly handle IS_ANY_OF expansion and selection")
-    void testIsAnyOfSelection() {
-        Event event = new Event("evt_isanyof", "TEST", Map.of("country", "FR"));
-        MatchResult result = evaluator.evaluate(event);
-        assertThat(result.matchedRules()).hasSize(1);
-        assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("EU_VAT_CHECK");
+    void evaluate_shouldMatchNewUserAlert() {
+        // Given
+        Event event = new Event("evt-2", "USER_ACTIVITY", Map.of(
+                "transaction_amount", 500,
+                "country_code", "DE",
+                "user_age_days", 1
+        ));
+
+        // When
+        MatchResult result = ruleEvaluator.evaluate(event);
+
+        // Then
+        assertNotNull(result);
+        assertEquals(1, result.matchedRules().size());
+        assertEquals("NEW_USER_ALERT", result.matchedRules().get(0).ruleCode());
     }
 
-    private String getTestRulesJson() {
-        return """
-        [
-          {
-            "rule_code": "FAMILY_A", "priority": 100,
-            "conditions": [{"field": "region", "operator": "EQUAL_TO", "value": "US"}, {"field": "tier", "operator": "EQUAL_TO", "value": "PLATINUM"}]
-          },
-          {
-            "rule_code": "FAMILY_A", "priority": 10,
-            "conditions": [{"field": "region", "operator": "EQUAL_TO", "value": "US"}]
-          },
-          {
-            "rule_code": "EU_VAT_CHECK", "priority": 90,
-            "conditions": [{"field": "country", "operator": "IS_ANY_OF", "value": ["DE", "FR", "ES"]}]
-          }
-        ]
-        """;
+    @Test
+    void evaluate_shouldNotMatchAnyRule() {
+        // Given
+        Event event = new Event("evt-3", "TRANSACTION", Map.of(
+                "transaction_amount", 5000,
+                "country_code", "FR",
+                "user_age_days", 10
+        ));
+
+        // When
+        MatchResult result = ruleEvaluator.evaluate(event);
+
+        // Then
+        assertNotNull(result);
+        assertTrue(result.matchedRules().isEmpty());
+    }
+
+    @Test
+    void evaluate_shouldReturnHighestPriorityMatch() throws IOException, CompilationException {
+        // Given a more complex ruleset where an event can match multiple rules
+        String rulesJson = """
+                [
+                  {
+                    "rule_code": "GENERIC_TRANSACTION",
+                    "priority": 10,
+                    "conditions": [
+                      { "field": "transaction_amount", "operator": "GREATER_THAN", "value": 100 }
+                    ]
+                  },
+                  {
+                    "rule_code": "HIGH_VALUE_USD_TRANSACTION",
+                    "priority": 200,
+                    "conditions": [
+                      { "field": "transaction_amount", "operator": "GREATER_THAN", "value": 5000 },
+                      { "field": "currency", "operator": "EQUAL_TO", "value": "USD" }
+                    ]
+                  }
+                ]
+                """;
+        Path rulesPath = Files.createTempFile("priority-rules", ".json");
+        Files.writeString(rulesPath, rulesJson);
+
+        RuleCompiler compiler = new RuleCompiler(tracer);
+        EngineModel priorityModel = compiler.compile(rulesPath);
+        RuleEvaluator priorityEvaluator = new RuleEvaluator(priorityModel);
+
+        Event event = new Event("evt-4", "TRANSACTION", Map.of(
+                "transaction_amount", 6000,
+                "currency", "USD"
+        ));
+
+        // When
+        MatchResult result = priorityEvaluator.evaluate(event);
+
+        // Then
+        assertNotNull(result);
+        assertEquals(1, result.matchedRules().size());
+        // The highest priority rule should be the only one returned by the selectMatches logic
+        assertEquals("HIGH_VALUE_USD_TRANSACTION", result.matchedRules().get(0).ruleCode());
+    }
+
+    @Test
+    void evaluate_shouldProduceTraces() {
+        // Given
+        Event event = new Event("evt-5", "TRANSACTION", Map.of("transaction_amount", 15000, "country_code", "CA"));
+
+        // When
+        ruleEvaluator.evaluate(event);
+
+        // Then
+        List<SpanData> spans = spanExporter.getFinishedSpanItems();
+        assertFalse(spans.isEmpty());
+
+        // Check for the parent evaluation span
+        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("rule-evaluation")));
+        // Check for child spans
+        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("evaluate-predicates")));
+        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("update-counters")));
+        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("detect-matches")));
+
+        // Check for attributes in the main span
+        SpanData mainSpan = spans.stream().filter(s -> s.getName().equals("rule-evaluation")).findFirst().get();
+        // **FIXED**: Cast the attribute values to Long before comparison
+        assertTrue((Long) mainSpan.getAttributes().asMap().get(AttributeKey.longKey("predicatesEvaluated")) > 0);
+        assertTrue((Long) mainSpan.getAttributes().asMap().get(AttributeKey.longKey("uniqueCombinationsConsidered")) > 0);
     }
 }

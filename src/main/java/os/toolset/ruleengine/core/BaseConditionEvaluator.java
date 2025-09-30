@@ -3,12 +3,10 @@ package os.toolset.ruleengine.core;
 import it.unimi.dsi.fastutil.ints.*;
 import org.roaringbitmap.RoaringBitmap;
 import os.toolset.ruleengine.core.cache.BaseConditionCache;
+import os.toolset.ruleengine.core.cache.FastCacheKeyGenerator;
 import os.toolset.ruleengine.model.Event;
 import os.toolset.ruleengine.model.Predicate;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -188,7 +186,6 @@ public class BaseConditionEvaluator {
                 });
     }
 
-    // FIX: Changed access from private to package-private (default)
     boolean isStaticPredicate(Predicate pred) {
         if (pred == null) return false;
         Set<String> dynamicFields = Set.of("TIMESTAMP", "RANDOM", "SESSION_ID", "REQUEST_ID", "CORRELATION_ID");
@@ -202,34 +199,14 @@ public class BaseConditionEvaluator {
     private boolean shouldEvaluateSet(BaseConditionSet set, Event event) { return true; }
 
     private String generateCacheKey(Event event, List<BaseConditionSet> sets) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            Int2ObjectMap<Object> attrs = event.getEncodedAttributes(model.getFieldDictionary(), model.getValueDictionary());
-            for (BaseConditionSet set : sets) {
-                for (int predId : set.staticPredicateIds) {
-                    Predicate pred = model.getPredicate(predId);
-                    Object value = attrs.get(pred.fieldId());
-                    if (value != null) {
-                        String fieldName = model.getFieldDictionary().decode(pred.fieldId());
-                        md.update(fieldName.getBytes(StandardCharsets.UTF_8));
-                        md.update((byte) 0);
-                        md.update(value.toString().getBytes(StandardCharsets.UTF_8));
-                        md.update((byte) 0);
-                    }
-                }
-            }
-            for (BaseConditionSet set : sets) {
-                md.update(set.signature.getBytes(StandardCharsets.UTF_8));
-            }
-            byte[] digest = md.digest();
-            StringBuilder sb = new StringBuilder(digest.length * 2);
-            for (byte b : digest) {
-                sb.append(String.format("%02x", b));
-            }
-            return "base:" + sb.substring(0, 16);
-        } catch (NoSuchAlgorithmException e) {
-            return "base:" + event.getEventId() + ":" + System.identityHashCode(sets);
+        Int2ObjectMap<Object> eventAttrs = event.getEncodedAttributes(model.getFieldDictionary(), model.getValueDictionary());
+        IntList allPredicateIds = new IntArrayList();
+        for (BaseConditionSet set : sets) {
+            allPredicateIds.addAll(set.staticPredicateIds);
         }
+        int[] predicateIdsArray = allPredicateIds.toIntArray();
+        Arrays.sort(predicateIdsArray);
+        return FastCacheKeyGenerator.generateKey(eventAttrs, predicateIdsArray, predicateIdsArray.length);
     }
 
     private String computePredicateSignature(IntList predicateIds) {
