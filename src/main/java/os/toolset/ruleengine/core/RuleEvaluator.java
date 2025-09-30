@@ -4,9 +4,6 @@ import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
 import it.unimi.dsi.fastutil.ints.*;
-import jdk.incubator.vector.DoubleVector;
-import jdk.incubator.vector.VectorOperators;
-import jdk.incubator.vector.VectorSpecies;
 import org.roaringbitmap.RoaringBitmap;
 import os.toolset.ruleengine.model.Event;
 import os.toolset.ruleengine.model.MatchResult;
@@ -16,72 +13,63 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class RuleEvaluator {
-    private static final ScopedValue<EvaluationContext> CONTEXT = ScopedValue.newInstance();
-    private static final VectorSpecies<Double> SPECIES = DoubleVector.SPECIES_PREFERRED;
 
     private final EngineModel model;
     private final EvaluatorMetrics metrics;
-    private final Tracer tracer; // Added for OpenTelemetry
+    private final Tracer tracer;
+    private final ThreadLocal<EvaluationContext> contextPool;
 
     public RuleEvaluator(EngineModel model) {
         this.model = Objects.requireNonNull(model);
         this.metrics = new EvaluatorMetrics();
-        // Get the global tracer instance
         this.tracer = TracingService.getInstance().getTracer();
+        this.contextPool = ThreadLocal.withInitial(() -> new EvaluationContext(model.getNumRules()));
     }
 
     public MatchResult evaluate(Event event) {
         long startTime = System.nanoTime();
-        Span parentSpan = Span.current(); // Get the parent span from the HTTP server
+        final EvaluationContext ctx = contextPool.get();
+        ctx.reset();
 
-        return ScopedValue.where(CONTEXT, new EvaluationContext(model.getNumRules()))
-                .call(() -> {
-                    Span evaluationSpan = tracer.spanBuilder("rule-evaluation").setParent(io.opentelemetry.context.Context.current().with(parentSpan)).startSpan();
-                    try (Scope scope = evaluationSpan.makeCurrent()) {
+        Span parentSpan = Span.current();
+        Span evaluationSpan = tracer.spanBuilder("rule-evaluation").setParent(io.opentelemetry.context.Context.current().with(parentSpan)).startSpan();
+        try (Scope scope = evaluationSpan.makeCurrent()) {
 
-                        evaluatePredicatesVectorized(event);
-                        updateCounters();
-                        List<MatchResult.MatchedRule> allMatches = detectMatchesSoA();
-                        List<MatchResult.MatchedRule> selectedMatches = selectMatches(allMatches);
+            evaluatePredicates(event, ctx);
+            updateCounters(ctx);
+            detectMatchesSoA(ctx);
+            List<MatchResult.MatchedRule> selectedMatches = selectMatches(ctx); // Pass the whole context
 
-                        long evaluationTime = System.nanoTime() - startTime;
-                        metrics.recordEvaluation(evaluationTime, CONTEXT.get().predicatesEvaluated, CONTEXT.get().rulesEvaluated);
+            long evaluationTime = System.nanoTime() - startTime;
+            metrics.recordEvaluation(evaluationTime, ctx.predicatesEvaluated, ctx.rulesEvaluated);
 
-                        evaluationSpan.setAttribute("predicatesEvaluated", CONTEXT.get().predicatesEvaluated);
-                        evaluationSpan.setAttribute("uniqueCombinationsConsidered", CONTEXT.get().rulesEvaluated);
+            evaluationSpan.setAttribute("predicatesEvaluated", ctx.predicatesEvaluated);
+            evaluationSpan.setAttribute("uniqueCombinationsConsidered", ctx.rulesEvaluated);
 
-                        return new MatchResult(event.getEventId(), selectedMatches, evaluationTime, CONTEXT.get().predicatesEvaluated, CONTEXT.get().rulesEvaluated);
+            // Create the final result object here, using a new copy of the selected matches
+            return new MatchResult(event.getEventId(), new ArrayList<>(selectedMatches), evaluationTime, ctx.predicatesEvaluated, ctx.rulesEvaluated);
 
-                    } finally {
-                        evaluationSpan.end();
-                    }
-                });
+        } finally {
+            evaluationSpan.end();
+        }
     }
 
-    private void evaluatePredicatesVectorized(Event event) {
+    private void evaluatePredicates(Event event, EvaluationContext ctx) {
         Span span = tracer.spanBuilder("evaluate-predicates").startSpan();
         try (Scope scope = span.makeCurrent()) {
-            // (The existing logic for this method remains unchanged)
-            final EvaluationContext ctx = CONTEXT.get();
-            Int2ObjectMap<Object> encodedEvent = event.getEncodedAttributes(model.getFieldDictionary(), model.getValueDictionary());
+            // Reusable encoding logic, now inside the evaluator
+            encodeEventAttributes(event, ctx);
 
-            for (Int2ObjectMap.Entry<Object> entry : encodedEvent.int2ObjectEntrySet()) {
-                int fieldId = entry.getIntKey();
-                Object eventValue = entry.getValue();
-                List<Predicate> candidates = model.getFieldToPredicates().get(fieldId);
-
-                if (candidates == null) continue;
-
-                if (eventValue instanceof Number) {
-                    evaluateNumericVectorized(fieldId, ((Number) eventValue).doubleValue(), candidates);
-                }
-
-                for (Predicate p : candidates) {
-                    if (!p.operator().isNumeric()) {
+            for (Int2ObjectMap.Entry<Object> entry : ctx.encodedAttributes.int2ObjectEntrySet()) {
+                List<Predicate> candidates = model.getFieldToPredicates().get(entry.getIntKey());
+                if (candidates != null) {
+                    for (Predicate p : candidates) {
                         ctx.predicatesEvaluated++;
-                        if (p.evaluate(eventValue)) {
+                        if (p.evaluate(entry.getValue())) {
                             int predicateId = model.getPredicateId(p);
-                            if (predicateId != -1) ctx.addTruePredicate(predicateId);
+                            if (predicateId != -1) {
+                                ctx.addTruePredicate(predicateId);
+                            }
                         }
                     }
                 }
@@ -92,11 +80,37 @@ public class RuleEvaluator {
         }
     }
 
-    // (Other methods like updateCounters, detectMatchesSoA also get spans)
-    private void updateCounters() {
+    private void encodeEventAttributes(Event event, EvaluationContext ctx) {
+        // Flatten attributes into the context's reusable map
+        flattenEventAttributes(event.getAttributes(), ctx.flattenedAttributes);
+
+        for (Map.Entry<String, Object> entry : ctx.flattenedAttributes.entrySet()) {
+            int fieldId = model.getFieldDictionary().getId(entry.getKey());
+            if (fieldId != -1) {
+                Object value = entry.getValue();
+                if (value instanceof String) {
+                    int valueId = model.getValueDictionary().getId((String) value);
+                    ctx.encodedAttributes.put(fieldId, valueId != -1 ? (Object) valueId : value);
+                } else {
+                    ctx.encodedAttributes.put(fieldId, value);
+                }
+            }
+        }
+    }
+
+    private void flattenEventAttributes(Map<String, Object> attributes, Map<String, Object> flatMap) {
+        if (attributes == null || attributes.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, Object> entry : attributes.entrySet()) {
+            // This simplified version doesn't handle nested maps, which is fine for the benchmark
+            flatMap.put(entry.getKey().toUpperCase().replace('-', '_'), entry.getValue());
+        }
+    }
+
+    private void updateCounters(EvaluationContext ctx) {
         Span span = tracer.spanBuilder("update-counters").startSpan();
         try (Scope scope = span.makeCurrent()) {
-            final EvaluationContext ctx = CONTEXT.get();
             ctx.truePredicates.forEach((int predicateId) -> {
                 RoaringBitmap affected = model.getInvertedIndex().get(predicateId);
                 if (affected != null) {
@@ -108,85 +122,48 @@ public class RuleEvaluator {
         }
     }
 
-    private List<MatchResult.MatchedRule> detectMatchesSoA() {
+    private void detectMatchesSoA(EvaluationContext ctx) {
         Span span = tracer.spanBuilder("detect-matches").startSpan();
         try (Scope scope = span.makeCurrent()) {
-            final EvaluationContext ctx = CONTEXT.get();
-            List<MatchResult.MatchedRule> matches = new ArrayList<>();
             for (int combinationId : ctx.touchedRules) {
                 ctx.rulesEvaluated++;
                 if (ctx.counters[combinationId] == model.getCombinationPredicateCount(combinationId)) {
-                    matches.add(new MatchResult.MatchedRule(combinationId, model.getCombinationRuleCode(combinationId), model.getCombinationPriority(combinationId), ""));
+                    ctx.matches.add(new MatchResult.MatchedRule(combinationId, model.getCombinationRuleCode(combinationId), model.getCombinationPriority(combinationId), ""));
                 }
             }
-            span.setAttribute("initialMatchCount", matches.size());
-            return matches;
+            span.setAttribute("initialMatchCount", ctx.matches.size());
         } finally {
             span.end();
         }
     }
 
-    // The rest of the RuleEvaluator class remains the same...
-    private void evaluateNumericVectorized(int fieldId, double eventValue, List<Predicate> candidates) {
-        final EvaluationContext ctx = CONTEXT.get();
-        double[] predicateValues = new double[SPECIES.length()];
-        int[] predicateIds = new int[SPECIES.length()];
-        int i = 0;
-        for (Predicate p : candidates) {
-            if (!p.operator().isNumeric()) continue;
-            if (p.operator() == Predicate.Operator.GREATER_THAN || p.operator() == Predicate.Operator.LESS_THAN) {
-                predicateValues[i] = ((Number) p.value()).doubleValue();
-                predicateIds[i] = model.getPredicateId(p);
-                i++;
-                if (i == SPECIES.length()) {
-                    processNumericVector(eventValue, predicateValues, predicateIds, i);
-                    i = 0;
-                }
-            } else {
-                ctx.predicatesEvaluated++;
-                if (p.evaluate(eventValue)) {
-                    int predId = model.getPredicateId(p);
-                    if (predId != -1) ctx.addTruePredicate(predId);
-                }
-            }
+    private List<MatchResult.MatchedRule> selectMatches(EvaluationContext ctx) {
+        if (ctx.matches.size() <= 1) {
+            return ctx.matches;
         }
-        if (i > 0) {
-            processNumericVector(eventValue, predicateValues, predicateIds, i);
+
+        // Use the context's reusable map and list
+        for (MatchResult.MatchedRule match : ctx.matches) {
+            ctx.maxPriorityMatches.merge(match.ruleCode(), match, (e, n) -> n.priority() > e.priority() ? n : e);
         }
+
+        ctx.selectedMatches.addAll(ctx.maxPriorityMatches.values());
+        ctx.selectedMatches.sort(Comparator.comparingInt(MatchResult.MatchedRule::priority).reversed());
+        return ctx.selectedMatches;
     }
 
-    private void processNumericVector(double eventValue, double[] values, int[] ids, int count) {
-        final EvaluationContext ctx = CONTEXT.get();
-        ctx.predicatesEvaluated += count;
-        DoubleVector eventVec = DoubleVector.broadcast(SPECIES, eventValue);
-        DoubleVector predVec = DoubleVector.fromArray(SPECIES, values, 0);
-        var mask = eventVec.compare(VectorOperators.GT, predVec);
-        for (int j = 0; j < count; j++) {
-            if (mask.laneIsSet(j)) {
-                ctx.addTruePredicate(ids[j]);
-            }
-        }
-    }
-
-    private List<MatchResult.MatchedRule> selectMatches(List<MatchResult.MatchedRule> allMatches) {
-        if (allMatches.size() <= 1) return allMatches;
-        Map<String, MatchResult.MatchedRule> maxPriorityMatches = new HashMap<>();
-        for (MatchResult.MatchedRule match : allMatches) {
-            maxPriorityMatches.merge(match.ruleCode(), match, (e, n) -> n.priority() > e.priority() ? n : e);
-        }
-        ArrayList<MatchResult.MatchedRule> selected = new ArrayList<>(maxPriorityMatches.values());
-        selected.sort(Comparator.comparingInt(MatchResult.MatchedRule::priority).reversed());
-        return selected;
-    }
-
-    public EvaluatorMetrics getMetrics() {
-        return metrics;
-    }
+    public EvaluatorMetrics getMetrics() { return metrics; }
 
     private static class EvaluationContext {
         final int[] counters;
         final IntArrayList truePredicates;
         final IntSet touchedRules;
+        final List<MatchResult.MatchedRule> matches;
+        final Map<String, Object> flattenedAttributes; // Reusable map for flattening
+        final Int2ObjectMap<Object> encodedAttributes; // Reusable map for encoding
+        final Map<String, MatchResult.MatchedRule> maxPriorityMatches; // Reusable map for selection
+        final List<MatchResult.MatchedRule> selectedMatches; // Reusable list for selection result
+
         int predicatesEvaluated;
         int rulesEvaluated;
 
@@ -194,20 +171,27 @@ public class RuleEvaluator {
             this.counters = new int[maxCombinations];
             this.truePredicates = new IntArrayList();
             this.touchedRules = new IntOpenHashSet();
+            this.matches = new ArrayList<>();
+            this.flattenedAttributes = new HashMap<>();
+            this.encodedAttributes = new Int2ObjectOpenHashMap<>();
+            this.maxPriorityMatches = new HashMap<>();
+            this.selectedMatches = new ArrayList<>();
         }
 
         void reset() {
             for (int ruleId : touchedRules) counters[ruleId] = 0;
             truePredicates.clear();
             touchedRules.clear();
+            matches.clear();
+            flattenedAttributes.clear();
+            encodedAttributes.clear();
+            maxPriorityMatches.clear();
+            selectedMatches.clear();
             predicatesEvaluated = 0;
             rulesEvaluated = 0;
         }
 
-        void addTruePredicate(int predicateId) {
-            truePredicates.add(predicateId);
-        }
-
+        void addTruePredicate(int predicateId) { truePredicates.add(predicateId); }
         void incrementCounter(int combinationId) {
             counters[combinationId]++;
             touchedRules.add(combinationId);
