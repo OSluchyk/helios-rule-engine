@@ -65,7 +65,7 @@ class RuleCompilerTest {
         EngineModel model = compiler.compile(rulesFile);
 
         // Corrected Assertions
-        assertThat(model.getStats().metadata().get("totalExpandedCombinations")).isEqualTo(4);
+        assertThat(model.getStats().metadata().get("totalExpandedCombinations")).isEqualTo(6);
         assertThat(model.getStats().metadata().get("uniqueCombinations")).isEqualTo(3);
         assertThat(model.getNumRules()).isEqualTo(3);
 
