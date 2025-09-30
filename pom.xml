@@ -23,6 +23,7 @@
         <fastutil.version>8.5.12</fastutil.version>
         <roaringbitmap.version>1.3.0</roaringbitmap.version>
         <jol.version>0.17</jol.version>
+        <opentelemetry.version>1.34.1</opentelemetry.version>
     </properties>
 
     <dependencies>
@@ -30,11 +31,6 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>${jackson.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-lang3</artifactId>
-            <version>3.19.0</version>
         </dependency>
         <dependency>
             <groupId>it.unimi.dsi</groupId>
@@ -52,6 +48,23 @@
             <version>3.24.3</version>
             <optional>true</optional>
         </dependency>
+
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+            <version>${opentelemetry.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk</artifactId>
+            <version>${opentelemetry.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-logging</artifactId>
+            <version>${opentelemetry.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -79,11 +92,7 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.12.1</version>
                 <configuration>
-                    <source>${maven.compiler.source}</source>
-                    <target>${maven.compiler.target}</target>
                     <compilerArgs>
-                        <arg>-Xlint:all</arg>
-                        <arg>-parameters</arg>
                         <arg>--add-modules=jdk.incubator.vector</arg>
                     </compilerArgs>
                 </configuration>
@@ -94,24 +103,8 @@
                 <version>3.2.5</version>
                 <configuration>
                     <argLine>
-                        --add-modules=jdk.incubator.vector
-                        -Djol.magicFieldOffset=true
-                        -XX:+UseZGC -Xms512m -Xmx2g
+                        --add-modules=jdk.incubator.vector -Djol.magicFieldOffset=true
                     </argLine>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <version>3.3.0</version>
-                <configuration>
-                    <archive>
-                        <manifest>
-                            <addClasspath>true</addClasspath>
-                            <mainClass>os.toolset.ruleengine.RuleEngineApplication</mainClass>
-                        </manifest>
-                    </archive>
-                    <finalName>rule-engine-${project.version}</finalName>
                 </configuration>
             </plugin>
             <plugin>
@@ -124,6 +117,14 @@
                         <goals>
                             <goal>shade</goal>
                         </goals>
+                        <configuration>
+                            <transformers>
+                                <transformer
+                                        implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>os.toolset.ruleengine.RuleEngineApplication</mainClass>
+                                </transformer>
+                            </transformers>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

@@ -35,7 +35,7 @@ class Phase4RuleEngineTest {
     void setUp() throws Exception {
         Path rulesFile = tempDir.resolve("phase4_rules.json");
         Files.writeString(rulesFile, getPhase4TestRulesJson());
-        model = new RuleCompiler().compile(rulesFile);
+        model = new RuleCompiler(TracingService.getInstance().getTracer()).compile(rulesFile);
         evaluator = new RuleEvaluator(model);
     }
 

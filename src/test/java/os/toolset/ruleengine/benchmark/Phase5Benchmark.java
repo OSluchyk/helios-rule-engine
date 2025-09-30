@@ -3,6 +3,7 @@ package os.toolset.ruleengine.benchmark;
 import os.toolset.ruleengine.core.EngineModel;
 import os.toolset.ruleengine.core.RuleCompiler;
 import os.toolset.ruleengine.core.RuleEvaluator;
+import os.toolset.ruleengine.core.TracingService;
 import os.toolset.ruleengine.model.Event;
 
 import java.io.IOException;
@@ -25,7 +26,7 @@ public class Phase5Benchmark {
 
     private void run() throws Exception {
         Path numericRules = createNumericHeavyRuleFile(1000);
-        RuleCompiler compiler = new RuleCompiler();
+        RuleCompiler compiler = new RuleCompiler(TracingService.getInstance().getTracer());
         EngineModel model = compiler.compile(numericRules);
 
         System.out.println("--- Model Stats ---");

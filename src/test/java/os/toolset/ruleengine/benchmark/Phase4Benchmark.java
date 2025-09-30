@@ -3,6 +3,7 @@ package os.toolset.ruleengine.benchmark;
 import os.toolset.ruleengine.core.EngineModel;
 import os.toolset.ruleengine.core.RuleCompiler;
 import os.toolset.ruleengine.core.RuleEvaluator;
+import os.toolset.ruleengine.core.TracingService;
 import os.toolset.ruleengine.model.Event;
 import os.toolset.ruleengine.model.MatchResult;
 
@@ -21,7 +22,7 @@ public class Phase4Benchmark {
 
     private void runBenchmark() throws Exception {
         Path largeRulesPath = createRuleFile("large", 10000);
-        RuleCompiler compiler = new RuleCompiler();
+        RuleCompiler compiler = new RuleCompiler(TracingService.getInstance().getTracer());
         EngineModel largeModel = compiler.compile(largeRulesPath);
         printModelStats("Large (10,000 logical rules)", largeModel);
         runSingleThreadedBenchmark("Large Model", largeModel);

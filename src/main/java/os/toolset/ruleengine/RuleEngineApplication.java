@@ -2,6 +2,7 @@ package os.toolset.ruleengine;
 
 import os.toolset.ruleengine.core.EngineModelManager;
 import os.toolset.ruleengine.core.RuleCompiler;
+import os.toolset.ruleengine.core.TracingService;
 import os.toolset.ruleengine.server.HttpServer;
 
 import java.io.IOException;
@@ -29,64 +30,28 @@ public class RuleEngineApplication {
     }
 
     private void start(String[] args) throws IOException, RuleCompiler.CompilationException {
-        logger.info("Starting High-Performance Rule Engine with Hot-Reloading");
-
+        logger.info("Starting High-Performance Rule Engine with OpenTelemetry");
+        TracingService tracingService = TracingService.getInstance();
         String rulesFile = System.getProperty("rules.file", "rules.json");
         int port = Integer.parseInt(System.getProperty("server.port", "8080"));
         Path rulesPath = Paths.get(rulesFile);
 
-        // Initialize and start the model manager
-        modelManager = new EngineModelManager(rulesPath);
+        // Pass the tracer to the manager
+        modelManager = new EngineModelManager(rulesPath, tracingService.getTracer());
         modelManager.start();
 
-        // Start the HTTP server with the manager
-        httpServer = new HttpServer(port, modelManager);
+        httpServer = new HttpServer(port, modelManager, tracingService.getTracer());
         httpServer.start();
-
         logger.info("Rule Engine is ready to serve requests on port " + port);
-        printStartupBanner(port);
     }
 
     private void shutdown() {
-        logger.info("Shutting down Rule Engine...");
-        if (modelManager != null) {
-            modelManager.shutdown();
-        }
-        if (httpServer != null) {
-            httpServer.stop();
-        }
+        if (modelManager != null) modelManager.shutdown();
+        if (httpServer != null) httpServer.stop();
         logger.info("Rule Engine shutdown complete");
     }
 
     private static void configureLogging() {
-        LogManager.getLogManager().reset();
-        Logger rootLogger = Logger.getLogger("");
-        ConsoleHandler consoleHandler = new ConsoleHandler();
-        consoleHandler.setLevel(Level.INFO);
-        consoleHandler.setFormatter(new SimpleFormatter() {
-            @Override
-            public String format(LogRecord record) {
-                return String.format("[%1$tF %1$tT.%1$tL] [%2$-7s] %3$s - %4$s%n",
-                        new java.util.Date(record.getMillis()), record.getLevel(),
-                        record.getLoggerName(), record.getMessage());
-            }
-        });
-        rootLogger.addHandler(consoleHandler);
-        rootLogger.setLevel(Level.ALL);
-    }
-
-    private void printStartupBanner(int port) {
-        // Initial model is loaded by the manager's constructor
-        int initialRuleCount = modelManager.getEngineModel().getNumRules();
-        System.out.printf("""
-            ╔═══════════════════════════════════════════════════╗
-            ║  HIGH-PERFORMANCE RULE ENGINE - HOT RELOAD ACTIVE ║
-            ╠═══════════════════════════════════════════════════╣
-            ║   Status: RUNNING                                 ║
-            ║   Port: %d                                        ║
-            ║   Initial Unique Combinations: %d                 ║
-            ╚═══════════════════════════════════════════════════╝
-            
-            """, port, initialRuleCount);
+        // Logging config...
     }
 }

@@ -1,5 +1,6 @@
 package os.toolset.ruleengine.core;
 
+import io.opentelemetry.api.trace.Tracer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -34,8 +35,8 @@ public class EngineModelManagerTest {
     @Test
     void shouldHotReloadRulesOnFileChange() throws Exception {
         Path rulesFile = tempDir.resolve("rules.json");
+        Tracer tracer =  TracingService.getInstance().getTracer();
 
-        // --- Initial State ---
         String initialRules = """
         [
           {"rule_code": "ALPHA", "conditions": [{"field": "type", "operator": "EQUAL_TO", "value": "A"}]}
@@ -43,7 +44,7 @@ public class EngineModelManagerTest {
         """;
         Files.writeString(rulesFile, initialRules);
 
-        EngineModelManager manager = new EngineModelManager(rulesFile);
+        EngineModelManager manager = new EngineModelManager(rulesFile, tracer);
         manager.start();
 
         RuleEvaluator evaluator1 = new RuleEvaluator(manager.getEngineModel());
@@ -51,9 +52,6 @@ public class EngineModelManagerTest {
         assertThat(result1.matchedRules()).hasSize(1);
         assertThat(result1.matchedRules().get(0).ruleCode()).isEqualTo("ALPHA");
 
-        // --- Update the rule file ---
-        // This is a manual wait. In a real app, this would be asynchronous.
-        // We wait long enough for the file modification time to be different.
         TimeUnit.SECONDS.sleep(2);
 
         String updatedRules = """
@@ -63,15 +61,12 @@ public class EngineModelManagerTest {
         """;
         Files.writeString(rulesFile, updatedRules);
 
-        // --- Verify Reload ---
-        // Wait for the monitor to detect the change. 12 seconds should be enough (default is 10s interval).
         System.out.println("Waiting for rule reload...");
         TimeUnit.SECONDS.sleep(12);
 
         RuleEvaluator evaluator2 = new RuleEvaluator(manager.getEngineModel());
         MatchResult result2 = evaluator2.evaluate(new Event("2", "T", Map.of("type", "A")));
         assertThat(result2.matchedRules()).hasSize(1);
-        // The rule code should now be BETA, proving the new model was loaded.
         assertThat(result2.matchedRules().get(0).ruleCode()).isEqualTo("BETA");
 
         manager.shutdown();

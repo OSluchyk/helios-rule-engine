@@ -21,7 +21,7 @@ class RuleCompilerTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        compiler = new RuleCompiler();
+        compiler = new RuleCompiler(TracingService.getInstance().getTracer());
         tempDir = Files.createTempDirectory("rule_engine_test");
     }
 

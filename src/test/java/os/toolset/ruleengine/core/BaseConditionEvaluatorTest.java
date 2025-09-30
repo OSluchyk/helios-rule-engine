@@ -39,7 +39,7 @@ public class BaseConditionEvaluatorTest {
     void setUp() throws Exception {
         Path rulesFile = tempDir.resolve("base_eval_rules.json");
         Files.writeString(rulesFile, getTestRulesJson());
-        model = new RuleCompiler().compile(rulesFile);
+        model = new RuleCompiler(TracingService.getInstance().getTracer()).compile(rulesFile);
         cache = new InMemoryBaseConditionCache.Builder().maxSize(100).build();
         baseEvaluator = new BaseConditionEvaluator(model, cache);
     }
@@ -86,30 +86,30 @@ public class BaseConditionEvaluatorTest {
 
     private String getTestRulesJson() {
         return """
-        [
-          {
-            "rule_code": "HIGH_VALUE_ACTIVE",
-            "conditions": [
-              {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"},
-              {"field": "amount", "operator": "GREATER_THAN", "value": 1000}
-            ]
-          },
-          {
-            "rule_code": "US_RENEWAL",
-            "conditions": [
-              {"field": "country", "operator": "EQUAL_TO", "value": "US"},
-              {"field": "type", "operator": "EQUAL_TO", "value": "RENEWAL"},
-              {"field": "amount", "operator": "LESS_THAN", "value": 50}
-            ]
-          },
-          {
-            "rule_code": "LOW_VALUE_ACTIVE",
-            "conditions": [
-              {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"},
-              {"field": "amount", "operator": "LESS_THAN", "value": 100}
-            ]
-          }
-        ]
-        """;
+                [
+                  {
+                    "rule_code": "HIGH_VALUE_ACTIVE",
+                    "conditions": [
+                      {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"},
+                      {"field": "amount", "operator": "GREATER_THAN", "value": 1000}
+                    ]
+                  },
+                  {
+                    "rule_code": "US_RENEWAL",
+                    "conditions": [
+                      {"field": "country", "operator": "EQUAL_TO", "value": "US"},
+                      {"field": "type", "operator": "EQUAL_TO", "value": "RENEWAL"},
+                      {"field": "amount", "operator": "LESS_THAN", "value": 50}
+                    ]
+                  },
+                  {
+                    "rule_code": "LOW_VALUE_ACTIVE",
+                    "conditions": [
+                      {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"},
+                      {"field": "amount", "operator": "LESS_THAN", "value": 100}
+                    ]
+                  }
+                ]
+                """;
     }
 }

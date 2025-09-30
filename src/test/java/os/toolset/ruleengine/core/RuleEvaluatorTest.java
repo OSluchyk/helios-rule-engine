@@ -34,7 +34,7 @@ class RuleEvaluatorTest {
     void setUp() throws Exception {
         Path rulesFile = tempDir.resolve("rules.json");
         Files.writeString(rulesFile, getTestRulesJson());
-        model = new RuleCompiler().compile(rulesFile);
+        model = new RuleCompiler(TracingService.getInstance().getTracer()).compile(rulesFile);
         evaluator = new RuleEvaluator(model);
     }
 
