@@ -35,6 +35,7 @@ public record Predicate(
 
     public Predicate {
         Objects.requireNonNull(field, "Field cannot be null");
+        field = field.toUpperCase().replace('-', '_');
         Objects.requireNonNull(operator, "Operator cannot be null");
         Objects.requireNonNull(value, "Value cannot be null");
 
@@ -169,4 +170,3 @@ public record Predicate(
         return String.format("%s %s %s (w=%.2f, s=%.2f)", field, operator, value, weight(), selectivity());
     }
 }
-

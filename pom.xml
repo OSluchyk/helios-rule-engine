@@ -50,6 +50,13 @@
             <version>${roaringbitmap.version}</version>
         </dependency>
 
+<!--        cache-->
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson</artifactId>
+            <version>3.24.3</version>
+            <optional>true</optional>
+        </dependency>
         <!-- Testing -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
