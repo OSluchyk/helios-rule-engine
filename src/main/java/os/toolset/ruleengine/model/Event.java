@@ -11,6 +11,7 @@ import java.util.Objects;
 
 /**
  * Represents an event to be evaluated, with support for dictionary encoding.
+ * This version is optimized to pre-compute and cache flattened and encoded attributes.
  */
 public final class Event {
     private final String eventId;
@@ -18,14 +19,20 @@ public final class Event {
     private final Map<String, Object> attributes;
     private final long timestamp;
 
-    private transient Map<String, Object> flattenedAttributesCache;
-    private transient Int2ObjectMap<Object> encodedAttributesCache;
+    private final Map<String, Object> flattenedAttributesCache;
+    // Cache is now volatile and will be initialized lazily and thread-safely.
+    private volatile Int2ObjectMap<Object> encodedAttributesCache;
 
     public Event(String eventId, String eventType, Map<String, Object> attributes) {
         this.eventId = Objects.requireNonNull(eventId);
         this.eventType = eventType;
         this.attributes = attributes != null ? new HashMap<>(attributes) : Collections.emptyMap();
         this.timestamp = System.currentTimeMillis();
+        this.flattenedAttributesCache = flattenMap(this.attributes);
+    }
+
+    public Event(String eventId, Map<String, Object> attributes) {
+        this(eventId, "DEFAULT_EVENT_TYPE", attributes);
     }
 
     public String getEventId() { return eventId; }
@@ -34,40 +41,41 @@ public final class Event {
     public long getTimestamp() { return timestamp; }
 
     public Map<String, Object> getFlattenedAttributes() {
-        if (flattenedAttributesCache == null) {
-            flattenedAttributesCache = flattenMap(attributes);
-        }
         return flattenedAttributesCache;
     }
 
     /**
-     * Returns a map of encoded field IDs to their values.
-     * This is the primary representation used by the RuleEvaluator.
-     *
-     * @param fieldDictionary The dictionary for encoding field names.
-     * @param valueDictionary The dictionary for encoding string values.
-     * @return A map where keys are integer field IDs.
+     * Returns a map of encoded field IDs to their values. This method is now
+     * thread-safe and ensures the encoding only happens once.
      */
     public Int2ObjectMap<Object> getEncodedAttributes(Dictionary fieldDictionary, Dictionary valueDictionary) {
-        if (encodedAttributesCache == null) {
-            Map<String, Object> flattened = getFlattenedAttributes();
-            encodedAttributesCache = new Int2ObjectOpenHashMap<>(flattened.size());
-            for (Map.Entry<String, Object> entry : flattened.entrySet()) {
-                int fieldId = fieldDictionary.getId(entry.getKey());
-                if (fieldId != -1) {
-                    Object value = entry.getValue();
-                    if (value instanceof String) {
-                        int valueId = valueDictionary.getId((String) value);
-                        // If the value is not in the dictionary, use the raw string for operators like CONTAINS/REGEX
-                        encodedAttributesCache.put(fieldId, valueId != -1 ? (Object) valueId : value);
-                    } else {
-                        encodedAttributesCache.put(fieldId, value);
+        // Use a local variable to reduce volatile reads (double-checked locking pattern)
+        Int2ObjectMap<Object> result = encodedAttributesCache;
+        if (result == null) {
+            synchronized (this) {
+                result = encodedAttributesCache;
+                if (result == null) {
+                    Map<String, Object> flattened = getFlattenedAttributes();
+                    final Int2ObjectOpenHashMap<Object> encoded = new Int2ObjectOpenHashMap<>(flattened.size());
+                    for (Map.Entry<String, Object> entry : flattened.entrySet()) {
+                        int fieldId = fieldDictionary.getId(entry.getKey());
+                        if (fieldId != -1) {
+                            Object value = entry.getValue();
+                            if (value instanceof String) {
+                                int valueId = valueDictionary.getId((String) value);
+                                encoded.put(fieldId, valueId != -1 ? (Object) valueId : value);
+                            } else {
+                                encoded.put(fieldId, value);
+                            }
+                        }
                     }
+                    encodedAttributesCache = result = encoded;
                 }
             }
         }
-        return encodedAttributesCache;
+        return result;
     }
+
 
     private Map<String, Object> flattenMap(Map<String, Object> map) {
         Map<String, Object> result = new HashMap<>();

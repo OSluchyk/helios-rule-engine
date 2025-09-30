@@ -63,7 +63,6 @@ class RuleEvaluatorTest {
 
         RuleCompiler compiler = new RuleCompiler(tracer);
         engineModel = compiler.compile(rulesPath);
-        // **FIXED**: Use the new constructor to inject the test tracer
         ruleEvaluator = new RuleEvaluator(engineModel, tracer);
     }
 

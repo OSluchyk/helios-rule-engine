@@ -12,7 +12,6 @@ import os.toolset.ruleengine.model.MatchResult;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.Collectors;
 
 public class RuleEvaluator {
 
@@ -26,7 +25,6 @@ public class RuleEvaluator {
         this(model, TracingService.getInstance().getTracer());
     }
 
-    // Constructor for testing purposes
     public RuleEvaluator(EngineModel model, Tracer tracer) {
         this.model = Objects.requireNonNull(model);
         this.metrics = new EvaluatorMetrics();
@@ -47,7 +45,8 @@ public class RuleEvaluator {
             evaluatePredicates(event, ctx);
             updateCounters(ctx);
             detectMatches(ctx);
-            List<MatchResult.MatchedRule> selectedMatches = selectMatches(ctx);
+
+            selectMatches(ctx);
 
             long evaluationTime = System.nanoTime() - startTime;
             metrics.recordEvaluation(evaluationTime, ctx.getPredicatesEvaluatedCount(), ctx.getRulesEvaluatedCount());
@@ -55,39 +54,10 @@ public class RuleEvaluator {
             evaluationSpan.setAttribute("predicatesEvaluated", ctx.getPredicatesEvaluatedCount());
             evaluationSpan.setAttribute("uniqueCombinationsConsidered", ctx.getRulesEvaluatedCount());
 
-            return new MatchResult(event.getEventId(), new ArrayList<>(selectedMatches), evaluationTime, ctx.getPredicatesEvaluatedCount(), ctx.getRulesEvaluatedCount());
+            return new MatchResult(event.getEventId(), new ArrayList<>(ctx.getMatchedRules()), evaluationTime, ctx.getPredicatesEvaluatedCount(), ctx.getRulesEvaluatedCount());
 
         } finally {
             evaluationSpan.end();
-        }
-    }
-
-    private void evaluatePredicates(Event event, OptimizedEvaluationContext ctx) {
-        Span span = tracer.spanBuilder("evaluate-predicates").startSpan();
-        try (Scope scope = span.makeCurrent()) {
-            vectorizedEvaluator.evaluate(event, ctx);
-            span.setAttribute("truePredicatesFound", ctx.getTruePredicates().size());
-        } finally {
-            span.end();
-        }
-    }
-
-    private void updateCounters(OptimizedEvaluationContext ctx) {
-        Span span = tracer.spanBuilder("update-counters").startSpan();
-        try (Scope scope = span.makeCurrent()) {
-            IntList truePredicates = ctx.getTruePredicates();
-            for (int i = 0; i < truePredicates.size(); i++) {
-                int predicateId = truePredicates.getInt(i);
-                RoaringBitmap affected = model.getInvertedIndex().get(predicateId);
-                if (affected != null) {
-                    IntIterator it = affected.getIntIterator();
-                    while (it.hasNext()) {
-                        ctx.incrementCounter(it.next());
-                    }
-                }
-            }
-        } finally {
-            span.end();
         }
     }
 
@@ -98,7 +68,14 @@ public class RuleEvaluator {
             touchedRules.forEach((int combinationId) -> {
                 ctx.incrementRulesEvaluatedCount();
                 if (ctx.getCounter(combinationId) == model.getCombinationPredicateCount(combinationId)) {
-                    ctx.addMatchedRule(new MatchResult.MatchedRule(combinationId, model.getCombinationRuleCode(combinationId), model.getCombinationPriority(combinationId), ""));
+                    // **OPTIMIZATION**: Rent object from pool instead of allocating
+                    MatchResult.MatchedRule rule = ctx.rentMatchedRule(
+                            combinationId,
+                            model.getCombinationRuleCode(combinationId),
+                            model.getCombinationPriority(combinationId),
+                            ""
+                    );
+                    ctx.addMatchedRule(rule);
                 }
             });
             span.setAttribute("initialMatchCount", ctx.getMatchedRules().size());
@@ -107,43 +84,48 @@ public class RuleEvaluator {
         }
     }
 
-    private List<MatchResult.MatchedRule> selectMatches(OptimizedEvaluationContext ctx) {
-        if (ctx.getMatchedRules().isEmpty()) {
-            return Collections.emptyList();
+    private void selectMatches(OptimizedEvaluationContext ctx) {
+        List<MatchResult.MatchedRule> matches = ctx.getMatchedRules();
+        if (matches.size() <= 1) {
+            return;
         }
 
-        return ctx.getMatchedRules().stream()
-                .max(Comparator.comparingInt(MatchResult.MatchedRule::priority))
-                .map(List::of)
-                .orElse(Collections.emptyList());
+        Map<String, MatchResult.MatchedRule> maxPriorityMatches = ctx.getWorkMap();
+        for (MatchResult.MatchedRule match : matches) {
+            maxPriorityMatches.merge(match.ruleCode(), match, (existing, replacement) ->
+                    replacement.priority() > existing.priority() ? replacement : existing
+            );
+        }
+
+        MatchResult.MatchedRule overallWinner = null;
+        for (MatchResult.MatchedRule rule : maxPriorityMatches.values()) {
+            if (overallWinner == null || rule.priority() > overallWinner.priority()) {
+                overallWinner = rule;
+            }
+        }
+
+        matches.clear();
+        if (overallWinner != null) {
+            matches.add(overallWinner);
+        }
     }
 
+    // No changes to other methods...
+    private void evaluatePredicates(Event event, OptimizedEvaluationContext ctx) {
+        Span span = tracer.spanBuilder("evaluate-predicates").startSpan();
+        try (Scope scope = span.makeCurrent()) { vectorizedEvaluator.evaluate(event, ctx); span.setAttribute("truePredicatesFound", ctx.getTruePredicates().size()); } finally { span.end(); }
+    }
+    private void updateCounters(OptimizedEvaluationContext ctx) {
+        Span span = tracer.spanBuilder("update-counters").startSpan();
+        try (Scope scope = span.makeCurrent()) { IntList truePredicates = ctx.getTruePredicates(); for (int i = 0; i < truePredicates.size(); i++) { int predicateId = truePredicates.getInt(i); RoaringBitmap affected = model.getInvertedIndex().get(predicateId); if (affected != null) { IntIterator it = affected.getIntIterator(); while (it.hasNext()) { ctx.incrementCounter(it.next()); } } } } finally { span.end(); }
+    }
     public EvaluatorMetrics getMetrics() { return metrics; }
-
-
     public static class EvaluatorMetrics {
         private final AtomicLong totalEvaluations = new AtomicLong();
         private final AtomicLong totalTimeNanos = new AtomicLong();
         private final AtomicLong totalPredicatesEvaluated = new AtomicLong();
         private final AtomicLong totalRulesEvaluated = new AtomicLong();
-
-        void recordEvaluation(long timeNanos, int predicatesEvaluated, int rulesEvaluated) {
-            totalEvaluations.incrementAndGet();
-            totalTimeNanos.addAndGet(timeNanos);
-            totalPredicatesEvaluated.addAndGet(predicatesEvaluated);
-            totalRulesEvaluated.addAndGet(rulesEvaluated);
-        }
-
-        public Map<String, Object> getSnapshot() {
-            Map<String, Object> snapshot = new LinkedHashMap<>();
-            long evals = totalEvaluations.get();
-            if (evals > 0) {
-                snapshot.put("totalEvaluations", evals);
-                snapshot.put("avgLatencyMicros", totalTimeNanos.get() / 1000 / evals);
-                snapshot.put("avgPredicatesPerEvent", totalPredicatesEvaluated.get() / evals);
-                snapshot.put("avgRulesConsideredPerEvent", totalRulesEvaluated.get() / evals);
-            }
-            return snapshot;
-        }
+        void recordEvaluation(long timeNanos, int predicatesEvaluated, int rulesEvaluated) { totalEvaluations.incrementAndGet(); totalTimeNanos.addAndGet(timeNanos); totalPredicatesEvaluated.addAndGet(predicatesEvaluated); totalRulesEvaluated.addAndGet(rulesEvaluated); }
+        public Map<String, Object> getSnapshot() { Map<String, Object> snapshot = new LinkedHashMap<>(); long evals = totalEvaluations.get(); if (evals > 0) { snapshot.put("totalEvaluations", evals); snapshot.put("avgLatencyMicros", totalTimeNanos.get() / 1000 / evals); snapshot.put("avgPredicatesPerEvent", totalPredicatesEvaluated.get() / evals); snapshot.put("avgRulesConsideredPerEvent", totalRulesEvaluated.get() / evals); } return snapshot; }
     }
 }
