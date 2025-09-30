@@ -1,0 +1,68 @@
+= Helios: A High-Performance Java Rule Engine (Technical Overview)
+:toc:
+:source-highlighter: rouge
+:icons: font
+
+---
+
+== 1. Core Philosophy
+
+Helios is a high-performance rule engine designed for production-scale workloads that exceed the capabilities of traditional engines. Its architecture is built on a fundamental principle: **perform the most computationally expensive work offline.**
+
+Instead of evaluating rules against events in a naive, brute-force manner, Helios uses a sophisticated, multi-stage compilation pipeline. This pipeline transforms human-readable rule definitions into a hyper-optimized, in-memory data model. The runtime engine is then able to find matching rules with minimal computation, achieving sub-millisecond latency even with massive rule sets.
+
+== 2. Key Architectural Features
+
+The engine's performance is derived from a set of core architectural decisions implemented during its phased development.
+
+=== 2.1. Compilation Pipeline & Deduplication
+
+The `RuleCompiler` is the heart of the offline optimization strategy.
+
+1.  **Dictionary Encoding (Phase 1):** All string-based field names and values are mapped to integer IDs. This provides significant memory compression and allows the runtime engine to perform much faster integer comparisons instead of string comparisons.
+2.  **DNF Expansion (Phase 3):** Logical rules containing `IS_ANY_OF` operators are expanded into a set of discrete, `AND`-only combinations (Disjunctive Normal Form).
+3.  **Post-Expansion & Cross-Family Deduplication:** This is the most critical optimization. After expansion, the compiler identifies and stores only the *unique* sets of predicate combinations. If multiple logical rules (or "families") produce identical combinations, they are stored only once. This is the key to achieving sub-linear memory growth and is regularly responsible for a **>90% reduction** in the number of internal rules.
+
+=== 2.2. Runtime Data Structures
+
+The `EngineModel` (the output of the compiler) is designed for extreme CPU cache efficiency.
+
+* **Structure of Arrays (SoA) Layout (Phase 4):** Instead of storing an array of `Rule` objects (Array of Structures), the model stores a set of parallel primitive arrays (`int[] priorities`, `int[] predicateCounts`, etc.). When the evaluator needs to check a property, it scans a tight, contiguous block of memory, which is ideal for the CPU's prefetcher and results in a massive reduction in cache misses.
+* **Inverted Index:** The model uses an inverted index (`Int2ObjectMap<RoaringBitmap>`) that maps a predicate ID to a bitmap of all the unique rule combinations that contain it. This allows the evaluator to instantly identify which combinations are affected by a given predicate.
+* **RoaringBitmap:** This data structure is used by default for the inverted index as it provides excellent performance across a wide range of data densities. The groundwork has been laid to support more specialized bitmap representations in the future if profiling proves it necessary.
+
+=== 2.3. Java 25 & Advanced Features (Phase 5)
+
+Helios is built on modern Java to leverage the latest performance improvements.
+
+* **Vector API:** Numeric predicates (like `GREATER_THAN`) are evaluated in batches using the `jdk.incubator.vector` module. This allows the engine to use SIMD instructions to perform multiple comparisons in a single CPU cycle.
+* **Scoped Values:** The per-thread `EvaluationContext` is managed using `ScopedValue` instead of `ThreadLocal`. This provides better performance, immutability, and safety, especially in virtual thread environments.
+* **Compact Object Headers:** The application is configured to run on a JVM with compact headers enabled, reducing the memory overhead of every object and improving cache density.
+
+=== 2.4. Production Readiness
+
+* **Hot Reloading:** A background thread monitors the rule definition file for changes. When a change is detected, a new `EngineModel` is compiled in the background. Once ready, the application atomically swaps to the new model, allowing for zero-downtime rule updates.
+* **Observability with OpenTelemetry:** The entire application is instrumented for distributed tracing. Spans are created for incoming HTTP requests, the hot-reload process, each stage of the compilation pipeline, and each step of the rule evaluation.
+
+== 3. Getting Started
+
+.Prerequisites
+* JDK 25+
+* Apache Maven 3.8+
+
+.Build & Run
+[source,bash]
+----
+# Compile, test, and package the application
+$ mvn clean package
+
+# Run the server
+$ java -jar target/rule-engine-1.0.0-MVP.jar
+----
+
+.IDE Configuration (for running tests)
+Because the project uses the incubator Vector API, you must add the following VM option to your IDE's JUnit run configuration:
+[source]
+----
+--add-modules=jdk.incubator.vector
+----
