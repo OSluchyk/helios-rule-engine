@@ -7,10 +7,8 @@ import os.toolset.ruleengine.model.MatchResult;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -50,7 +48,6 @@ class Phase4RuleEngineTest {
             assertThat(model.getCombinationRuleCode(i)).isNotNull();
             assertThat(model.getCombinationPriority(i)).isGreaterThanOrEqualTo(0);
             assertThat(model.getCombinationPredicateCount(i)).isGreaterThan(0);
-            // FIX: Cast to List<?> to resolve ambiguous assertThat call
             assertThat((List<?>) model.getCombinationPredicateIds(i)).isNotNull().isNotEmpty();
         }
     }
