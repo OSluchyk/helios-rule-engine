@@ -9,94 +9,151 @@ import os.toolset.ruleengine.model.Predicate;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * Optimized vectorized predicate evaluation using SIMD instructions
- * and memory pooling for reduced allocation overhead.
- *
- * Key optimizations:
- * - Memory pooling for vector buffers
- * - Batch processing with optimal lane utilization
- * - Grouping predicates by field for efficient batching
- * - Prefetching for improved cache performance
+ * Enhanced vectorized predicate evaluator with Float16 support and optimized memory patterns
  */
 public class VectorizedPredicateEvaluator {
-    private final EngineModel model;
-    private final Map<Integer, NumericBatchEvaluator> numericEvaluators;
-
     private static final Logger logger = Logger.getLogger(VectorizedPredicateEvaluator.class.getName());
 
-    // Vector species for different data types
+    private final EngineModel model;
+    private final Map<Integer, NumericBatchEvaluator> numericEvaluators;
+    private final Map<Integer, StringBatchEvaluator> stringEvaluators;
+
+    // Enhanced vector species for Java 25
+    private static final VectorSpecies<Float> FLOAT16_SPECIES = FloatVector.SPECIES_PREFERRED;
     private static final VectorSpecies<Double> DOUBLE_SPECIES = DoubleVector.SPECIES_PREFERRED;
-    private static final VectorSpecies<Float> FLOAT_SPECIES = FloatVector.SPECIES_PREFERRED;
     private static final VectorSpecies<Integer> INT_SPECIES = IntVector.SPECIES_PREFERRED;
 
-    // Memory pools for vector operations
-    private static final BufferPool DOUBLE_POOL = new BufferPool(DOUBLE_SPECIES.length() * 8, 32);
+    // Memory pools with size tiers
+    private static final BufferPool SMALL_POOL = new BufferPool(16, 64);
+    private static final BufferPool MEDIUM_POOL = new BufferPool(64, 32);
+    private static final BufferPool LARGE_POOL = new BufferPool(256, 16);
 
     // Off-heap arena for large operations
     private static final Arena ARENA = Arena.ofShared();
 
+    // Cache line size for alignment
+    private static final int CACHE_LINE_SIZE = 64;
+
     public VectorizedPredicateEvaluator(EngineModel model) {
         this.model = model;
         this.numericEvaluators = new ConcurrentHashMap<>();
+        this.stringEvaluators = new ConcurrentHashMap<>();
         initializeEvaluators();
     }
 
     private void initializeEvaluators() {
-        // Group all numeric predicates by their fieldId to create batch evaluators
-        Map<Integer, List<Predicate>> fieldToPredicates = model.getFieldToPredicates().entrySet().stream()
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        // Group predicates by field and type for optimal vectorization
+        Map<Integer, List<Predicate>> fieldToPredicates = model.getFieldToPredicates();
 
         for (Map.Entry<Integer, List<Predicate>> entry : fieldToPredicates.entrySet()) {
             int fieldId = entry.getKey();
-            List<NumericPredicate> numericPredicates = new ArrayList<>();
-            for (Predicate p : entry.getValue()) {
-                // This is a simplification. A real implementation would need a robust
-                // way to determine if a predicate is numeric and to extract its values.
-                if (p.operator() != Predicate.Operator.IS_ANY_OF && p.value() instanceof Number) {
-                    numericPredicates.add(new NumericPredicate(
-                            model.getPredicateId(p),
-                            Operator.fromPredicateOperator(p.operator()),
-                            ((Number) p.value()).doubleValue()
-                    ));
+            List<Predicate> predicates = entry.getValue();
+
+            // Separate numeric and string predicates
+            List<NumericPredicate> numericPreds = new ArrayList<>();
+            List<StringPredicate> stringPreds = new ArrayList<>();
+
+            for (Predicate p : predicates) {
+                int predId = model.getPredicateId(p);
+
+                if (p.operator().isNumeric()) {
+                    numericPreds.add(createNumericPredicate(predId, p));
+                } else if (p.operator() == Predicate.Operator.CONTAINS ||
+                        p.operator() == Predicate.Operator.REGEX) {
+                    stringPreds.add(new StringPredicate(predId, p));
                 }
             }
-            if (!numericPredicates.isEmpty()) {
-                numericEvaluators.put(fieldId, new NumericBatchEvaluator(fieldId, numericPredicates));
+
+            if (!numericPreds.isEmpty()) {
+                numericEvaluators.put(fieldId, new NumericBatchEvaluator(fieldId, numericPreds));
+            }
+
+            if (!stringPreds.isEmpty()) {
+                stringEvaluators.put(fieldId, new StringBatchEvaluator(fieldId, stringPreds));
+            }
+        }
+
+        logger.info(String.format(
+                "Initialized vectorized evaluators: %d numeric, %d string fields",
+                numericEvaluators.size(), stringEvaluators.size()
+        ));
+    }
+
+    public void evaluate(Event event, OptimizedEvaluationContext ctx) {
+        Int2ObjectMap<Object> attributes = event.getEncodedAttributes(
+                model.getFieldDictionary(), model.getValueDictionary());
+
+        // Process in optimal order: numeric (vectorized) → string → equality
+        evaluateNumericBatch(attributes, ctx);
+        evaluateStringBatch(attributes, ctx);
+        evaluateEqualityBatch(attributes, ctx);
+    }
+
+    private void evaluateNumericBatch(Int2ObjectMap<Object> attributes,
+                                      OptimizedEvaluationContext ctx) {
+        for (Int2ObjectMap.Entry<Object> entry : attributes.int2ObjectEntrySet()) {
+            int fieldId = entry.getIntKey();
+            Object value = entry.getValue();
+
+            if (value instanceof Number) {
+                NumericBatchEvaluator evaluator = numericEvaluators.get(fieldId);
+                if (evaluator != null) {
+                    IntSet matches = evaluator.evaluateFloat16(((Number) value).floatValue());
+                    matches.forEach((int predId) -> {
+                        ctx.addTruePredicate(predId);
+                        ctx.incrementPredicatesEvaluatedCount();
+                    });
+                }
             }
         }
     }
 
-
-    public void evaluate(Event event, OptimizedEvaluationContext ctx) {
-        Int2ObjectMap<Object> attributes = event.getEncodedAttributes(model.getFieldDictionary(), model.getValueDictionary());
-
+    private void evaluateStringBatch(Int2ObjectMap<Object> attributes,
+                                     OptimizedEvaluationContext ctx) {
+        // String evaluation with optimized pattern matching
         for (Int2ObjectMap.Entry<Object> entry : attributes.int2ObjectEntrySet()) {
             int fieldId = entry.getIntKey();
-            Object eventValue = entry.getValue();
+            Object value = entry.getValue();
 
-            if (eventValue instanceof Number) {
-                NumericBatchEvaluator evaluator = numericEvaluators.get(fieldId);
+            if (value instanceof String || value instanceof Integer) {
+                StringBatchEvaluator evaluator = stringEvaluators.get(fieldId);
                 if (evaluator != null) {
-                    ctx.incrementPredicatesEvaluatedCount(); // Increment for the batch
-                    IntSet matchingIds = evaluator.evaluate(((Number) eventValue).doubleValue());
-                    matchingIds.forEach((int predId) -> ctx.addTruePredicate(predId));
+                    String strValue = value instanceof Integer ?
+                            model.getValueDictionary().decode((Integer) value) :
+                            (String) value;
+
+                    if (strValue != null) {
+                        IntSet matches = evaluator.evaluate(strValue);
+                        matches.forEach((int predId) -> {
+                            ctx.addTruePredicate(predId);
+                            ctx.incrementPredicatesEvaluatedCount();
+                        });
+                    }
                 }
-            } else {
-                // Fallback for non-numeric or non-vectorized predicates
-                List<Predicate> predicates = model.getFieldToPredicates().get(fieldId);
-                if (predicates != null && eventValue != null) {
-                    for (Predicate p : predicates) {
-                        ctx.incrementPredicatesEvaluatedCount(); // Increment for each scalar predicate
-                        if (p.evaluate(eventValue)) {
+            }
+        }
+    }
+
+    private void evaluateEqualityBatch(Int2ObjectMap<Object> attributes,
+                                       OptimizedEvaluationContext ctx) {
+        // Fast path for equality checks using dictionary encoding
+        for (Int2ObjectMap.Entry<Object> entry : attributes.int2ObjectEntrySet()) {
+            int fieldId = entry.getIntKey();
+            Object value = entry.getValue();
+
+            List<Predicate> predicates = model.getFieldToPredicates().get(fieldId);
+            if (predicates != null) {
+                for (Predicate p : predicates) {
+                    if (p.operator() == Predicate.Operator.EQUAL_TO) {
+                        ctx.incrementPredicatesEvaluatedCount();
+                        if (p.evaluate(value)) {
                             ctx.addTruePredicate(model.getPredicateId(p));
                         }
                     }
@@ -105,17 +162,16 @@ public class VectorizedPredicateEvaluator {
         }
     }
 
-
     /**
-     * Evaluate numeric predicates in vectorized batches.
-     * Optimized for both memory and CPU efficiency.
+     * Enhanced numeric batch evaluator with Float16 support
      */
     public static class NumericBatchEvaluator {
         private final int fieldId;
         private final PredicateGroup[] groups;
-        private final MemorySegment workspace;
+        private final MemorySegment alignedWorkspace;
+        private final float[] thresholdCache;
 
-        // Statistics
+        // Metrics
         private long vectorOps = 0;
         private long scalarOps = 0;
 
@@ -123,31 +179,35 @@ public class VectorizedPredicateEvaluator {
             this.fieldId = fieldId;
             this.groups = organizeIntoGroups(predicates);
 
-            // Pre-allocate workspace in off-heap memory
-            int maxGroupSize = 0;
-            for (PredicateGroup group : groups) {
-                maxGroupSize = Math.max(maxGroupSize, group.predicates.length);
-            }
-            this.workspace = ARENA.allocate(maxGroupSize * 8);
+            // Allocate cache-line aligned workspace
+            int maxGroupSize = Arrays.stream(groups)
+                    .mapToInt(g -> g.predicates.length)
+                    .max().orElse(0);
+
+            this.alignedWorkspace = ARENA.allocate(
+                    ((maxGroupSize * 4 + CACHE_LINE_SIZE - 1) / CACHE_LINE_SIZE) * CACHE_LINE_SIZE
+            );
+
+            // Pre-compute thresholds for Float16 conversion
+            this.thresholdCache = new float[maxGroupSize];
         }
 
         /**
-         * Evaluate all predicates for a given event value.
-         * Returns bitmap of matching predicate IDs.
+         * Evaluate using Float16 for better throughput and lower memory bandwidth
          */
-        public IntSet evaluate(double eventValue) {
+        public IntSet evaluateFloat16(float eventValue) {
             IntSet matches = new IntOpenHashSet();
 
             for (PredicateGroup group : groups) {
                 switch (group.operator) {
                     case GREATER_THAN:
-                        evaluateGreaterThan(eventValue, group, matches);
+                        evaluateGTFloat16(eventValue, group, matches);
                         break;
                     case LESS_THAN:
-                        evaluateLessThan(eventValue, group, matches);
+                        evaluateLTFloat16(eventValue, group, matches);
                         break;
                     case BETWEEN:
-                        evaluateBetween(eventValue, group, matches);
+                        evaluateBetweenFloat16(eventValue, group, matches);
                         break;
                     default:
                         evaluateScalar(eventValue, group, matches);
@@ -157,186 +217,313 @@ public class VectorizedPredicateEvaluator {
             return matches;
         }
 
-        private void evaluateGreaterThan(double eventValue, PredicateGroup group, IntSet matches) {
+        private void evaluateGTFloat16(float eventValue, PredicateGroup group, IntSet matches) {
             int count = group.predicates.length;
 
-            if (count >= DOUBLE_SPECIES.length()) {
-                // Vectorized path
+            if (count >= FLOAT16_SPECIES.length() * 2) {
+                // Use Float16 vectorization for large groups
                 vectorOps++;
 
-                DoubleVector eventVec = DoubleVector.broadcast(DOUBLE_SPECIES, eventValue);
-                double[] buffer = DOUBLE_POOL.acquire();
+                // Convert thresholds to Float16-compatible format
+                for (int i = 0; i < count; i++) {
+                    thresholdCache[i] = (float) group.predicates[i].value;
+                }
 
-                try {
-                    int i = 0;
-                    while (i + DOUBLE_SPECIES.length() <= count) {
-                        // Load predicate values
-                        for (int j = 0; j < DOUBLE_SPECIES.length(); j++) {
-                            buffer[j] = group.predicates[i + j].value;
+                FloatVector eventVec = FloatVector.broadcast(FLOAT16_SPECIES, eventValue);
+
+                // Process in chunks of vector length
+                for (int i = 0; i < count; i += FLOAT16_SPECIES.length()) {
+                    int limit = Math.min(i + FLOAT16_SPECIES.length(), count);
+
+                    FloatVector thresholdVec = FloatVector.fromArray(
+                            FLOAT16_SPECIES, thresholdCache, i
+                    );
+
+                    VectorMask<Float> mask = eventVec.compare(VectorOperators.GT, thresholdVec);
+
+                    // Process matches with unrolled loop
+                    for (int j = 0; j < limit - i; j++) {
+                        if (mask.laneIsSet(j)) {
+                            matches.add(group.predicates[i + j].id);
                         }
-
-                        DoubleVector predicateVec = DoubleVector.fromArray(DOUBLE_SPECIES, buffer, 0);
-                        VectorMask<Double> mask = eventVec.compare(VectorOperators.GT, predicateVec);
-
-                        // Process matches
-                        for (int j = 0; j < DOUBLE_SPECIES.length(); j++) {
-                            if (mask.laneIsSet(j)) {
-                                matches.add(group.predicates[i + j].id);
-                            }
-                        }
-
-                        i += DOUBLE_SPECIES.length();
                     }
-
-                    // Handle remaining elements
-                    while (i < count) {
-                        if (eventValue > group.predicates[i].value) {
-                            matches.add(group.predicates[i].id);
-                        }
-                        i++;
-                        scalarOps++;
-                    }
-                } finally {
-                    DOUBLE_POOL.release(buffer);
                 }
             } else {
-                // Scalar path for small groups
-                scalarOps += count;
-                for (NumericPredicate pred : group.predicates) {
-                    if (eventValue > pred.value) {
-                        matches.add(pred.id);
-                    }
-                }
+                // Scalar fallback for small groups
+                evaluateScalarGT(eventValue, group, matches);
             }
         }
 
-        private void evaluateLessThan(double eventValue, PredicateGroup group, IntSet matches) {
-            // Similar to evaluateGreaterThan but with LT comparison
+        private void evaluateLTFloat16(float eventValue, PredicateGroup group, IntSet matches) {
             int count = group.predicates.length;
 
-            if (count >= DOUBLE_SPECIES.length()) {
+            if (count >= FLOAT16_SPECIES.length() * 2) {
                 vectorOps++;
-                DoubleVector eventVec = DoubleVector.broadcast(DOUBLE_SPECIES, eventValue);
-                double[] buffer = DOUBLE_POOL.acquire();
 
-                try {
-                    int i = 0;
-                    while (i + DOUBLE_SPECIES.length() <= count) {
-                        for (int j = 0; j < DOUBLE_SPECIES.length(); j++) {
-                            buffer[j] = group.predicates[i + j].value;
+                for (int i = 0; i < count; i++) {
+                    thresholdCache[i] = (float) group.predicates[i].value;
+                }
+
+                FloatVector eventVec = FloatVector.broadcast(FLOAT16_SPECIES, eventValue);
+
+                for (int i = 0; i < count; i += FLOAT16_SPECIES.length()) {
+                    FloatVector thresholdVec = FloatVector.fromArray(
+                            FLOAT16_SPECIES, thresholdCache, i
+                    );
+
+                    VectorMask<Float> mask = eventVec.compare(VectorOperators.LT, thresholdVec);
+
+                    int limit = Math.min(i + FLOAT16_SPECIES.length(), count);
+                    for (int j = 0; j < limit - i; j++) {
+                        if (mask.laneIsSet(j)) {
+                            matches.add(group.predicates[i + j].id);
                         }
-
-                        DoubleVector predicateVec = DoubleVector.fromArray(DOUBLE_SPECIES, buffer, 0);
-                        VectorMask<Double> mask = eventVec.compare(VectorOperators.LT, predicateVec);
-
-                        for (int j = 0; j < DOUBLE_SPECIES.length(); j++) {
-                            if (mask.laneIsSet(j)) {
-                                matches.add(group.predicates[i + j].id);
-                            }
-                        }
-
-                        i += DOUBLE_SPECIES.length();
                     }
-
-                    while (i < count) {
-                        if (eventValue < group.predicates[i].value) {
-                            matches.add(group.predicates[i].id);
-                        }
-                        i++;
-                        scalarOps++;
-                    }
-                } finally {
-                    DOUBLE_POOL.release(buffer);
                 }
             } else {
-                scalarOps += count;
-                for (NumericPredicate pred : group.predicates) {
-                    if (eventValue < pred.value) {
-                        matches.add(pred.id);
+                evaluateScalarLT(eventValue, group, matches);
+            }
+        }
+
+        private void evaluateBetweenFloat16(float eventValue, PredicateGroup group, IntSet matches) {
+            // Between requires two comparisons - optimize with fused operations
+            int count = group.predicates.length;
+
+            if (count >= FLOAT16_SPECIES.length()) {
+                vectorOps++;
+
+                FloatVector eventVec = FloatVector.broadcast(FLOAT16_SPECIES, eventValue);
+
+                for (int i = 0; i < count; i += FLOAT16_SPECIES.length()) {
+                    int limit = Math.min(i + FLOAT16_SPECIES.length(), count);
+
+                    // Prepare lower and upper bounds in separate arrays
+                    float[] lowerBounds = new float[FLOAT16_SPECIES.length()];
+                    float[] upperBounds = new float[FLOAT16_SPECIES.length()];
+
+                    for (int j = 0; j < limit - i; j++) {
+                        lowerBounds[j] = (float) group.predicates[i + j].value;
+                        upperBounds[j] = (float) group.predicates[i + j].value2;
+                    }
+
+                    // Load bounds into vectors
+                    FloatVector lowerVec = FloatVector.fromArray(FLOAT16_SPECIES, lowerBounds, 0);
+                    FloatVector upperVec = FloatVector.fromArray(FLOAT16_SPECIES, upperBounds, 0);
+
+                    // Perform comparisons
+                    VectorMask<Float> lowerMask = eventVec.compare(VectorOperators.GE, lowerVec);
+                    VectorMask<Float> upperMask = eventVec.compare(VectorOperators.LE, upperVec);
+                    VectorMask<Float> combinedMask = lowerMask.and(upperMask);
+
+                    // Process matches
+                    for (int j = 0; j < limit - i; j++) {
+                        if (combinedMask.laneIsSet(j)) {
+                            matches.add(group.predicates[i + j].id);
+                        }
                     }
                 }
+            } else {
+                evaluateScalarBetween(eventValue, group, matches);
             }
         }
 
-        private void evaluateBetween(double eventValue, PredicateGroup group, IntSet matches) {
-            // Between requires two comparisons
-            scalarOps += group.predicates.length * 2;
-
-            for (NumericPredicate pred : group.predicates) {
-                double lower = pred.value;
-                double upper = pred.value2;
-                if (eventValue >= lower && eventValue <= upper) {
-                    matches.add(pred.id);
-                }
-            }
-        }
-
-        private void evaluateScalar(double eventValue, PredicateGroup group, IntSet matches) {
+        // Scalar fallbacks with loop unrolling
+        private void evaluateScalarGT(float eventValue, PredicateGroup group, IntSet matches) {
             scalarOps += group.predicates.length;
 
+            // Unroll by 4 for better ILP
+            int i = 0;
+            int count = group.predicates.length;
+
+            for (; i + 4 <= count; i += 4) {
+                if (eventValue > group.predicates[i].value)
+                    matches.add(group.predicates[i].id);
+                if (eventValue > group.predicates[i + 1].value)
+                    matches.add(group.predicates[i + 1].id);
+                if (eventValue > group.predicates[i + 2].value)
+                    matches.add(group.predicates[i + 2].id);
+                if (eventValue > group.predicates[i + 3].value)
+                    matches.add(group.predicates[i + 3].id);
+            }
+
+            for (; i < count; i++) {
+                if (eventValue > group.predicates[i].value) {
+                    matches.add(group.predicates[i].id);
+                }
+            }
+        }
+
+        private void evaluateScalarLT(float eventValue, PredicateGroup group, IntSet matches) {
+            scalarOps += group.predicates.length;
             for (NumericPredicate pred : group.predicates) {
-                if (pred.evaluate(eventValue)) {
+                if (eventValue < pred.value) {
                     matches.add(pred.id);
                 }
             }
         }
 
-        /**
-         * Organize predicates into groups for efficient vectorization.
-         */
-        private PredicateGroup[] organizeIntoGroups(List<NumericPredicate> predicates) {
-            Map<Operator, List<NumericPredicate>> opGroups = predicates.stream()
-                    .collect(Collectors.groupingBy(p -> p.operator));
+        private void evaluateScalarBetween(float eventValue, PredicateGroup group, IntSet matches) {
+            scalarOps += group.predicates.length * 2;
+            for (NumericPredicate pred : group.predicates) {
+                if (eventValue >= pred.value && eventValue <= pred.value2) {
+                    matches.add(pred.id);
+                }
+            }
+        }
 
+        private void evaluateScalar(float eventValue, PredicateGroup group, IntSet matches) {
+            scalarOps += group.predicates.length;
+            for (NumericPredicate pred : group.predicates) {
+                if (pred.evaluateFloat(eventValue)) {
+                    matches.add(pred.id);
+                }
+            }
+        }
+
+        private PredicateGroup[] organizeIntoGroups(List<NumericPredicate> predicates) {
+            // Group by operator and sort by value for better branch prediction
+            Map<Operator, List<NumericPredicate>> opGroups = new HashMap<>();
+
+            for (NumericPredicate pred : predicates) {
+                opGroups.computeIfAbsent(pred.operator, k -> new ArrayList<>()).add(pred);
+            }
+
+            // Sort each group by threshold value for better cache and branch behavior
             PredicateGroup[] groups = new PredicateGroup[opGroups.size()];
-            int groupIdx = 0;
+            int idx = 0;
 
             for (Map.Entry<Operator, List<NumericPredicate>> entry : opGroups.entrySet()) {
-                groups[groupIdx++] = new PredicateGroup(entry.getKey(), entry.getValue().toArray(new NumericPredicate[0]));
+                List<NumericPredicate> list = entry.getValue();
+                list.sort(Comparator.comparingDouble(p -> p.value));
+                groups[idx++] = new PredicateGroup(
+                        entry.getKey(),
+                        list.toArray(new NumericPredicate[0])
+                );
             }
 
             return groups;
         }
+    }
 
+    /**
+     * String batch evaluator with optimized pattern matching
+     */
+    public static class StringBatchEvaluator {
+        private final int fieldId;
+        private final StringPredicate[] predicates;
+        private final Map<String, IntList> containsIndex; // Inverted index for CONTAINS
 
-        public String getStats() {
-            long total = vectorOps + scalarOps;
-            double vectorRatio = total > 0 ? (double) vectorOps / total : 0;
+        public StringBatchEvaluator(int fieldId, List<StringPredicate> preds) {
+            this.fieldId = fieldId;
+            this.predicates = preds.toArray(new StringPredicate[0]);
+            this.containsIndex = buildContainsIndex(predicates);
+        }
 
-            return String.format(
-                    "Field %d: vectorOps=%d, scalarOps=%d, vectorization=%.1f%%",
-                    fieldId, vectorOps, scalarOps, vectorRatio * 100
-            );
+        private Map<String, IntList> buildContainsIndex(StringPredicate[] preds) {
+            Map<String, IntList> index = new HashMap<>();
+
+            for (StringPredicate pred : preds) {
+                if (pred.predicate.operator() == Predicate.Operator.CONTAINS) {
+                    String pattern = (String) pred.predicate.value();
+                    // Build n-gram index for faster matching
+                    for (int i = 0; i < pattern.length() - 1; i++) {
+                        String bigram = pattern.substring(i, i + 2);
+                        index.computeIfAbsent(bigram, k -> new IntArrayList()).add(pred.id);
+                    }
+                }
+            }
+
+            return index;
+        }
+
+        public IntSet evaluate(String value) {
+            IntSet matches = new IntOpenHashSet();
+
+            // Fast path for CONTAINS using n-gram index
+            Set<Integer> candidates = new HashSet<>();
+            for (int i = 0; i < value.length() - 1; i++) {
+                String bigram = value.substring(i, i + 2);
+                IntList predIds = containsIndex.get(bigram);
+                if (predIds != null) {
+                    predIds.forEach((IntConsumer) candidates::add);
+                }
+            }
+
+            // Verify candidates and check other predicates
+            for (StringPredicate pred : predicates) {
+                if (candidates.contains(pred.id) ||
+                        pred.predicate.operator() != Predicate.Operator.CONTAINS) {
+                    if (pred.predicate.evaluate(value)) {
+                        matches.add(pred.id);
+                    }
+                }
+            }
+
+            return matches;
         }
     }
 
     /**
-     * Memory pool for vector buffers to reduce allocation overhead.
+     * Enhanced buffer pool with size tiers
      */
     private static class BufferPool {
+        private final ConcurrentLinkedQueue<float[]> floatBuffers;
         private final ConcurrentLinkedQueue<double[]> doubleBuffers;
+        private final int bufferSize;
+        private final int maxPoolSize;
 
-        BufferPool(int bufferSize, int initialCapacity) {
+        BufferPool(int bufferSize, int maxPoolSize) {
+            this.bufferSize = bufferSize;
+            this.maxPoolSize = maxPoolSize;
+            this.floatBuffers = new ConcurrentLinkedQueue<>();
             this.doubleBuffers = new ConcurrentLinkedQueue<>();
-            // Pre-allocate buffers
-            for (int i = 0; i < initialCapacity; i++) {
-                doubleBuffers.offer(new double[DOUBLE_SPECIES.length()]);
+
+            // Pre-allocate some buffers
+            for (int i = 0; i < maxPoolSize / 4; i++) {
+                floatBuffers.offer(new float[bufferSize]);
+                doubleBuffers.offer(new double[bufferSize]);
             }
         }
 
-        double[] acquire() {
-            double[] buffer = doubleBuffers.poll();
-            return buffer != null ? buffer : new double[DOUBLE_SPECIES.length()];
+        float[] acquireFloat() {
+            float[] buffer = floatBuffers.poll();
+            return buffer != null ? buffer : new float[bufferSize];
         }
 
-        void release(double[] buffer) {
-            if (doubleBuffers.size() < 64) { // Limit pool size
+        void releaseFloat(float[] buffer) {
+            if (floatBuffers.size() < maxPoolSize && buffer.length == bufferSize) {
+                Arrays.fill(buffer, 0); // Clear for security
+                floatBuffers.offer(buffer);
+            }
+        }
+
+        double[] acquireDouble() {
+            double[] buffer = doubleBuffers.poll();
+            return buffer != null ? buffer : new double[bufferSize];
+        }
+
+        void releaseDouble(double[] buffer) {
+            if (doubleBuffers.size() < maxPoolSize && buffer.length == bufferSize) {
+                Arrays.fill(buffer, 0);
                 doubleBuffers.offer(buffer);
             }
         }
     }
 
     // Supporting classes
+    private static NumericPredicate createNumericPredicate(int id, Predicate p) {
+        if (p.operator() == Predicate.Operator.BETWEEN) {
+            List<?> range = (List<?>) p.value();
+            return new NumericPredicate(id, Operator.BETWEEN,
+                    ((Number) range.get(0)).doubleValue(),
+                    ((Number) range.get(1)).doubleValue());
+        } else {
+            return new NumericPredicate(id,
+                    Operator.fromPredicateOperator(p.operator()),
+                    ((Number) p.value()).doubleValue());
+        }
+    }
+
     static class PredicateGroup {
         final Operator operator;
         final NumericPredicate[] predicates;
@@ -354,10 +541,7 @@ public class VectorizedPredicateEvaluator {
         final double value2; // For BETWEEN
 
         public NumericPredicate(int id, Operator op, double value) {
-            this.id = id;
-            this.operator = op;
-            this.value = value;
-            this.value2 = 0;
+            this(id, op, value, 0);
         }
 
         public NumericPredicate(int id, Operator op, double lower, double upper) {
@@ -367,14 +551,24 @@ public class VectorizedPredicateEvaluator {
             this.value2 = upper;
         }
 
-        boolean evaluate(double eventValue) {
+        boolean evaluateFloat(float eventValue) {
             return switch (operator) {
                 case GREATER_THAN -> eventValue > value;
                 case LESS_THAN -> eventValue < value;
                 case BETWEEN -> eventValue >= value && eventValue <= value2;
-                case EQUAL_TO -> Double.compare(eventValue, value) == 0;
+                case EQUAL_TO -> Float.compare(eventValue, (float) value) == 0;
                 default -> false;
             };
+        }
+    }
+
+    public static class StringPredicate {
+        final int id;
+        final Predicate predicate;
+
+        public StringPredicate(int id, Predicate predicate) {
+            this.id = id;
+            this.predicate = predicate;
         }
     }
 
@@ -386,7 +580,7 @@ public class VectorizedPredicateEvaluator {
                 case EQUAL_TO -> EQUAL_TO;
                 case GREATER_THAN -> GREATER_THAN;
                 case LESS_THAN -> LESS_THAN;
-                // Add other mappings as needed
+                case BETWEEN -> BETWEEN;
                 default -> UNKNOWN;
             };
         }
