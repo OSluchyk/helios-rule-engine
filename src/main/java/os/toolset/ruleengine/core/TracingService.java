@@ -7,23 +7,34 @@ import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 
-public final class TracingService {
+public class TracingService {
 
     private static final String INSTRUMENTATION_NAME = "os.toolset.rule-engine";
-    private static final TracingService INSTANCE = new TracingService();
+    private static final TracingService INSTANCE;
+
+    static {
+        TracingService result;
+        if (Boolean.getBoolean("otel.disabled")) {
+            result = new TracingService(OpenTelemetry.noop().getTracer(INSTRUMENTATION_NAME));
+        } else {
+            result = new TracingService(
+                    OpenTelemetrySdk.builder()
+                            .setTracerProvider(
+                                    SdkTracerProvider.builder()
+                                            .addSpanProcessor(SimpleSpanProcessor.create(LoggingSpanExporter.create()))
+                                            .build()
+                            )
+                            .buildAndRegisterGlobal()
+                            .getTracer(INSTRUMENTATION_NAME)
+            );
+        }
+        INSTANCE = result;
+    }
 
     private final Tracer tracer;
 
-    private TracingService() {
-        SdkTracerProvider tracerProvider = SdkTracerProvider.builder()
-                .addSpanProcessor(SimpleSpanProcessor.create(LoggingSpanExporter.create()))
-                .build();
-
-        OpenTelemetry openTelemetry = OpenTelemetrySdk.builder()
-                .setTracerProvider(tracerProvider)
-                .buildAndRegisterGlobal();
-
-        this.tracer = openTelemetry.getTracer(INSTRUMENTATION_NAME);
+    private TracingService(Tracer tracer) {
+        this.tracer = tracer;
     }
 
     public static TracingService getInstance() {

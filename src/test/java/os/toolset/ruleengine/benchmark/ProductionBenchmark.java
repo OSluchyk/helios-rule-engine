@@ -7,8 +7,7 @@ import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 import os.toolset.ruleengine.core.*;
-import os.toolset.ruleengine.core.cache.BaseConditionCache;
-import os.toolset.ruleengine.core.cache.InMemoryBaseConditionCache;
+import os.toolset.ruleengine.core.cache.*;
 import os.toolset.ruleengine.model.Event;
 import os.toolset.ruleengine.model.MatchResult;
 
@@ -25,10 +24,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * - P99 < 0.8ms latency
  * - <6GB memory @ 100K rules
  */
-@BenchmarkMode({Mode.Throughput})
-@OutputTimeUnit(TimeUnit.SECONDS)
+@BenchmarkMode({Mode.Throughput, Mode.SampleTime})
+@OutputTimeUnit(TimeUnit.MICROSECONDS)
 @State(Scope.Benchmark)
-@Fork(value = 1, jvmArgs = {
+@Fork(value = 2, jvmArgs = {
         "-XX:+UnlockExperimentalVMOptions",
         "-XX:+UseCompactObjectHeaders",  // Java 25 compact headers
         "-XX:+UseZGC",                   // ZGC for low latency
@@ -46,17 +45,15 @@ import java.util.concurrent.atomic.AtomicLong;
         "-XX:+UseStringDeduplication",   // String deduplication
         "-Djava.lang.Integer.IntegerCache.high=10000"  // Larger integer cache
 })
-@Warmup(iterations = 2, time = 1)
-@Measurement(iterations = 3, time = 1)
-@Threads(1)  // Simulating concurrent load
-public class HeliosJMHBenchmark {
+@Warmup(iterations = 10, time = 2)
+@Measurement(iterations = 20, time = 5)
+@Threads(16)  // Simulating concurrent load
+public class ProductionBenchmark {
 
-//    @Param({"1000", "10000", "50000", "100000"})
-    @Param({"100"})
+    @Param({"1000", "10000", "50000", "100000"})
     private int ruleCount;
 
-//    @Param({"SIMPLE", "MEDIUM", "COMPLEX", "MIXED"})
-    @Param({ "COMPLEX"})
+    @Param({"SIMPLE", "MEDIUM", "COMPLEX", "MIXED"})
     private String workloadType;
 
     private RuleEvaluator evaluator;
@@ -442,7 +439,7 @@ public class HeliosJMHBenchmark {
     // Main method to run benchmarks
     public static void main(String[] args) throws Exception {
         Options opt = new OptionsBuilder()
-                .include(HeliosJMHBenchmark.class.getSimpleName())
+                .include(ProductionBenchmark.class.getSimpleName())
                 .resultFormat(ResultFormatType.JSON)
                 .result("benchmark-results-" + System.currentTimeMillis() + ".json")
                 .build();
