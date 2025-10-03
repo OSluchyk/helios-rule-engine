@@ -46,12 +46,12 @@ public class FastCacheKeyGenerator {
             int predicateCount
     ) {
         // OPTIMIZATION: Hash the predicate IDs instead of writing them all
-        // This reduces buffer requirements from O(N) to O(1) in predicate count
         long predicateSetHash = hashPredicateIds(predicateIds, predicateCount);
 
-        // Calculate buffer size: only need space for the hash + event values
-        // Worst case: 8 bytes (hash) + 12 bytes per predicate value
-        int estimatedSize = (int) ((8 + predicateCount * 12) * 1.2);
+        // FIXED: Calculate buffer size based on actual possible writes
+        // We can only write values for predicates that exist in the event
+        int maxPossibleWrites = Math.min(predicateCount, eventAttrs.size());
+        int estimatedSize = (int) ((8 + maxPossibleWrites * 12) * 1.2);
 
         ResizableBuffer resizableBuffer = BUFFER_CACHE.get();
         ByteBuffer buffer = resizableBuffer.ensureCapacity(estimatedSize);
