@@ -29,7 +29,7 @@ public class RuleEvaluator {
     private final boolean useBaseConditionCache;
 
     // Prefetch optimization
-    private static final int PREFETCH_DISTANCE = 8;
+    private static final int PREFETCH_DISTANCE = 64;  // Increased from 8 to 64
 
     public RuleEvaluator(EngineModel model) {
         this(model, TracingService.getInstance().getTracer(), true);
@@ -99,8 +99,8 @@ public class RuleEvaluator {
                 }
             }
 
-            // OPTIMIZATION 2: Vectorized predicate evaluation with prefetching
-            evaluatePredicatesOptimized(event, ctx, eligibleRules);
+            // OPTIMIZATION 2: Vectorized predicate evaluation (P0-1 FIX)
+            evaluatePredicatesVectorized(event, ctx, eligibleRules);
 
             // OPTIMIZATION 3: Batch counter updates with prefetching
             updateCountersOptimized(ctx, eligibleRules);
@@ -134,67 +134,25 @@ public class RuleEvaluator {
         }
     }
 
-    private void evaluatePredicatesOptimized(Event event, OptimizedEvaluationContext ctx,
-                                             BitSet eligibleRules) {
-        Span span = tracer.spanBuilder("evaluate-predicates-optimized").startSpan();
+    /**
+     * P0-1 FIX: Use actual vectorized evaluation instead of scalar loop
+     */
+    private void evaluatePredicatesVectorized(Event event, OptimizedEvaluationContext ctx,
+                                              BitSet eligibleRules) {
+        Span span = tracer.spanBuilder("evaluate-predicates-vectorized").startSpan();
         try (Scope scope = span.makeCurrent()) {
 
-            // Get encoded attributes once
-            Int2ObjectMap<Object> encodedAttrs = event.getEncodedAttributes(
-                    model.getFieldDictionary(), model.getValueDictionary());
+            // FIXED: Actually call the vectorized evaluator that was already implemented!
+            // The VectorizedPredicateEvaluator handles:
+            // 1. Field grouping for cache locality
+            // 2. Numeric predicate vectorization using SIMD (Float16)
+            // 3. String batch processing with n-gram indexing
+            // 4. Equality fast path using dictionary encoding
 
-            // Group predicates by field for better cache locality
-            Int2ObjectMap<IntList> fieldToPredicateIds = new Int2ObjectOpenHashMap<>();
-
-            // Only evaluate predicates for eligible rules
-            if (eligibleRules != null) {
-                for (int ruleId = eligibleRules.nextSetBit(0);
-                     ruleId >= 0;
-                     ruleId = eligibleRules.nextSetBit(ruleId + 1)) {
-
-                    IntList predicateIds = model.getCombinationPredicateIds(ruleId);
-                    for (int predId : predicateIds) {
-                        Predicate pred = model.getPredicate(predId);
-                        fieldToPredicateIds.computeIfAbsent(pred.fieldId(),
-                                k -> new IntArrayList()).add(predId);
-                    }
-                }
-            } else {
-                // Fallback: evaluate all predicates
-                for (int predId = 0; predId < model.getPredicateRegistry().size(); predId++) {
-                    Predicate pred = model.getPredicate(predId);
-                    if (pred != null) {
-                        fieldToPredicateIds.computeIfAbsent(pred.fieldId(),
-                                k -> new IntArrayList()).add(predId);
-                    }
-                }
-            }
-
-            // Evaluate predicates grouped by field (better cache locality)
-            for (Int2ObjectMap.Entry<IntList> entry : fieldToPredicateIds.int2ObjectEntrySet()) {
-                int fieldId = entry.getIntKey();
-                IntList predicateIds = entry.getValue();
-                Object eventValue = encodedAttrs.get(fieldId);
-
-                if (eventValue != null) {
-                    // Prefetch next field's predicates
-                    if (fieldToPredicateIds.size() > 1) {
-                        prefetchPredicates(predicateIds);
-                    }
-
-                    for (int predId : predicateIds) {
-                        Predicate pred = model.getPredicate(predId);
-                        ctx.incrementPredicatesEvaluatedCount();
-
-                        if (pred.evaluate(eventValue)) {
-                            ctx.addTruePredicate(predId);
-                        }
-                    }
-                }
-            }
+            vectorizedEvaluator.evaluate(event, ctx, eligibleRules);
 
             span.setAttribute("truePredicatesFound", ctx.getTruePredicates().size());
-            span.setAttribute("fieldsEvaluated", fieldToPredicateIds.size());
+            span.setAttribute("predicatesEvaluated", ctx.getPredicatesEvaluatedCount());
 
         } finally {
             span.end();
@@ -210,6 +168,15 @@ public class RuleEvaluator {
                 return;
             }
 
+            // Convert eligibleRules to RoaringBitmap ONCE (P1 optimization)
+            RoaringBitmap eligibleBitmap = null;
+            if (eligibleRules != null) {
+                eligibleBitmap = new RoaringBitmap();
+                for (int i = eligibleRules.nextSetBit(0); i >= 0; i = eligibleRules.nextSetBit(i + 1)) {
+                    eligibleBitmap.add(i);
+                }
+            }
+
             // Batch process predicates for better cache locality
             int batchSize = 8;
             for (int i = 0; i < truePredicates.size(); i += batchSize) {
@@ -221,12 +188,10 @@ public class RuleEvaluator {
                     RoaringBitmap affected = model.getInvertedIndex().get(predicateId);
 
                     if (affected != null) {
-                        // Only update counters for eligible rules
-                        if (eligibleRules != null) {
-                            RoaringBitmap filtered = RoaringBitmap.and(affected,
-                                    RoaringBitmap.bitmapOf(eligibleRules.stream().toArray()));
-
-                            IntIterator it = filtered.getIntIterator();
+                        // Use pre-converted bitmap (no repeated allocations)
+                        if (eligibleBitmap != null) {
+                            RoaringBitmap intersection = RoaringBitmap.and(affected, eligibleBitmap);
+                            IntIterator it = intersection.getIntIterator();
                             while (it.hasNext()) {
                                 ctx.incrementCounter(it.next());
                             }
@@ -258,10 +223,14 @@ public class RuleEvaluator {
             Arrays.sort(touchedArray); // Sequential access pattern
 
             for (int i = 0; i < touchedArray.length; i += PREFETCH_DISTANCE) {
-                // Prefetch next batch
+                // Prefetch next batch (helps with memory latency)
                 if (i + PREFETCH_DISTANCE < touchedArray.length) {
                     for (int j = 0; j < PREFETCH_DISTANCE && i + j < touchedArray.length; j++) {
-                        prefetchRuleData(touchedArray[i + j]);
+                        int futureId = touchedArray[i + j];
+                        // Touch data to bring into cache
+                        model.getCombinationPredicateCount(futureId);
+                        model.getCombinationRuleCode(futureId);
+                        model.getCombinationPriority(futureId);
                     }
                 }
 
@@ -294,21 +263,6 @@ public class RuleEvaluator {
         } finally {
             span.end();
         }
-    }
-
-    // Prefetching hints for JVM
-    private void prefetchPredicates(IntList predicateIds) {
-        // Hint to JVM about upcoming memory access patterns
-        for (int i = 0; i < Math.min(PREFETCH_DISTANCE, predicateIds.size()); i++) {
-            model.getPredicate(predicateIds.getInt(i));
-        }
-    }
-
-    private void prefetchRuleData(int ruleId) {
-        // Prefetch rule metadata that will be accessed soon
-        model.getCombinationPredicateCount(ruleId);
-        model.getCombinationRuleCode(ruleId);
-        model.getCombinationPriority(ruleId);
     }
 
     private void selectMatches(OptimizedEvaluationContext ctx) {

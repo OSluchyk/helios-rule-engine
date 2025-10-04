@@ -13,10 +13,10 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.logging.Logger;
-import java.util.stream.Collectors;
 
 /**
  * Enhanced vectorized predicate evaluator with Float16 support and optimized memory patterns
+ * P0-1 FIX: Added eligibleRules filtering to prevent evaluation of ineligible predicates
  */
 public class VectorizedPredicateEvaluator {
     private static final Logger logger = Logger.getLogger(VectorizedPredicateEvaluator.class.getName());
@@ -86,18 +86,46 @@ public class VectorizedPredicateEvaluator {
         ));
     }
 
-    public void evaluate(Event event, OptimizedEvaluationContext ctx) {
+    /**
+     * P0-1 FIX: Main entry point - now accepts eligibleRules filter
+     */
+    public void evaluate(Event event, OptimizedEvaluationContext ctx, BitSet eligibleRules) {
         Int2ObjectMap<Object> attributes = event.getEncodedAttributes(
                 model.getFieldDictionary(), model.getValueDictionary());
 
+        // Build set of predicate IDs we should evaluate (only for eligible rules)
+        IntSet eligiblePredicateIds = null;
+        if (eligibleRules != null) {
+            eligiblePredicateIds = buildEligiblePredicateSet(eligibleRules);
+        }
+
         // Process in optimal order: numeric (vectorized) → string → equality
-        evaluateNumericBatch(attributes, ctx);
-        evaluateStringBatch(attributes, ctx);
-        evaluateEqualityBatch(attributes, ctx);
+        evaluateNumericBatch(attributes, ctx, eligiblePredicateIds);
+        evaluateStringBatch(attributes, ctx, eligiblePredicateIds);
+        evaluateEqualityBatch(attributes, ctx, eligiblePredicateIds);
+    }
+
+    /**
+     * P0-1 FIX: Build set of predicate IDs that need evaluation based on eligible rules
+     */
+    private IntSet buildEligiblePredicateSet(BitSet eligibleRules) {
+        IntSet predicateIds = new IntOpenHashSet();
+
+        for (int ruleId = eligibleRules.nextSetBit(0); ruleId >= 0;
+             ruleId = eligibleRules.nextSetBit(ruleId + 1)) {
+
+            IntList rulePreds = model.getCombinationPredicateIds(ruleId);
+            for (int predId : rulePreds) {
+                predicateIds.add(predId);
+            }
+        }
+
+        return predicateIds;
     }
 
     private void evaluateNumericBatch(Int2ObjectMap<Object> attributes,
-                                      OptimizedEvaluationContext ctx) {
+                                      OptimizedEvaluationContext ctx,
+                                      IntSet eligiblePredicateIds) {
         for (Int2ObjectMap.Entry<Object> entry : attributes.int2ObjectEntrySet()) {
             int fieldId = entry.getIntKey();
             Object value = entry.getValue();
@@ -105,7 +133,11 @@ public class VectorizedPredicateEvaluator {
             if (value instanceof Number) {
                 NumericBatchEvaluator evaluator = numericEvaluators.get(fieldId);
                 if (evaluator != null) {
-                    IntSet matches = evaluator.evaluateFloat16(((Number) value).floatValue());
+                    IntSet matches = evaluator.evaluateFloat16(
+                            ((Number) value).floatValue(),
+                            eligiblePredicateIds
+                    );
+
                     matches.forEach((int predId) -> {
                         ctx.addTruePredicate(predId);
                         ctx.incrementPredicatesEvaluatedCount();
@@ -116,7 +148,8 @@ public class VectorizedPredicateEvaluator {
     }
 
     private void evaluateStringBatch(Int2ObjectMap<Object> attributes,
-                                     OptimizedEvaluationContext ctx) {
+                                     OptimizedEvaluationContext ctx,
+                                     IntSet eligiblePredicateIds) {
         // String evaluation with optimized pattern matching
         for (Int2ObjectMap.Entry<Object> entry : attributes.int2ObjectEntrySet()) {
             int fieldId = entry.getIntKey();
@@ -130,7 +163,7 @@ public class VectorizedPredicateEvaluator {
                             (String) value;
 
                     if (strValue != null) {
-                        IntSet matches = evaluator.evaluate(strValue);
+                        IntSet matches = evaluator.evaluate(strValue, eligiblePredicateIds);
                         matches.forEach((int predId) -> {
                             ctx.addTruePredicate(predId);
                             ctx.incrementPredicatesEvaluatedCount();
@@ -142,7 +175,8 @@ public class VectorizedPredicateEvaluator {
     }
 
     private void evaluateEqualityBatch(Int2ObjectMap<Object> attributes,
-                                       OptimizedEvaluationContext ctx) {
+                                       OptimizedEvaluationContext ctx,
+                                       IntSet eligiblePredicateIds) {
         // Fast path for equality checks using dictionary encoding
         for (Int2ObjectMap.Entry<Object> entry : attributes.int2ObjectEntrySet()) {
             int fieldId = entry.getIntKey();
@@ -152,9 +186,16 @@ public class VectorizedPredicateEvaluator {
             if (predicates != null) {
                 for (Predicate p : predicates) {
                     if (p.operator() == Predicate.Operator.EQUAL_TO) {
+                        int predId = model.getPredicateId(p);
+
+                        // P0-1 FIX: Skip if not in eligible set
+                        if (eligiblePredicateIds != null && !eligiblePredicateIds.contains(predId)) {
+                            continue;
+                        }
+
                         ctx.incrementPredicatesEvaluatedCount();
                         if (p.evaluate(value)) {
-                            ctx.addTruePredicate(model.getPredicateId(p));
+                            ctx.addTruePredicate(predId);
                         }
                     }
                 }
@@ -164,6 +205,7 @@ public class VectorizedPredicateEvaluator {
 
     /**
      * Enhanced numeric batch evaluator with Float16 support
+     * P0-1 FIX: Added eligiblePredicateIds filtering
      */
     public static class NumericBatchEvaluator {
         private final int fieldId;
@@ -194,30 +236,32 @@ public class VectorizedPredicateEvaluator {
 
         /**
          * Evaluate using Float16 for better throughput and lower memory bandwidth
+         * P0-1 FIX: Filter by eligible predicate IDs
          */
-        public IntSet evaluateFloat16(float eventValue) {
+        public IntSet evaluateFloat16(float eventValue, IntSet eligiblePredicateIds) {
             IntSet matches = new IntOpenHashSet();
 
             for (PredicateGroup group : groups) {
                 switch (group.operator) {
                     case GREATER_THAN:
-                        evaluateGTFloat16(eventValue, group, matches);
+                        evaluateGTFloat16(eventValue, group, matches, eligiblePredicateIds);
                         break;
                     case LESS_THAN:
-                        evaluateLTFloat16(eventValue, group, matches);
+                        evaluateLTFloat16(eventValue, group, matches, eligiblePredicateIds);
                         break;
                     case BETWEEN:
-                        evaluateBetweenFloat16(eventValue, group, matches);
+                        evaluateBetweenFloat16(eventValue, group, matches, eligiblePredicateIds);
                         break;
                     default:
-                        evaluateScalar(eventValue, group, matches);
+                        evaluateScalar(eventValue, group, matches, eligiblePredicateIds);
                 }
             }
 
             return matches;
         }
 
-        private void evaluateGTFloat16(float eventValue, PredicateGroup group, IntSet matches) {
+        private void evaluateGTFloat16(float eventValue, PredicateGroup group, IntSet matches,
+                                       IntSet eligiblePredicateIds) {
             int count = group.predicates.length;
 
             if (count >= FLOAT16_SPECIES.length() * 2) {
@@ -244,17 +288,22 @@ public class VectorizedPredicateEvaluator {
                     // Process matches with unrolled loop
                     for (int j = 0; j < limit - i; j++) {
                         if (mask.laneIsSet(j)) {
-                            matches.add(group.predicates[i + j].id);
+                            int predId = group.predicates[i + j].id;
+                            // P0-1 FIX: Check eligibility
+                            if (eligiblePredicateIds == null || eligiblePredicateIds.contains(predId)) {
+                                matches.add(predId);
+                            }
                         }
                     }
                 }
             } else {
                 // Scalar fallback for small groups
-                evaluateScalarGT(eventValue, group, matches);
+                evaluateScalarGT(eventValue, group, matches, eligiblePredicateIds);
             }
         }
 
-        private void evaluateLTFloat16(float eventValue, PredicateGroup group, IntSet matches) {
+        private void evaluateLTFloat16(float eventValue, PredicateGroup group, IntSet matches,
+                                       IntSet eligiblePredicateIds) {
             int count = group.predicates.length;
 
             if (count >= FLOAT16_SPECIES.length() * 2) {
@@ -276,16 +325,20 @@ public class VectorizedPredicateEvaluator {
                     int limit = Math.min(i + FLOAT16_SPECIES.length(), count);
                     for (int j = 0; j < limit - i; j++) {
                         if (mask.laneIsSet(j)) {
-                            matches.add(group.predicates[i + j].id);
+                            int predId = group.predicates[i + j].id;
+                            if (eligiblePredicateIds == null || eligiblePredicateIds.contains(predId)) {
+                                matches.add(predId);
+                            }
                         }
                     }
                 }
             } else {
-                evaluateScalarLT(eventValue, group, matches);
+                evaluateScalarLT(eventValue, group, matches, eligiblePredicateIds);
             }
         }
 
-        private void evaluateBetweenFloat16(float eventValue, PredicateGroup group, IntSet matches) {
+        private void evaluateBetweenFloat16(float eventValue, PredicateGroup group, IntSet matches,
+                                            IntSet eligiblePredicateIds) {
             // Between requires two comparisons - optimize with fused operations
             int count = group.predicates.length;
 
@@ -318,17 +371,21 @@ public class VectorizedPredicateEvaluator {
                     // Process matches
                     for (int j = 0; j < limit - i; j++) {
                         if (combinedMask.laneIsSet(j)) {
-                            matches.add(group.predicates[i + j].id);
+                            int predId = group.predicates[i + j].id;
+                            if (eligiblePredicateIds == null || eligiblePredicateIds.contains(predId)) {
+                                matches.add(predId);
+                            }
                         }
                     }
                 }
             } else {
-                evaluateScalarBetween(eventValue, group, matches);
+                evaluateScalarBetween(eventValue, group, matches, eligiblePredicateIds);
             }
         }
 
         // Scalar fallbacks with loop unrolling
-        private void evaluateScalarGT(float eventValue, PredicateGroup group, IntSet matches) {
+        private void evaluateScalarGT(float eventValue, PredicateGroup group, IntSet matches,
+                                      IntSet eligiblePredicateIds) {
             scalarOps += group.predicates.length;
 
             // Unroll by 4 for better ILP
@@ -336,46 +393,74 @@ public class VectorizedPredicateEvaluator {
             int count = group.predicates.length;
 
             for (; i + 4 <= count; i += 4) {
-                if (eventValue > group.predicates[i].value)
-                    matches.add(group.predicates[i].id);
-                if (eventValue > group.predicates[i + 1].value)
-                    matches.add(group.predicates[i + 1].id);
-                if (eventValue > group.predicates[i + 2].value)
-                    matches.add(group.predicates[i + 2].id);
-                if (eventValue > group.predicates[i + 3].value)
-                    matches.add(group.predicates[i + 3].id);
+                if (eventValue > group.predicates[i].value) {
+                    int predId = group.predicates[i].id;
+                    if (eligiblePredicateIds == null || eligiblePredicateIds.contains(predId)) {
+                        matches.add(predId);
+                    }
+                }
+                if (eventValue > group.predicates[i + 1].value) {
+                    int predId = group.predicates[i + 1].id;
+                    if (eligiblePredicateIds == null || eligiblePredicateIds.contains(predId)) {
+                        matches.add(predId);
+                    }
+                }
+                if (eventValue > group.predicates[i + 2].value) {
+                    int predId = group.predicates[i + 2].id;
+                    if (eligiblePredicateIds == null || eligiblePredicateIds.contains(predId)) {
+                        matches.add(predId);
+                    }
+                }
+                if (eventValue > group.predicates[i + 3].value) {
+                    int predId = group.predicates[i + 3].id;
+                    if (eligiblePredicateIds == null || eligiblePredicateIds.contains(predId)) {
+                        matches.add(predId);
+                    }
+                }
             }
 
             for (; i < count; i++) {
                 if (eventValue > group.predicates[i].value) {
-                    matches.add(group.predicates[i].id);
+                    int predId = group.predicates[i].id;
+                    if (eligiblePredicateIds == null || eligiblePredicateIds.contains(predId)) {
+                        matches.add(predId);
+                    }
                 }
             }
         }
 
-        private void evaluateScalarLT(float eventValue, PredicateGroup group, IntSet matches) {
+        private void evaluateScalarLT(float eventValue, PredicateGroup group, IntSet matches,
+                                      IntSet eligiblePredicateIds) {
             scalarOps += group.predicates.length;
             for (NumericPredicate pred : group.predicates) {
                 if (eventValue < pred.value) {
-                    matches.add(pred.id);
+                    if (eligiblePredicateIds == null || eligiblePredicateIds.contains(pred.id)) {
+                        matches.add(pred.id);
+                    }
                 }
             }
         }
 
-        private void evaluateScalarBetween(float eventValue, PredicateGroup group, IntSet matches) {
+        private void evaluateScalarBetween(float eventValue, PredicateGroup group, IntSet matches,
+                                           IntSet eligiblePredicateIds) {
             scalarOps += group.predicates.length * 2;
             for (NumericPredicate pred : group.predicates) {
                 if (eventValue >= pred.value && eventValue <= pred.value2) {
-                    matches.add(pred.id);
+                    if (eligiblePredicateIds == null || eligiblePredicateIds.contains(pred.id)) {
+                        matches.add(pred.id);
+                    }
                 }
             }
         }
 
-        private void evaluateScalar(float eventValue, PredicateGroup group, IntSet matches) {
+        private void evaluateScalar(float eventValue, PredicateGroup group, IntSet matches,
+                                    IntSet eligiblePredicateIds) {
             scalarOps += group.predicates.length;
             for (NumericPredicate pred : group.predicates) {
                 if (pred.evaluateFloat(eventValue)) {
-                    matches.add(pred.id);
+                    if (eligiblePredicateIds == null || eligiblePredicateIds.contains(pred.id)) {
+                        matches.add(pred.id);
+                    }
                 }
             }
         }
@@ -407,6 +492,7 @@ public class VectorizedPredicateEvaluator {
 
     /**
      * String batch evaluator with optimized pattern matching
+     * P0-1 FIX: Added eligiblePredicateIds filtering
      */
     public static class StringBatchEvaluator {
         private final int fieldId;
@@ -436,7 +522,7 @@ public class VectorizedPredicateEvaluator {
             return index;
         }
 
-        public IntSet evaluate(String value) {
+        public IntSet evaluate(String value, IntSet eligiblePredicateIds) {
             IntSet matches = new IntOpenHashSet();
 
             // Fast path for CONTAINS using n-gram index
@@ -451,6 +537,11 @@ public class VectorizedPredicateEvaluator {
 
             // Verify candidates and check other predicates
             for (StringPredicate pred : predicates) {
+                // P0-1 FIX: Filter by eligible predicates
+                if (eligiblePredicateIds != null && !eligiblePredicateIds.contains(pred.id)) {
+                    continue;
+                }
+
                 if (candidates.contains(pred.id) ||
                         pred.predicate.operator() != Predicate.Operator.CONTAINS) {
                     if (pred.predicate.evaluate(value)) {

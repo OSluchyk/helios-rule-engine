@@ -182,15 +182,26 @@ class RuleEvaluatorTest {
         assertFalse(spans.isEmpty());
 
         // Check for the parent evaluation span
-        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("rule-evaluation")));
-        // Check for child spans
-        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("evaluate-predicates")));
-        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("update-counters")));
-        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("detect-matches")));
+        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("rule-evaluation")),
+                "Should have 'rule-evaluation' span");
+
+        // FIXED: Check for updated span names after P0-1 optimization
+        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("evaluate-predicates-vectorized")),
+                "Should have 'evaluate-predicates-vectorized' span");
+        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("update-counters-optimized")),
+                "Should have 'update-counters-optimized' span");
+        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("detect-matches-optimized")),
+                "Should have 'detect-matches-optimized' span");
 
         // Check for attributes in the main span
-        SpanData mainSpan = spans.stream().filter(s -> s.getName().equals("rule-evaluation")).findFirst().get();
-        assertTrue((Long) mainSpan.getAttributes().asMap().get(AttributeKey.longKey("predicatesEvaluated")) > 0);
-        assertTrue((Long) mainSpan.getAttributes().asMap().get(AttributeKey.longKey("uniqueCombinationsConsidered")) > 0);
+        SpanData mainSpan = spans.stream()
+                .filter(s -> s.getName().equals("rule-evaluation"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("No rule-evaluation span found"));
+
+        assertTrue((Long) mainSpan.getAttributes().asMap().get(AttributeKey.longKey("predicatesEvaluated")) > 0,
+                "Should have evaluated some predicates");
+        assertTrue((Long) mainSpan.getAttributes().asMap().get(AttributeKey.longKey("rulesEvaluated")) > 0,
+                "Should have evaluated some rules");
     }
 }
