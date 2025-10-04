@@ -185,7 +185,7 @@ class RuleEvaluatorTest {
         assertTrue(spans.stream().anyMatch(s -> s.getName().equals("rule-evaluation")),
                 "Should have 'rule-evaluation' span");
 
-        // FIXED: Check for updated span names after P0-1 optimization
+        // Check for updated span names after P0-1 optimization
         assertTrue(spans.stream().anyMatch(s -> s.getName().equals("evaluate-predicates-vectorized")),
                 "Should have 'evaluate-predicates-vectorized' span");
         assertTrue(spans.stream().anyMatch(s -> s.getName().equals("update-counters-optimized")),
@@ -203,5 +203,44 @@ class RuleEvaluatorTest {
                 "Should have evaluated some predicates");
         assertTrue((Long) mainSpan.getAttributes().asMap().get(AttributeKey.longKey("rulesEvaluated")) > 0,
                 "Should have evaluated some rules");
+    }
+
+    @Test
+    void evaluate_shouldHandleMultipleEvaluationsWithSameContext() {
+        // P0-2 TEST: Verify context reset and pooling works across multiple evaluations
+        Event event1 = new Event("evt-6", "TRANSACTION", Map.of(
+                "transaction_amount", 15000,
+                "country_code", "US"
+        ));
+
+        Event event2 = new Event("evt-7", "TRANSACTION", Map.of(
+                "transaction_amount", 500,
+                "country_code", "FR",
+                "user_age_days", 1
+        ));
+
+        Event event3 = new Event("evt-8", "TRANSACTION", Map.of(
+                "transaction_amount", 25000,
+                "country_code", "GB"
+        ));
+
+        // When - evaluate multiple times (should reuse context and pooled objects)
+        MatchResult result1 = ruleEvaluator.evaluate(event1);
+        MatchResult result2 = ruleEvaluator.evaluate(event2);
+        MatchResult result3 = ruleEvaluator.evaluate(event3);
+
+        // Then - all should work correctly
+        assertEquals(1, result1.matchedRules().size());
+        assertEquals("HIGH_VALUE_TRANSACTION", result1.matchedRules().get(0).ruleCode());
+
+        assertEquals(1, result2.matchedRules().size());
+        assertEquals("NEW_USER_ALERT", result2.matchedRules().get(0).ruleCode());
+
+        assertEquals(1, result3.matchedRules().size());
+        assertEquals("HIGH_VALUE_TRANSACTION", result3.matchedRules().get(0).ruleCode());
+
+        // Verify metrics show all evaluations
+        Map<String, Object> metrics = ruleEvaluator.getMetrics().getSnapshot();
+        assertEquals(3L, metrics.get("totalEvaluations"));
     }
 }

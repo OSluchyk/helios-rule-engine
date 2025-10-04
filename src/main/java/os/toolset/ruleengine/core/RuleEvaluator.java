@@ -29,7 +29,7 @@ public class RuleEvaluator {
     private final boolean useBaseConditionCache;
 
     // Prefetch optimization
-    private static final int PREFETCH_DISTANCE = 64;  // Increased from 8 to 64
+    private static final int PREFETCH_DISTANCE = 64;
 
     public RuleEvaluator(EngineModel model) {
         this(model, TracingService.getInstance().getTracer(), true);
@@ -120,7 +120,7 @@ public class RuleEvaluator {
 
             return new MatchResult(
                     event.getEventId(),
-                    new ArrayList<>(ctx.getMatchedRules()),
+                    ctx.getMatchedRules(),  // Now converts mutable → immutable internally
                     evaluationTime,
                     ctx.predicatesEvaluated,
                     ctx.rulesEvaluated
@@ -134,20 +134,10 @@ public class RuleEvaluator {
         }
     }
 
-    /**
-     * P0-1 FIX: Use actual vectorized evaluation instead of scalar loop
-     */
     private void evaluatePredicatesVectorized(Event event, OptimizedEvaluationContext ctx,
                                               BitSet eligibleRules) {
         Span span = tracer.spanBuilder("evaluate-predicates-vectorized").startSpan();
         try (Scope scope = span.makeCurrent()) {
-
-            // FIXED: Actually call the vectorized evaluator that was already implemented!
-            // The VectorizedPredicateEvaluator handles:
-            // 1. Field grouping for cache locality
-            // 2. Numeric predicate vectorization using SIMD (Float16)
-            // 3. String batch processing with n-gram indexing
-            // 4. Equality fast path using dictionary encoding
 
             vectorizedEvaluator.evaluate(event, ctx, eligibleRules);
 
@@ -188,7 +178,6 @@ public class RuleEvaluator {
                     RoaringBitmap affected = model.getInvertedIndex().get(predicateId);
 
                     if (affected != null) {
-                        // Use pre-converted bitmap (no repeated allocations)
                         if (eligibleBitmap != null) {
                             RoaringBitmap intersection = RoaringBitmap.and(affected, eligibleBitmap);
                             IntIterator it = intersection.getIntIterator();
@@ -247,7 +236,8 @@ public class RuleEvaluator {
                     ctx.incrementRulesEvaluatedCount();
 
                     if (ctx.getCounter(combinationId) == model.getCombinationPredicateCount(combinationId)) {
-                        MatchResult.MatchedRule rule = ctx.rentMatchedRule(
+                        // P0-2 FIX: Rent mutable rule from pool
+                        OptimizedEvaluationContext.MutableMatchedRule rule = ctx.rentMatchedRule(
                                 combinationId,
                                 model.getCombinationRuleCode(combinationId),
                                 model.getCombinationPriority(combinationId),
@@ -258,37 +248,39 @@ public class RuleEvaluator {
                 }
             }
 
-            span.setAttribute("matchCount", ctx.getMatchedRules().size());
+            span.setAttribute("matchCount", ctx.getMutableMatchedRules().size());
 
         } finally {
             span.end();
         }
     }
 
+    /**
+     * P0-2 FIX: Updated to work with mutable matched rules
+     */
     private void selectMatches(OptimizedEvaluationContext ctx) {
-        List<MatchResult.MatchedRule> matches = ctx.getMatchedRules();
+        List<OptimizedEvaluationContext.MutableMatchedRule> matches = ctx.getMutableMatchedRules();
         if (matches.size() <= 1) {
             return;
         }
 
         // Use pre-allocated work map to avoid allocations
-        Map<String, MatchResult.MatchedRule> maxPriorityMatches = ctx.getWorkMap();
-        maxPriorityMatches.clear();
+        Map<String, OptimizedEvaluationContext.MutableMatchedRule> maxPriorityMatches = new HashMap<>();
 
-        for (MatchResult.MatchedRule match : matches) {
-            maxPriorityMatches.merge(match.ruleCode(), match,
+        for (OptimizedEvaluationContext.MutableMatchedRule match : matches) {
+            maxPriorityMatches.merge(match.getRuleCode(), match,
                     (existing, replacement) ->
-                            replacement.priority() > existing.priority() ? replacement : existing);
+                            replacement.getPriority() > existing.getPriority() ? replacement : existing);
         }
 
         // Find overall winner
-        MatchResult.MatchedRule overallWinner = null;
+        OptimizedEvaluationContext.MutableMatchedRule overallWinner = null;
         int maxPriority = Integer.MIN_VALUE;
 
-        for (MatchResult.MatchedRule rule : maxPriorityMatches.values()) {
-            if (rule.priority() > maxPriority) {
+        for (OptimizedEvaluationContext.MutableMatchedRule rule : maxPriorityMatches.values()) {
+            if (rule.getPriority() > maxPriority) {
                 overallWinner = rule;
-                maxPriority = rule.priority();
+                maxPriority = rule.getPriority();
             }
         }
 

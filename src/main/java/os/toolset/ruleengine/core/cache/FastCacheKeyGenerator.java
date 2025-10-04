@@ -7,22 +7,13 @@ import java.nio.ByteBuffer;
  * High-performance cache key generation using xxHash3 and memory-efficient techniques.
  * 10-50x faster than SHA-256 for cache key generation.
  *
- * PRODUCTION FIX v2:
- * - Dynamic buffer resizing to prevent BufferOverflowException
- * - Predicate ID hashing optimization (reduces buffer needs by 75% for large rule sets)
- * - Supports 5,000+ predicates per cache key (vs 80 before optimization)
- *
- * Performance characteristics:
- * - Typical case (100 predicates): ~1.2KB buffer, ~150ns generation time
- * - Extreme case (5,000 predicates): ~60KB buffer, ~2μs generation time
- * - Hash collision probability: <1 in 2^64 (cryptographic quality)
+ * P0-2 FIX: Prevent buffer resizing allocations by using hash-only fallback for huge keys
  */
 public class FastCacheKeyGenerator {
 
-    // Adaptive thread-local buffers: start at 2KB, grow up to 64KB as needed
-    // After optimization (hashing predicate IDs), typical usage is <4KB
+    // P0-2 FIX: Larger initial size to reduce resizing, stricter max to prevent OOM
     private static final ThreadLocal<ResizableBuffer> BUFFER_CACHE =
-            ThreadLocal.withInitial(() -> new ResizableBuffer(2048, 65536));
+            ThreadLocal.withInitial(() -> new ResizableBuffer(8192, 32768));  // 8KB initial, 32KB max
 
     // xxHash3 constants for 128-bit hashing
     private static final long PRIME64_1 = 0x9E3779B185EBCA87L;
@@ -33,12 +24,7 @@ public class FastCacheKeyGenerator {
 
     /**
      * Generate a compact, high-quality cache key using xxHash3.
-     * OPTIMIZED: Hashes predicate IDs instead of writing them all (10x-100x smaller buffers).
-     *
-     * @param eventAttrs Encoded event attributes
-     * @param predicateIds Predicate IDs to include
-     * @param predicateCount Number of predicates
-     * @return Compact cache key (16 chars)
+     * P0-2 FIX: Falls back to hash-only key for huge predicates to avoid allocation
      */
     public static String generateKey(
             Int2ObjectMap<Object> eventAttrs,
@@ -48,16 +34,26 @@ public class FastCacheKeyGenerator {
         // OPTIMIZATION: Hash the predicate IDs instead of writing them all
         long predicateSetHash = hashPredicateIds(predicateIds, predicateCount);
 
-        // FIXED: Calculate buffer size based on actual possible writes
-        // We can only write values for predicates that exist in the event
+        // P0-2 FIX: Calculate buffer size more accurately
         int maxPossibleWrites = Math.min(predicateCount, eventAttrs.size());
-        int estimatedSize = (int) ((8 + maxPossibleWrites * 12) * 1.2);
+        int estimatedSize = 8 + (maxPossibleWrites * 12);  // predicate hash + (predId + value) pairs
+
+        // P0-2 FIX: Use hash-only key for extremely large predicate sets
+        if (estimatedSize > 16384) {  // 16KB threshold
+            return generateHashOnlyKey(predicateSetHash, eventAttrs, predicateIds, predicateCount);
+        }
 
         ResizableBuffer resizableBuffer = BUFFER_CACHE.get();
         ByteBuffer buffer = resizableBuffer.ensureCapacity(estimatedSize);
+
+        if (buffer == null) {
+            // Buffer resize failed, use hash-only fallback
+            return generateHashOnlyKey(predicateSetHash, eventAttrs, predicateIds, predicateCount);
+        }
+
         buffer.clear();
 
-        // Write the predicate set hash (represents which predicates we're checking)
+        // Write the predicate set hash
         buffer.putLong(predicateSetHash);
 
         // Write event values for relevant predicates only
@@ -65,7 +61,6 @@ public class FastCacheKeyGenerator {
             int predId = predicateIds[i];
             Object value = eventAttrs.get(predId);
             if (value != null) {
-                // Write predicate ID + value pair for uniqueness
                 buffer.putInt(predId);
                 writeValue(buffer, value);
             }
@@ -76,13 +71,38 @@ public class FastCacheKeyGenerator {
         long hash1 = xxHash3_128(buffer, PRIME64_1);
         long hash2 = xxHash3_128(buffer, PRIME64_2);
 
-        // Convert to compact string (base64-like encoding)
         return encodeCompact(hash1, hash2);
     }
 
     /**
+     * P0-2 FIX: Hash-only key generation for extreme cases (no buffer allocation)
+     */
+    private static String generateHashOnlyKey(
+            long predicateSetHash,
+            Int2ObjectMap<Object> eventAttrs,
+            int[] predicateIds,
+            int predicateCount
+    ) {
+        // Compute hash directly without buffer
+        long hash = predicateSetHash;
+
+        for (int i = 0; i < predicateCount; i++) {
+            int predId = predicateIds[i];
+            Object value = eventAttrs.get(predId);
+            if (value != null) {
+                hash = mixHash(hash, predId);
+                hash = mixHash(hash, valueHash(value));
+            }
+        }
+
+        hash = finalizeHash(hash);
+
+        // Return compact 16-char key
+        return encodeCompact(hash, hash ^ PRIME64_3);
+    }
+
+    /**
      * Fast hash of sorted predicate ID array.
-     * Uses FNV-1a for speed and good distribution.
      */
     private static long hashPredicateIds(int[] predicateIds, int count) {
         long hash = 0xcbf29ce484222325L; // FNV offset basis
@@ -101,7 +121,6 @@ public class FastCacheKeyGenerator {
             int[] staticValues,
             int count
     ) {
-        // Use direct memory manipulation for maximum speed
         long acc = PRIME64_1;
 
         for (int i = 0; i < count; i++) {
@@ -111,7 +130,6 @@ public class FastCacheKeyGenerator {
 
         acc = finalizeHash(acc);
 
-        // Ultra-compact 8-char key for base conditions
         return encodeCompact8(acc);
     }
 
@@ -123,11 +141,26 @@ public class FastCacheKeyGenerator {
         } else if (value instanceof Double) {
             buffer.putDouble((Double) value);
         } else if (value instanceof String) {
-            // Hash the string instead of storing it
             buffer.putLong(stringHash((String) value));
         } else {
-            // Fallback: use object hash
             buffer.putInt(value.hashCode());
+        }
+    }
+
+    /**
+     * P0-2 FIX: Hash value without buffer allocation
+     */
+    private static long valueHash(Object value) {
+        if (value instanceof Integer) {
+            return (Integer) value;
+        } else if (value instanceof Long) {
+            return (Long) value;
+        } else if (value instanceof Double) {
+            return Double.doubleToLongBits((Double) value);
+        } else if (value instanceof String) {
+            return stringHash((String) value);
+        } else {
+            return value.hashCode();
         }
     }
 
@@ -141,7 +174,6 @@ public class FastCacheKeyGenerator {
             acc = acc * PRIME64_1 + PRIME64_4;
         }
 
-        // Handle remaining bytes
         if (buffer.remaining() >= 4) {
             acc ^= buffer.getInt() * PRIME64_1;
             acc = Long.rotateLeft(acc, 23);
@@ -175,7 +207,6 @@ public class FastCacheKeyGenerator {
     }
 
     private static long stringHash(String s) {
-        // FNV-1a hash for strings (fast and good distribution)
         long hash = 0xcbf29ce484222325L;
         for (int i = 0; i < s.length(); i++) {
             hash ^= s.charAt(i);
@@ -184,7 +215,6 @@ public class FastCacheKeyGenerator {
         return hash;
     }
 
-    // Compact encoding using URL-safe characters
     private static final char[] ENCODING_TABLE =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".toCharArray();
 
@@ -213,33 +243,7 @@ public class FastCacheKeyGenerator {
     }
 
     /**
-     * Batch key generation for multiple events (vectorizable).
-     */
-    public static void generateKeysBatch(
-            Int2ObjectMap<Object>[] eventAttrs,
-            int[] predicateIds,
-            String[] outputKeys,
-            int count
-    ) {
-        for (int i = 0; i < count; i++) {
-            outputKeys[i] = generateKey(eventAttrs[i], predicateIds, predicateIds.length);
-        }
-    }
-
-    /**
-     * Thread-local resizable buffer to prevent BufferOverflowException.
-     * Grows as needed up to maxCapacity, then resets to initial size periodically.
-     *
-     * Design rationale (after predicate ID hashing optimization):
-     * - Initial 2KB handles 160+ predicates (typical case)
-     * - Grows to 64KB for extreme rules (5,000+ predicates)
-     * - Avoids repeated allocations via thread-local caching
-     * - Self-healing: resets to initial size if over-grown
-     *
-     * Buffer requirement after optimization:
-     * - 8 bytes: hashed predicate set ID
-     * - N × 12 bytes: (predicate ID + value) pairs for present attributes
-     * - Total: ~8 + 12N bytes (vs old: 4 + 16N bytes = 25% reduction)
+     * P0-2 FIX: Stricter buffer management to prevent allocation storms
      */
     private static class ResizableBuffer {
         private ByteBuffer buffer;
@@ -247,6 +251,7 @@ public class FastCacheKeyGenerator {
         private final int maxCapacity;
         private int currentCapacity;
         private long useCount = 0;
+        private long failedResizes = 0;
 
         ResizableBuffer(int initialCapacity, int maxCapacity) {
             this.initialCapacity = initialCapacity;
@@ -256,52 +261,39 @@ public class FastCacheKeyGenerator {
         }
 
         /**
-         * Ensures the buffer has at least the required capacity.
-         * Grows exponentially (powers of 2) up to maxCapacity.
+         * P0-2 FIX: Returns null if can't allocate, caller uses hash-only fallback
          */
         ByteBuffer ensureCapacity(int requiredCapacity) {
             useCount++;
 
-            // Reset if buffer has been oversized for >10K uses
-            if (useCount % 10000 == 0) {
-                resetIfOversized();
+            // Reset if buffer has been oversized for >1000 uses
+            if (useCount % 1000 == 0 && currentCapacity > initialCapacity * 2) {
+                buffer = ByteBuffer.allocateDirect(initialCapacity);
+                currentCapacity = initialCapacity;
             }
 
             if (requiredCapacity <= currentCapacity) {
                 return buffer;
             }
 
-            // Calculate new capacity: round up to next power of 2
-            int newCapacity = Integer.highestOneBit(requiredCapacity - 1) << 1;
-            newCapacity = Math.max(newCapacity, requiredCapacity);
-            newCapacity = Math.min(newCapacity, maxCapacity);
-
+            // P0-2 FIX: Don't resize if it would exceed max capacity
             if (requiredCapacity > maxCapacity) {
-                throw new IllegalArgumentException(
-                        String.format(
-                                "Required buffer capacity %d exceeds max capacity %d. " +
-                                        "This indicates an extreme rule with %d+ predicates. " +
-                                        "Consider rule refactoring or increasing maxCapacity.",
-                                requiredCapacity, maxCapacity, (requiredCapacity - 4) / 12
-                        )
-                );
+                failedResizes++;
+                return null;  // Caller will use hash-only fallback
             }
 
-            // Allocate new buffer (direct for off-heap allocation)
-            buffer = ByteBuffer.allocateDirect(newCapacity);
-            currentCapacity = newCapacity;
+            // Calculate new capacity: round up to next power of 2
+            int newCapacity = Integer.highestOneBit(requiredCapacity - 1) << 1;
+            newCapacity = Math.min(newCapacity, maxCapacity);
 
-            return buffer;
-        }
-
-        /**
-         * Reset to initial capacity if buffer has grown beyond 4x initial size.
-         * Prevents long-term memory bloat from occasional large rules.
-         */
-        void resetIfOversized() {
-            if (currentCapacity > initialCapacity * 4) {
-                buffer = ByteBuffer.allocateDirect(initialCapacity);
-                currentCapacity = initialCapacity;
+            try {
+                buffer = ByteBuffer.allocateDirect(newCapacity);
+                currentCapacity = newCapacity;
+                return buffer;
+            } catch (OutOfMemoryError e) {
+                // Can't allocate, use hash-only fallback
+                failedResizes++;
+                return null;
             }
         }
     }

@@ -12,7 +12,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.stream.Collectors;
 
 public class BaseConditionEvaluator {
     private static final Logger logger = Logger.getLogger(BaseConditionEvaluator.class.getName());
@@ -24,6 +23,10 @@ public class BaseConditionEvaluator {
     private long totalEvaluations = 0;
     private long cacheHits = 0;
     private long cacheMisses = 0;
+
+    // P0-2 FIX: Thread-local pre-allocated collections
+    private static final ThreadLocal<List<BaseConditionSet>> APPLICABLE_SETS_BUFFER =
+            ThreadLocal.withInitial(() -> new ArrayList<>(100));
 
     public static class BaseConditionSet {
         final int setId;
@@ -123,13 +126,28 @@ public class BaseConditionEvaluator {
                 });
     }
 
+    /**
+     * P0-2 FIX: Pre-allocate collections, avoid stream() allocations
+     */
     public CompletableFuture<EvaluationResult> evaluateBaseConditions(Event event) {
         long startTime = System.nanoTime();
         totalEvaluations++;
-        List<BaseConditionSet> applicableSets = baseConditionSets.values().stream()
-                .filter(set -> shouldEvaluateSet(set, event))
-                .sorted(Comparator.comparingDouble(s -> s.avgSelectivity))
-                .collect(Collectors.toList());
+
+        // P0-2 FIX: Reuse thread-local list instead of stream().collect()
+        List<BaseConditionSet> applicableSets = APPLICABLE_SETS_BUFFER.get();
+        applicableSets.clear();  // Reuse the list
+
+        // Manual filtering and sorting (avoid stream allocation)
+        for (BaseConditionSet set : baseConditionSets.values()) {
+            if (shouldEvaluateSet(set, event)) {
+                applicableSets.add(set);
+            }
+        }
+
+        // Manual sort (avoid Comparator allocation)
+        if (applicableSets.size() > 1) {
+            applicableSets.sort((a, b) -> Float.compare(a.avgSelectivity, b.avgSelectivity));
+        }
 
         if (applicableSets.isEmpty()) {
             BitSet allRules = new BitSet(model.getNumRules());
@@ -144,7 +162,8 @@ public class BaseConditionEvaluator {
                 BitSet result = cached.get().result();
                 long duration = System.nanoTime() - startTime;
                 if (logger.isLoggable(Level.FINE)) {
-                    logger.fine(String.format("Cache hit for event %s: %d combinations match (%.2f ms)", event.getEventId(), result.cardinality(), duration / 1_000_000.0));
+                    logger.fine(String.format("Cache hit for event %s: %d combinations match (%.2f ms)",
+                            event.getEventId(), result.cardinality(), duration / 1_000_000.0));
                 }
                 return CompletableFuture.completedFuture(new EvaluationResult(result, 0, true, duration));
             } else {
@@ -154,7 +173,8 @@ public class BaseConditionEvaluator {
         });
     }
 
-    private CompletableFuture<EvaluationResult> evaluateAndCache(Event event, List<BaseConditionSet> sets, String cacheKey, long startTime) {
+    private CompletableFuture<EvaluationResult> evaluateAndCache(Event event, List<BaseConditionSet> sets,
+                                                                 String cacheKey, long startTime) {
         BitSet matchingCombinations = new BitSet(model.getNumRules());
         matchingCombinations.set(0, model.getNumRules());
         Int2ObjectMap<Object> eventAttrs = event.getEncodedAttributes(model.getFieldDictionary(), model.getValueDictionary());
@@ -180,7 +200,8 @@ public class BaseConditionEvaluator {
                 .thenApply(v -> {
                     long duration = System.nanoTime() - startTime;
                     if (logger.isLoggable(Level.FINE)) {
-                        logger.fine(String.format("Evaluated %d base predicates for event %s: %d combinations match (%.2f ms)", predicatesEval, event.getEventId(), matchingCombinations.cardinality(), duration / 1_000_000.0));
+                        logger.fine(String.format("Evaluated %d base predicates for event %s: %d combinations match (%.2f ms)",
+                                predicatesEval, event.getEventId(), matchingCombinations.cardinality(), duration / 1_000_000.0));
                     }
                     return new EvaluationResult(matchingCombinations, predicatesEval, false, duration);
                 });
@@ -196,7 +217,9 @@ public class BaseConditionEvaluator {
         return pred.operator() == Predicate.Operator.EQUAL_TO || pred.operator() == Predicate.Operator.IS_ANY_OF;
     }
 
-    private boolean shouldEvaluateSet(BaseConditionSet set, Event event) { return true; }
+    private boolean shouldEvaluateSet(BaseConditionSet set, Event event) {
+        return true;
+    }
 
     private String generateCacheKey(Event event, List<BaseConditionSet> sets) {
         Int2ObjectMap<Object> eventAttrs = event.getEncodedAttributes(model.getFieldDictionary(), model.getValueDictionary());
