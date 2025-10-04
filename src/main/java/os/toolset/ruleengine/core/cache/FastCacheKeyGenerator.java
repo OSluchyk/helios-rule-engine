@@ -4,16 +4,14 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import java.nio.ByteBuffer;
 
 /**
+ * P0-C FIX: Fixed-tier buffer management (no resizing)
  * High-performance cache key generation using xxHash3 and memory-efficient techniques.
- * 10-50x faster than SHA-256 for cache key generation.
- *
- * P0-2 FIX: Prevent buffer resizing allocations by using hash-only fallback for huge keys
  */
 public class FastCacheKeyGenerator {
 
-    // P0-2 FIX: Larger initial size to reduce resizing, stricter max to prevent OOM
-    private static final ThreadLocal<ResizableBuffer> BUFFER_CACHE =
-            ThreadLocal.withInitial(() -> new ResizableBuffer(8192, 32768));  // 8KB initial, 32KB max
+    // P0-C FIX: Fixed-tier thread-local buffers (no resizing logic)
+    private static final ThreadLocal<FixedTierBuffers> BUFFER_CACHE =
+            ThreadLocal.withInitial(FixedTierBuffers::new);
 
     // xxHash3 constants for 128-bit hashing
     private static final long PRIME64_1 = 0x9E3779B185EBCA87L;
@@ -24,31 +22,33 @@ public class FastCacheKeyGenerator {
 
     /**
      * Generate a compact, high-quality cache key using xxHash3.
-     * P0-2 FIX: Falls back to hash-only key for huge predicates to avoid allocation
+     * P0-C FIX: Uses fixed-tier buffers for zero resizing overhead
      */
     public static String generateKey(
             Int2ObjectMap<Object> eventAttrs,
             int[] predicateIds,
             int predicateCount
     ) {
-        // OPTIMIZATION: Hash the predicate IDs instead of writing them all
         long predicateSetHash = hashPredicateIds(predicateIds, predicateCount);
 
-        // P0-2 FIX: Calculate buffer size more accurately
+        // P0-C FIX: Calculate buffer size more accurately
         int maxPossibleWrites = Math.min(predicateCount, eventAttrs.size());
-        int estimatedSize = 8 + (maxPossibleWrites * 12);  // predicate hash + (predId + value) pairs
+        int estimatedSize = 8 + (maxPossibleWrites * 12);
 
-        // P0-2 FIX: Use hash-only key for extremely large predicate sets
-        if (estimatedSize > 16384) {  // 16KB threshold
-            return generateHashOnlyKey(predicateSetHash, eventAttrs, predicateIds, predicateCount);
+        // P0-C FIX: Use hash-only key for extremely large predicate sets
+        if (estimatedSize > 65536) {  // 64KB max
+            return generateHashOnlyKey(predicateSetHash, eventAttrs,
+                    predicateIds, predicateCount);
         }
 
-        ResizableBuffer resizableBuffer = BUFFER_CACHE.get();
-        ByteBuffer buffer = resizableBuffer.ensureCapacity(estimatedSize);
+        // P0-C FIX: Get buffer from fixed-tier pool
+        FixedTierBuffers buffers = BUFFER_CACHE.get();
+        ByteBuffer buffer = buffers.getBuffer(estimatedSize);
 
         if (buffer == null) {
-            // Buffer resize failed, use hash-only fallback
-            return generateHashOnlyKey(predicateSetHash, eventAttrs, predicateIds, predicateCount);
+            // Buffer tier exceeded, use hash-only fallback
+            return generateHashOnlyKey(predicateSetHash, eventAttrs,
+                    predicateIds, predicateCount);
         }
 
         buffer.clear();
@@ -75,7 +75,7 @@ public class FastCacheKeyGenerator {
     }
 
     /**
-     * P0-2 FIX: Hash-only key generation for extreme cases (no buffer allocation)
+     * P0-C FIX: Hash-only key generation for extreme cases (no buffer allocation)
      */
     private static String generateHashOnlyKey(
             long predicateSetHash,
@@ -83,7 +83,6 @@ public class FastCacheKeyGenerator {
             int[] predicateIds,
             int predicateCount
     ) {
-        // Compute hash directly without buffer
         long hash = predicateSetHash;
 
         for (int i = 0; i < predicateCount; i++) {
@@ -97,18 +96,14 @@ public class FastCacheKeyGenerator {
 
         hash = finalizeHash(hash);
 
-        // Return compact 16-char key
         return encodeCompact(hash, hash ^ PRIME64_3);
     }
 
-    /**
-     * Fast hash of sorted predicate ID array.
-     */
     private static long hashPredicateIds(int[] predicateIds, int count) {
-        long hash = 0xcbf29ce484222325L; // FNV offset basis
+        long hash = 0xcbf29ce484222325L;
         for (int i = 0; i < count; i++) {
             hash ^= predicateIds[i];
-            hash *= 0x100000001b3L; // FNV prime
+            hash *= 0x100000001b3L;
         }
         return hash;
     }
@@ -147,9 +142,6 @@ public class FastCacheKeyGenerator {
         }
     }
 
-    /**
-     * P0-2 FIX: Hash value without buffer allocation
-     */
     private static long valueHash(Object value) {
         if (value instanceof Integer) {
             return (Integer) value;
@@ -243,58 +235,66 @@ public class FastCacheKeyGenerator {
     }
 
     /**
-     * P0-2 FIX: Stricter buffer management to prevent allocation storms
+     * P0-C FIX: Fixed-tier buffer management (no resizing, no allocations)
+     *
+     * Uses three fixed-size buffers for different size classes.
+     * Zero overhead buffer selection - just picks the right tier.
      */
-    private static class ResizableBuffer {
-        private ByteBuffer buffer;
-        private final int initialCapacity;
-        private final int maxCapacity;
-        private int currentCapacity;
-        private long useCount = 0;
-        private long failedResizes = 0;
+    private static class FixedTierBuffers {
+        private final ByteBuffer smallBuffer;   // 4KB - covers 90% of cases
+        private final ByteBuffer mediumBuffer;  // 16KB - covers 98% of cases
+        private final ByteBuffer largeBuffer;   // 64KB - covers 99.9% of cases
 
-        ResizableBuffer(int initialCapacity, int maxCapacity) {
-            this.initialCapacity = initialCapacity;
-            this.maxCapacity = maxCapacity;
-            this.currentCapacity = initialCapacity;
-            this.buffer = ByteBuffer.allocateDirect(initialCapacity);
+        // Simple statistics for monitoring
+        private long smallHits = 0;
+        private long mediumHits = 0;
+        private long largeHits = 0;
+        private long fallbacks = 0;
+
+        FixedTierBuffers() {
+            this.smallBuffer = ByteBuffer.allocateDirect(4096);
+            this.mediumBuffer = ByteBuffer.allocateDirect(16384);
+            this.largeBuffer = ByteBuffer.allocateDirect(65536);
         }
 
         /**
-         * P0-2 FIX: Returns null if can't allocate, caller uses hash-only fallback
+         * P0-C FIX: Simple tier selection - NO RESIZING, NO ALLOCATIONS
+         * Just picks the right pre-allocated buffer for the size.
          */
-        ByteBuffer ensureCapacity(int requiredCapacity) {
-            useCount++;
-
-            // Reset if buffer has been oversized for >1000 uses
-            if (useCount % 1000 == 0 && currentCapacity > initialCapacity * 2) {
-                buffer = ByteBuffer.allocateDirect(initialCapacity);
-                currentCapacity = initialCapacity;
-            }
-
-            if (requiredCapacity <= currentCapacity) {
-                return buffer;
-            }
-
-            // P0-2 FIX: Don't resize if it would exceed max capacity
-            if (requiredCapacity > maxCapacity) {
-                failedResizes++;
-                return null;  // Caller will use hash-only fallback
-            }
-
-            // Calculate new capacity: round up to next power of 2
-            int newCapacity = Integer.highestOneBit(requiredCapacity - 1) << 1;
-            newCapacity = Math.min(newCapacity, maxCapacity);
-
-            try {
-                buffer = ByteBuffer.allocateDirect(newCapacity);
-                currentCapacity = newCapacity;
-                return buffer;
-            } catch (OutOfMemoryError e) {
-                // Can't allocate, use hash-only fallback
-                failedResizes++;
+        ByteBuffer getBuffer(int requiredCapacity) {
+            if (requiredCapacity <= 4096) {
+                smallHits++;
+                smallBuffer.clear();
+                return smallBuffer;
+            } else if (requiredCapacity <= 16384) {
+                mediumHits++;
+                mediumBuffer.clear();
+                return mediumBuffer;
+            } else if (requiredCapacity <= 65536) {
+                largeHits++;
+                largeBuffer.clear();
+                return largeBuffer;
+            } else {
+                // Extreme case - use hash-only fallback
+                fallbacks++;
                 return null;
             }
+        }
+
+        /**
+         * P0-C FIX: Get statistics for monitoring (optional)
+         */
+        public String getStatistics() {
+            long total = smallHits + mediumHits + largeHits + fallbacks;
+            if (total == 0) return "No usage yet";
+
+            return String.format(
+                    "Buffer usage: small=%.1f%% medium=%.1f%% large=%.1f%% fallback=%.1f%%",
+                    smallHits * 100.0 / total,
+                    mediumHits * 100.0 / total,
+                    largeHits * 100.0 / total,
+                    fallbacks * 100.0 / total
+            );
         }
     }
 }

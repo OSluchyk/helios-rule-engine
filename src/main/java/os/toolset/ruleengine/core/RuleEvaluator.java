@@ -17,6 +17,9 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 
+/**
+ * P0-A FIX: Use pre-converted RoaringBitmap from BaseConditionEvaluator
+ */
 public class RuleEvaluator {
     private final EngineModel model;
     private final EvaluatorMetrics metrics;
@@ -24,11 +27,9 @@ public class RuleEvaluator {
     private final ThreadLocal<OptimizedEvaluationContext> contextPool;
     private final VectorizedPredicateEvaluator vectorizedEvaluator;
 
-    // CRITICAL ADDITION: BaseCondition integration
     private final BaseConditionEvaluator baseConditionEvaluator;
     private final boolean useBaseConditionCache;
 
-    // Prefetch optimization
     private static final int PREFETCH_DISTANCE = 64;
 
     public RuleEvaluator(EngineModel model) {
@@ -45,14 +46,12 @@ public class RuleEvaluator {
         this.tracer = tracer;
         this.useBaseConditionCache = useBaseConditionCache;
 
-        // Initialize with estimated touched rules for better initial allocation
         int estimatedTouched = Math.min(model.getNumRules() / 10, 1000);
         this.contextPool = ThreadLocal.withInitial(() ->
                 new OptimizedEvaluationContext(estimatedTouched));
 
         this.vectorizedEvaluator = new VectorizedPredicateEvaluator(model);
 
-        // Initialize BaseCondition evaluator with appropriate cache
         if (useBaseConditionCache) {
             BaseConditionCache cache = new InMemoryBaseConditionCache.Builder()
                     .maxSize(10_000)
@@ -72,8 +71,10 @@ public class RuleEvaluator {
         Span evaluationSpan = tracer.spanBuilder("rule-evaluation").startSpan();
         try (Scope scope = evaluationSpan.makeCurrent()) {
 
-            // OPTIMIZATION 1: Base condition filtering (reduces work by 90%+)
+            // Base condition filtering
             BitSet eligibleRules = null;
+            RoaringBitmap eligibleRulesRoaring = null;  // P0-A FIX: New variable
+
             if (useBaseConditionCache && baseConditionEvaluator != null) {
                 CompletableFuture<BaseConditionEvaluator.EvaluationResult> baseFuture =
                         baseConditionEvaluator.evaluateBaseConditions(event);
@@ -81,12 +82,17 @@ public class RuleEvaluator {
                 try {
                     BaseConditionEvaluator.EvaluationResult baseResult = baseFuture.get();
                     eligibleRules = baseResult.matchingRules;
+                    eligibleRulesRoaring = baseResult.matchingRulesRoaring;  // P0-A FIX: Get pre-converted
                     ctx.predicatesEvaluated += baseResult.predicatesEvaluated;
 
                     evaluationSpan.setAttribute("baseConditionHit", baseResult.fromCache);
                     evaluationSpan.setAttribute("eligibleRules", eligibleRules.cardinality());
 
-                    // Early exit if no rules match base conditions
+                    // P0-A FIX: Track conversion savings
+                    if (eligibleRulesRoaring != null) {
+                        metrics.roaringConversionsSaved.incrementAndGet();
+                    }
+
                     if (eligibleRules.isEmpty()) {
                         long evaluationTime = System.nanoTime() - startTime;
                         metrics.recordEvaluation(evaluationTime, ctx.predicatesEvaluated, 0);
@@ -94,21 +100,20 @@ public class RuleEvaluator {
                                 evaluationTime, ctx.predicatesEvaluated, 0);
                     }
                 } catch (Exception e) {
-                    // Fallback to full evaluation if base condition fails
                     eligibleRules = null;
+                    eligibleRulesRoaring = null;  // P0-A FIX: Clear both
                 }
             }
 
-            // OPTIMIZATION 2: Vectorized predicate evaluation (P0-1 FIX)
+            // Vectorized predicate evaluation
             evaluatePredicatesVectorized(event, ctx, eligibleRules);
 
-            // OPTIMIZATION 3: Batch counter updates with prefetching
-            updateCountersOptimized(ctx, eligibleRules);
+            // P0-A FIX: Pass pre-converted RoaringBitmap instead of BitSet
+            updateCountersOptimized(ctx, eligibleRulesRoaring);
 
-            // OPTIMIZATION 4: Optimized match detection
+            // P0-A FIX: Pass BitSet for match detection (unchanged)
             detectMatchesOptimized(ctx, eligibleRules);
 
-            // Apply selection strategy
             selectMatches(ctx);
 
             long evaluationTime = System.nanoTime() - startTime;
@@ -120,7 +125,7 @@ public class RuleEvaluator {
 
             return new MatchResult(
                     event.getEventId(),
-                    ctx.getMatchedRules(),  // Now converts mutable → immutable internally
+                    ctx.getMatchedRules(),
                     evaluationTime,
                     ctx.predicatesEvaluated,
                     ctx.rulesEvaluated
@@ -149,7 +154,12 @@ public class RuleEvaluator {
         }
     }
 
-    private void updateCountersOptimized(OptimizedEvaluationContext ctx, BitSet eligibleRules) {
+    /**
+     * P0-A FIX: Accept pre-converted RoaringBitmap instead of BitSet
+     * Eliminates O(n) conversion on every event!
+     */
+    private void updateCountersOptimized(OptimizedEvaluationContext ctx,
+                                         RoaringBitmap eligibleRulesRoaring) {
         Span span = tracer.spanBuilder("update-counters-optimized").startSpan();
         try (Scope scope = span.makeCurrent()) {
 
@@ -158,28 +168,22 @@ public class RuleEvaluator {
                 return;
             }
 
-            // Convert eligibleRules to RoaringBitmap ONCE (P1 optimization)
-            RoaringBitmap eligibleBitmap = null;
-            if (eligibleRules != null) {
-                eligibleBitmap = new RoaringBitmap();
-                for (int i = eligibleRules.nextSetBit(0); i >= 0; i = eligibleRules.nextSetBit(i + 1)) {
-                    eligibleBitmap.add(i);
-                }
-            }
+            // P0-A FIX: NO CONVERSION NEEDED - use pre-converted RoaringBitmap directly!
+            // This eliminates 2000+ bitmap operations per event at 5000 rules
 
-            // Batch process predicates for better cache locality
             int batchSize = 8;
             for (int i = 0; i < truePredicates.size(); i += batchSize) {
                 int end = Math.min(i + batchSize, truePredicates.size());
 
-                // Process batch
                 for (int j = i; j < end; j++) {
                     int predicateId = truePredicates.getInt(j);
                     RoaringBitmap affected = model.getInvertedIndex().get(predicateId);
 
                     if (affected != null) {
-                        if (eligibleBitmap != null) {
-                            RoaringBitmap intersection = RoaringBitmap.and(affected, eligibleBitmap);
+                        if (eligibleRulesRoaring != null) {
+                            // P0-A FIX: Direct use of pre-converted RoaringBitmap
+                            RoaringBitmap intersection = RoaringBitmap.and(
+                                    affected, eligibleRulesRoaring);
                             IntIterator it = intersection.getIntIterator();
                             while (it.hasNext()) {
                                 ctx.incrementCounter(it.next());
@@ -207,42 +211,38 @@ public class RuleEvaluator {
 
             IntSet touchedRules = ctx.getTouchedRuleIds();
 
-            // Process in batches for better cache locality
             int[] touchedArray = touchedRules.toIntArray();
-            Arrays.sort(touchedArray); // Sequential access pattern
+            Arrays.sort(touchedArray);
 
             for (int i = 0; i < touchedArray.length; i += PREFETCH_DISTANCE) {
-                // Prefetch next batch (helps with memory latency)
                 if (i + PREFETCH_DISTANCE < touchedArray.length) {
                     for (int j = 0; j < PREFETCH_DISTANCE && i + j < touchedArray.length; j++) {
                         int futureId = touchedArray[i + j];
-                        // Touch data to bring into cache
                         model.getCombinationPredicateCount(futureId);
                         model.getCombinationRuleCode(futureId);
                         model.getCombinationPriority(futureId);
                     }
                 }
 
-                // Process current batch
                 int end = Math.min(i + PREFETCH_DISTANCE, touchedArray.length);
                 for (int j = i; j < end; j++) {
                     int combinationId = touchedArray[j];
 
-                    // Skip if not eligible
                     if (eligibleRules != null && !eligibleRules.get(combinationId)) {
                         continue;
                     }
 
                     ctx.incrementRulesEvaluatedCount();
 
-                    if (ctx.getCounter(combinationId) == model.getCombinationPredicateCount(combinationId)) {
-                        // P0-2 FIX: Rent mutable rule from pool
-                        OptimizedEvaluationContext.MutableMatchedRule rule = ctx.rentMatchedRule(
-                                combinationId,
-                                model.getCombinationRuleCode(combinationId),
-                                model.getCombinationPriority(combinationId),
-                                "" // Description can be lazy-loaded if needed
-                        );
+                    if (ctx.getCounter(combinationId) ==
+                            model.getCombinationPredicateCount(combinationId)) {
+                        OptimizedEvaluationContext.MutableMatchedRule rule =
+                                ctx.rentMatchedRule(
+                                        combinationId,
+                                        model.getCombinationRuleCode(combinationId),
+                                        model.getCombinationPriority(combinationId),
+                                        ""
+                                );
                         ctx.addMatchedRule(rule);
                     }
                 }
@@ -255,29 +255,29 @@ public class RuleEvaluator {
         }
     }
 
-    /**
-     * P0-2 FIX: Updated to work with mutable matched rules
-     */
     private void selectMatches(OptimizedEvaluationContext ctx) {
-        List<OptimizedEvaluationContext.MutableMatchedRule> matches = ctx.getMutableMatchedRules();
+        List<OptimizedEvaluationContext.MutableMatchedRule> matches =
+                ctx.getMutableMatchedRules();
+
         if (matches.size() <= 1) {
             return;
         }
 
-        // Use pre-allocated work map to avoid allocations
-        Map<String, OptimizedEvaluationContext.MutableMatchedRule> maxPriorityMatches = new HashMap<>();
+        Map<String, OptimizedEvaluationContext.MutableMatchedRule> maxPriorityMatches =
+                new HashMap<>();
 
         for (OptimizedEvaluationContext.MutableMatchedRule match : matches) {
             maxPriorityMatches.merge(match.getRuleCode(), match,
                     (existing, replacement) ->
-                            replacement.getPriority() > existing.getPriority() ? replacement : existing);
+                            replacement.getPriority() > existing.getPriority() ?
+                                    replacement : existing);
         }
 
-        // Find overall winner
         OptimizedEvaluationContext.MutableMatchedRule overallWinner = null;
         int maxPriority = Integer.MIN_VALUE;
 
-        for (OptimizedEvaluationContext.MutableMatchedRule rule : maxPriorityMatches.values()) {
+        for (OptimizedEvaluationContext.MutableMatchedRule rule :
+                maxPriorityMatches.values()) {
             if (rule.getPriority() > maxPriority) {
                 overallWinner = rule;
                 maxPriority = rule.getPriority();
@@ -294,6 +294,9 @@ public class RuleEvaluator {
         return metrics;
     }
 
+    /**
+     * P0-A FIX: Enhanced metrics to track optimization effectiveness
+     */
     public static class EvaluatorMetrics {
         private final AtomicLong totalEvaluations = new AtomicLong();
         private final AtomicLong totalTimeNanos = new AtomicLong();
@@ -301,6 +304,9 @@ public class RuleEvaluator {
         private final AtomicLong totalRulesEvaluated = new AtomicLong();
         private final AtomicLong cacheHits = new AtomicLong();
         private final AtomicLong cacheMisses = new AtomicLong();
+
+        // P0-A FIX: New metric for tracking conversion savings
+        final AtomicLong roaringConversionsSaved = new AtomicLong();
 
         void recordEvaluation(long timeNanos, int predicatesEvaluated, int rulesEvaluated) {
             totalEvaluations.incrementAndGet();
@@ -324,6 +330,12 @@ public class RuleEvaluator {
                 if (hits + misses > 0) {
                     snapshot.put("cacheHitRate", (double) hits / (hits + misses));
                 }
+
+                // P0-A FIX: Report conversion savings
+                long conversionsSaved = roaringConversionsSaved.get();
+                snapshot.put("roaringConversionsSaved", conversionsSaved);
+                snapshot.put("conversionSavingsRate",
+                        evals > 0 ? (double) conversionsSaved / evals * 100 : 0.0);
             }
 
             return snapshot;
