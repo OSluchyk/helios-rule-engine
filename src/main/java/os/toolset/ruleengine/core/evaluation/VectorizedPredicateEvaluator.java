@@ -17,6 +17,7 @@ import java.util.logging.Logger;
 /**
  * Enhanced vectorized predicate evaluator with Float16 support and optimized memory patterns
  * P0-1 FIX: Added eligibleRules filtering to prevent evaluation of ineligible predicates
+ * P0-3 FIX: Fixed array bounds checking in vectorized loops
  */
 public class VectorizedPredicateEvaluator {
     private static final Logger logger = Logger.getLogger(VectorizedPredicateEvaluator.class.getName());
@@ -206,6 +207,7 @@ public class VectorizedPredicateEvaluator {
     /**
      * Enhanced numeric batch evaluator with Float16 support
      * P0-1 FIX: Added eligiblePredicateIds filtering
+     * P0-3 FIX: Fixed bounds checking in vectorized loops
      */
     public static class NumericBatchEvaluator {
         private final int fieldId;
@@ -231,12 +233,16 @@ public class VectorizedPredicateEvaluator {
             );
 
             // Pre-compute thresholds for Float16 conversion
-            this.thresholdCache = new float[maxGroupSize];
+            // P0-3 FIX: Allocate extra space for vector alignment
+            int paddedSize = ((maxGroupSize + FLOAT16_SPECIES.length() - 1) / FLOAT16_SPECIES.length())
+                    * FLOAT16_SPECIES.length();
+            this.thresholdCache = new float[paddedSize];
         }
 
         /**
          * Evaluate using Float16 for better throughput and lower memory bandwidth
          * P0-1 FIX: Filter by eligible predicate IDs
+         * P0-3 FIX: Fixed bounds checking
          */
         public IntSet evaluateFloat16(float eventValue, IntSet eligiblePredicateIds) {
             IntSet matches = new IntOpenHashSet();
@@ -260,6 +266,9 @@ public class VectorizedPredicateEvaluator {
             return matches;
         }
 
+        /**
+         * P0-3 FIX: Fixed array bounds checking
+         */
         private void evaluateGTFloat16(float eventValue, PredicateGroup group, IntSet matches,
                                        IntSet eligiblePredicateIds) {
             int count = group.predicates.length;
@@ -272,24 +281,42 @@ public class VectorizedPredicateEvaluator {
                 for (int i = 0; i < count; i++) {
                     thresholdCache[i] = (float) group.predicates[i].value;
                 }
+                // P0-3 FIX: Pad remaining slots to avoid bounds issues
+                Arrays.fill(thresholdCache, count, thresholdCache.length, 0.0f);
 
                 FloatVector eventVec = FloatVector.broadcast(FLOAT16_SPECIES, eventValue);
 
-                // Process in chunks of vector length
-                for (int i = 0; i < count; i += FLOAT16_SPECIES.length()) {
-                    int limit = Math.min(i + FLOAT16_SPECIES.length(), count);
+                // P0-3 FIX: Process only full vectors, handle remainder separately
+                int vectorCount = count / FLOAT16_SPECIES.length();
+                int remainder = count % FLOAT16_SPECIES.length();
+
+                // Process full vectors
+                for (int i = 0; i < vectorCount; i++) {
+                    int offset = i * FLOAT16_SPECIES.length();
 
                     FloatVector thresholdVec = FloatVector.fromArray(
-                            FLOAT16_SPECIES, thresholdCache, i
+                            FLOAT16_SPECIES, thresholdCache, offset
                     );
 
                     VectorMask<Float> mask = eventVec.compare(VectorOperators.GT, thresholdVec);
 
-                    // Process matches with unrolled loop
-                    for (int j = 0; j < limit - i; j++) {
+                    // Process matches
+                    for (int j = 0; j < FLOAT16_SPECIES.length(); j++) {
                         if (mask.laneIsSet(j)) {
-                            int predId = group.predicates[i + j].id;
-                            // P0-1 FIX: Check eligibility
+                            int predId = group.predicates[offset + j].id;
+                            if (eligiblePredicateIds == null || eligiblePredicateIds.contains(predId)) {
+                                matches.add(predId);
+                            }
+                        }
+                    }
+                }
+
+                // P0-3 FIX: Process remainder with scalar code
+                if (remainder > 0) {
+                    int start = vectorCount * FLOAT16_SPECIES.length();
+                    for (int i = start; i < count; i++) {
+                        if (eventValue > group.predicates[i].value) {
+                            int predId = group.predicates[i].id;
                             if (eligiblePredicateIds == null || eligiblePredicateIds.contains(predId)) {
                                 matches.add(predId);
                             }
@@ -302,6 +329,9 @@ public class VectorizedPredicateEvaluator {
             }
         }
 
+        /**
+         * P0-3 FIX: Fixed array bounds checking
+         */
         private void evaluateLTFloat16(float eventValue, PredicateGroup group, IntSet matches,
                                        IntSet eligiblePredicateIds) {
             int count = group.predicates.length;
@@ -312,20 +342,37 @@ public class VectorizedPredicateEvaluator {
                 for (int i = 0; i < count; i++) {
                     thresholdCache[i] = (float) group.predicates[i].value;
                 }
+                Arrays.fill(thresholdCache, count, thresholdCache.length, 0.0f);
 
                 FloatVector eventVec = FloatVector.broadcast(FLOAT16_SPECIES, eventValue);
 
-                for (int i = 0; i < count; i += FLOAT16_SPECIES.length()) {
+                int vectorCount = count / FLOAT16_SPECIES.length();
+                int remainder = count % FLOAT16_SPECIES.length();
+
+                for (int i = 0; i < vectorCount; i++) {
+                    int offset = i * FLOAT16_SPECIES.length();
+
                     FloatVector thresholdVec = FloatVector.fromArray(
-                            FLOAT16_SPECIES, thresholdCache, i
+                            FLOAT16_SPECIES, thresholdCache, offset
                     );
 
                     VectorMask<Float> mask = eventVec.compare(VectorOperators.LT, thresholdVec);
 
-                    int limit = Math.min(i + FLOAT16_SPECIES.length(), count);
-                    for (int j = 0; j < limit - i; j++) {
+                    for (int j = 0; j < FLOAT16_SPECIES.length(); j++) {
                         if (mask.laneIsSet(j)) {
-                            int predId = group.predicates[i + j].id;
+                            int predId = group.predicates[offset + j].id;
+                            if (eligiblePredicateIds == null || eligiblePredicateIds.contains(predId)) {
+                                matches.add(predId);
+                            }
+                        }
+                    }
+                }
+
+                if (remainder > 0) {
+                    int start = vectorCount * FLOAT16_SPECIES.length();
+                    for (int i = start; i < count; i++) {
+                        if (eventValue < group.predicates[i].value) {
+                            int predId = group.predicates[i].id;
                             if (eligiblePredicateIds == null || eligiblePredicateIds.contains(predId)) {
                                 matches.add(predId);
                             }
@@ -337,9 +384,11 @@ public class VectorizedPredicateEvaluator {
             }
         }
 
+        /**
+         * P0-3 FIX: Fixed array bounds checking
+         */
         private void evaluateBetweenFloat16(float eventValue, PredicateGroup group, IntSet matches,
                                             IntSet eligiblePredicateIds) {
-            // Between requires two comparisons - optimize with fused operations
             int count = group.predicates.length;
 
             if (count >= FLOAT16_SPECIES.length()) {
@@ -347,31 +396,45 @@ public class VectorizedPredicateEvaluator {
 
                 FloatVector eventVec = FloatVector.broadcast(FLOAT16_SPECIES, eventValue);
 
-                for (int i = 0; i < count; i += FLOAT16_SPECIES.length()) {
-                    int limit = Math.min(i + FLOAT16_SPECIES.length(), count);
+                int vectorCount = count / FLOAT16_SPECIES.length();
+                int remainder = count % FLOAT16_SPECIES.length();
 
-                    // Prepare lower and upper bounds in separate arrays
+                for (int i = 0; i < vectorCount; i++) {
+                    int offset = i * FLOAT16_SPECIES.length();
+
+                    // Prepare lower and upper bounds
                     float[] lowerBounds = new float[FLOAT16_SPECIES.length()];
                     float[] upperBounds = new float[FLOAT16_SPECIES.length()];
 
-                    for (int j = 0; j < limit - i; j++) {
-                        lowerBounds[j] = (float) group.predicates[i + j].value;
-                        upperBounds[j] = (float) group.predicates[i + j].value2;
+                    for (int j = 0; j < FLOAT16_SPECIES.length(); j++) {
+                        lowerBounds[j] = (float) group.predicates[offset + j].value;
+                        upperBounds[j] = (float) group.predicates[offset + j].value2;
                     }
 
-                    // Load bounds into vectors
                     FloatVector lowerVec = FloatVector.fromArray(FLOAT16_SPECIES, lowerBounds, 0);
                     FloatVector upperVec = FloatVector.fromArray(FLOAT16_SPECIES, upperBounds, 0);
 
-                    // Perform comparisons
                     VectorMask<Float> lowerMask = eventVec.compare(VectorOperators.GE, lowerVec);
                     VectorMask<Float> upperMask = eventVec.compare(VectorOperators.LE, upperVec);
                     VectorMask<Float> combinedMask = lowerMask.and(upperMask);
 
-                    // Process matches
-                    for (int j = 0; j < limit - i; j++) {
+                    for (int j = 0; j < FLOAT16_SPECIES.length(); j++) {
                         if (combinedMask.laneIsSet(j)) {
-                            int predId = group.predicates[i + j].id;
+                            int predId = group.predicates[offset + j].id;
+                            if (eligiblePredicateIds == null || eligiblePredicateIds.contains(predId)) {
+                                matches.add(predId);
+                            }
+                        }
+                    }
+                }
+
+                // Process remainder
+                if (remainder > 0) {
+                    int start = vectorCount * FLOAT16_SPECIES.length();
+                    for (int i = start; i < count; i++) {
+                        if (eventValue >= group.predicates[i].value &&
+                                eventValue <= group.predicates[i].value2) {
+                            int predId = group.predicates[i].id;
                             if (eligiblePredicateIds == null || eligiblePredicateIds.contains(predId)) {
                                 matches.add(predId);
                             }
