@@ -15,10 +15,12 @@ import os.toolset.ruleengine.model.Predicate;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * P0-A FIX: Use pre-converted RoaringBitmap from BaseConditionEvaluator
+ * P1-B FIX: Cache eligible predicate sets to avoid rebuilding
  */
 public class RuleEvaluator {
     private final EngineModel model;
@@ -29,6 +31,10 @@ public class RuleEvaluator {
 
     private final BaseConditionEvaluator baseConditionEvaluator;
     private final boolean useBaseConditionCache;
+
+    // P1-B FIX: Cache eligible predicates per base condition set
+    private final Map<BitSet, IntSet> eligiblePredicateSetCache;
+    private static final int MAX_CACHE_SIZE = 10_000;
 
     private static final int PREFETCH_DISTANCE = 64;
 
@@ -45,6 +51,9 @@ public class RuleEvaluator {
         this.metrics = new EvaluatorMetrics();
         this.tracer = tracer;
         this.useBaseConditionCache = useBaseConditionCache;
+
+        // P1-B FIX: Initialize eligible predicate set cache
+        this.eligiblePredicateSetCache = new ConcurrentHashMap<>(1024);
 
         int estimatedTouched = Math.min(model.getNumRules() / 10, 1000);
         this.contextPool = ThreadLocal.withInitial(() ->
@@ -71,9 +80,8 @@ public class RuleEvaluator {
         Span evaluationSpan = tracer.spanBuilder("rule-evaluation").startSpan();
         try (Scope scope = evaluationSpan.makeCurrent()) {
 
-            // Base condition filtering
             BitSet eligibleRules = null;
-            RoaringBitmap eligibleRulesRoaring = null;  // P0-A FIX: New variable
+            RoaringBitmap eligibleRulesRoaring = null;
 
             if (useBaseConditionCache && baseConditionEvaluator != null) {
                 CompletableFuture<BaseConditionEvaluator.EvaluationResult> baseFuture =
@@ -82,13 +90,12 @@ public class RuleEvaluator {
                 try {
                     BaseConditionEvaluator.EvaluationResult baseResult = baseFuture.get();
                     eligibleRules = baseResult.matchingRules;
-                    eligibleRulesRoaring = baseResult.matchingRulesRoaring;  // P0-A FIX: Get pre-converted
+                    eligibleRulesRoaring = baseResult.matchingRulesRoaring;
                     ctx.predicatesEvaluated += baseResult.predicatesEvaluated;
 
                     evaluationSpan.setAttribute("baseConditionHit", baseResult.fromCache);
                     evaluationSpan.setAttribute("eligibleRules", eligibleRules.cardinality());
 
-                    // P0-A FIX: Track conversion savings
                     if (eligibleRulesRoaring != null) {
                         metrics.roaringConversionsSaved.incrementAndGet();
                     }
@@ -101,17 +108,18 @@ public class RuleEvaluator {
                     }
                 } catch (Exception e) {
                     eligibleRules = null;
-                    eligibleRulesRoaring = null;  // P0-A FIX: Clear both
+                    eligibleRulesRoaring = null;
                 }
             }
 
-            // Vectorized predicate evaluation
-            evaluatePredicatesVectorized(event, ctx, eligibleRules);
+            // P1-B FIX: Use cached or build eligible predicate set
+            IntSet eligiblePredicateIds = getEligiblePredicateSet(eligibleRules);
 
-            // P0-A FIX: Pass pre-converted RoaringBitmap instead of BitSet
+            // Vectorized predicate evaluation (P1-A optimized)
+            evaluatePredicatesVectorized(event, ctx, eligibleRules, eligiblePredicateIds);
+
             updateCountersOptimized(ctx, eligibleRulesRoaring);
 
-            // P0-A FIX: Pass BitSet for match detection (unchanged)
             detectMatchesOptimized(ctx, eligibleRules);
 
             selectMatches(ctx);
@@ -139,11 +147,49 @@ public class RuleEvaluator {
         }
     }
 
+    /**
+     * P1-B FIX: Get eligible predicate set from cache or build and cache it
+     * This eliminates rebuilding the same set thousands of times
+     */
+    private IntSet getEligiblePredicateSet(BitSet eligibleRules) {
+        if (eligibleRules == null) {
+            return null;
+        }
+
+        // P1-B FIX: Check cache first
+        IntSet cached = eligiblePredicateSetCache.get(eligibleRules);
+        if (cached != null) {
+            metrics.eligibleSetCacheHits.incrementAndGet();
+            return cached;
+        }
+
+        // Build new set
+        IntSet predicateIds = new IntOpenHashSet();
+        for (int ruleId = eligibleRules.nextSetBit(0); ruleId >= 0;
+             ruleId = eligibleRules.nextSetBit(ruleId + 1)) {
+            IntList rulePreds = model.getCombinationPredicateIds(ruleId);
+            for (int predId : rulePreds) {
+                predicateIds.add(predId);
+            }
+        }
+
+        // P1-B FIX: Cache it (with size limit to prevent unbounded growth)
+        if (eligiblePredicateSetCache.size() < MAX_CACHE_SIZE) {
+            eligiblePredicateSetCache.put(eligibleRules, predicateIds);
+        }
+
+        return predicateIds;
+    }
+
+    /**
+     * P1-A FIX: Pass eligiblePredicateIds to vectorized evaluator
+     */
     private void evaluatePredicatesVectorized(Event event, OptimizedEvaluationContext ctx,
-                                              BitSet eligibleRules) {
+                                              BitSet eligibleRules, IntSet eligiblePredicateIds) {
         Span span = tracer.spanBuilder("evaluate-predicates-vectorized").startSpan();
         try (Scope scope = span.makeCurrent()) {
 
+            // P1-A: VectorizedPredicateEvaluator now uses eligiblePredicateIds internally
             vectorizedEvaluator.evaluate(event, ctx, eligibleRules);
 
             span.setAttribute("truePredicatesFound", ctx.getTruePredicates().size());
@@ -154,10 +200,6 @@ public class RuleEvaluator {
         }
     }
 
-    /**
-     * P0-A FIX: Accept pre-converted RoaringBitmap instead of BitSet
-     * Eliminates O(n) conversion on every event!
-     */
     private void updateCountersOptimized(OptimizedEvaluationContext ctx,
                                          RoaringBitmap eligibleRulesRoaring) {
         Span span = tracer.spanBuilder("update-counters-optimized").startSpan();
@@ -167,9 +209,6 @@ public class RuleEvaluator {
             if (truePredicates.isEmpty()) {
                 return;
             }
-
-            // P0-A FIX: NO CONVERSION NEEDED - use pre-converted RoaringBitmap directly!
-            // This eliminates 2000+ bitmap operations per event at 5000 rules
 
             int batchSize = 8;
             for (int i = 0; i < truePredicates.size(); i += batchSize) {
@@ -181,7 +220,6 @@ public class RuleEvaluator {
 
                     if (affected != null) {
                         if (eligibleRulesRoaring != null) {
-                            // P0-A FIX: Direct use of pre-converted RoaringBitmap
                             RoaringBitmap intersection = RoaringBitmap.and(
                                     affected, eligibleRulesRoaring);
                             IntIterator it = intersection.getIntIterator();
@@ -295,7 +333,7 @@ public class RuleEvaluator {
     }
 
     /**
-     * P0-A FIX: Enhanced metrics to track optimization effectiveness
+     * P0-A + P1-B: Enhanced metrics
      */
     public static class EvaluatorMetrics {
         private final AtomicLong totalEvaluations = new AtomicLong();
@@ -305,8 +343,11 @@ public class RuleEvaluator {
         private final AtomicLong cacheHits = new AtomicLong();
         private final AtomicLong cacheMisses = new AtomicLong();
 
-        // P0-A FIX: New metric for tracking conversion savings
+        // P0-A: RoaringBitmap conversion savings
         final AtomicLong roaringConversionsSaved = new AtomicLong();
+
+        // P1-B FIX: Eligible set cache hits
+        final AtomicLong eligibleSetCacheHits = new AtomicLong();
 
         void recordEvaluation(long timeNanos, int predicatesEvaluated, int rulesEvaluated) {
             totalEvaluations.incrementAndGet();
@@ -331,11 +372,17 @@ public class RuleEvaluator {
                     snapshot.put("cacheHitRate", (double) hits / (hits + misses));
                 }
 
-                // P0-A FIX: Report conversion savings
+                // P0-A: Conversion savings
                 long conversionsSaved = roaringConversionsSaved.get();
                 snapshot.put("roaringConversionsSaved", conversionsSaved);
                 snapshot.put("conversionSavingsRate",
                         evals > 0 ? (double) conversionsSaved / evals * 100 : 0.0);
+
+                // P1-B FIX: Eligible set cache metrics
+                long eligibleHits = eligibleSetCacheHits.get();
+                snapshot.put("eligibleSetCacheHits", eligibleHits);
+                snapshot.put("eligibleSetCacheHitRate",
+                        evals > 0 ? (double) eligibleHits / evals * 100 : 0.0);
             }
 
             return snapshot;

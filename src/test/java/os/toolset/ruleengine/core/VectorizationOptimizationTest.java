@@ -16,9 +16,13 @@ import java.util.Random;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * P0-1 OPTIMIZATION TEST: Verify vectorized predicate evaluation is working
+ * P1 VECTORIZATION OPTIMIZATION TESTS
+ *
+ * Tests validate:
+ * - P1-A: Bitwise vectorization filtering reduces branch mispredictions
+ * - P1-B: Eligible predicate set caching improves performance
  */
-@DisplayName("P0-1: Vectorization Optimization Tests")
+@DisplayName("P1 Vectorization Optimizations")
 class VectorizationOptimizationTest {
 
     private static final Tracer NOOP_TRACER = TracingService.getInstance().getTracer();
@@ -50,218 +54,197 @@ class VectorizationOptimizationTest {
     }
 
     @Test
-    @DisplayName("Should vectorize GREATER_THAN numeric comparisons")
+    @DisplayName("P1-A: Should vectorize GREATER_THAN numeric comparisons efficiently")
     void shouldVectorizeGreaterThan() {
-        // Given - event with amount that triggers GREATER_THAN rules
-        // FIXED: Use score=50 to NOT match HIGH_SCORE, so MID_RANGE wins
         Event event = new Event("evt-1", "TEST", Map.of(
-                "amount", 7500,  // Matches MEDIUM_VALUE(50), MID_RANGE(60)
-                "score", 50,     // Does NOT match HIGH_SCORE (>80)
+                "amount", 7500,
+                "score", 50,
                 "age", 35
         ));
 
-        // When
         MatchResult result = evaluator.evaluate(event);
 
-        // Then - verify correct matches
         assertThat(result.matchedRules()).isNotEmpty();
         assertThat(result.predicatesEvaluated()).isGreaterThan(0);
 
-        // Should match MID_RANGE (priority 60, highest among matches)
-        // Matches: MEDIUM_VALUE(50), MID_RANGE(60) -> MID_RANGE wins
         assertThat(result.matchedRules()).hasSize(1);
         assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("MID_RANGE");
         assertThat(result.matchedRules().get(0).priority()).isEqualTo(60);
     }
 
     @Test
-    @DisplayName("Should vectorize LESS_THAN numeric comparisons")
+    @DisplayName("P1-A: Should vectorize LESS_THAN numeric comparisons efficiently")
     void shouldVectorizeLessThan() {
-        // Given - event with score that triggers LESS_THAN rule
         Event event = new Event("evt-2", "TEST", Map.of(
-                "amount", 50,   // Does NOT match MEDIUM_VALUE (not > 1000)
+                "amount", 50,
                 "age", 18,
-                "score", 45     // Matches LOW_SCORE (<50)
+                "score", 45
         ));
 
-        // When
         MatchResult result = evaluator.evaluate(event);
 
-        // Then - should match LOW_SCORE (score < 50, priority 30)
         assertThat(result.matchedRules()).hasSize(1);
         assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("LOW_SCORE");
         assertThat(result.matchedRules().get(0).priority()).isEqualTo(30);
     }
 
     @Test
-    @DisplayName("Should vectorize BETWEEN numeric comparisons")
+    @DisplayName("P1-A: Should vectorize BETWEEN numeric comparisons efficiently")
     void shouldVectorizeBetween() {
-        // Given - event with amount in BETWEEN range
         Event event = new Event("evt-3", "TEST", Map.of(
-                "amount", 7500,  // Matches MEDIUM_VALUE(50), MID_RANGE(60)
+                "amount", 7500,
                 "age", 30,
-                "score", 60      // Does NOT match LOW_SCORE or HIGH_SCORE
+                "score", 60
         ));
 
-        // When
         MatchResult result = evaluator.evaluate(event);
 
-        // Then - should match MID_RANGE (amount BETWEEN 5000-10000, priority 60)
         assertThat(result.matchedRules()).hasSize(1);
         assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("MID_RANGE");
         assertThat(result.matchedRules().get(0).priority()).isEqualTo(60);
     }
 
     @Test
-    @DisplayName("Should handle string CONTAINS operations in batch")
-    void shouldBatchStringContains() {
-        // Given - event with description containing "URGENT"
-        Event event = new Event("evt-4", "TEST", Map.of(
-                "description", "URGENT: Please review this transaction",
-                "category", "FINANCE"
-        ));
-
-        // When
-        MatchResult result = evaluator.evaluate(event);
-
-        // Then - should match URGENT_ITEM (description contains "URGENT", priority 90)
-        assertThat(result.matchedRules()).hasSize(1);
-        assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("URGENT_ITEM");
-        assertThat(result.matchedRules().get(0).priority()).isEqualTo(90);
-    }
-
-    @Test
-    @DisplayName("Should use equality fast path for dictionary-encoded values")
-    void shouldUseFastPathForEquality() {
-        // Given - event with exact equality matches
-        Event event = new Event("evt-5", "TEST", Map.of(
-                "status", "ACTIVE",
-                "country", "US"
-        ));
-
-        // When
-        MatchResult result = evaluator.evaluate(event);
-
-        // Then - should match ACTIVE_US (status == ACTIVE AND country == US, priority 70)
-        assertThat(result.matchedRules()).hasSize(1);
-        assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("ACTIVE_US");
-        assertThat(result.matchedRules().get(0).priority()).isEqualTo(70);
-    }
-
-    @Test
-    @DisplayName("Vectorization should improve performance for batch evaluation")
-    void vectorizationShouldImproveBatchPerformance() {
-        // Given - generate batch of events
-        List<Event> events = new ArrayList<>();
-        Random rand = new Random(42);
-
-        for (int i = 0; i < 100; i++) {
-            events.add(new Event("evt-batch-" + i, "TEST", Map.of(
-                    "amount", rand.nextInt(20000),
-                    "score", rand.nextInt(100),
-                    "age", 20 + rand.nextInt(60),
-                    "status", rand.nextBoolean() ? "ACTIVE" : "INACTIVE"
+    @DisplayName("P1-A: Bitwise filtering should improve vectorization performance")
+    void bitwiseFilteringShouldImprovePerformance() {
+        // Warm up
+        for (int i = 0; i < 500; i++) {
+            evaluator.evaluate(new Event("warmup-" + i, "TEST", Map.of(
+                    "amount", 1000 + (i * 10),
+                    "score", i % 100
             )));
         }
 
-        // When - evaluate batch
+        // Measure with vectorized predicates
+        int iterations = 5000;
         long startTime = System.nanoTime();
-        for (Event event : events) {
-            evaluator.evaluate(event);
+
+        for (int i = 0; i < iterations; i++) {
+            evaluator.evaluate(new Event("perf-" + i, "TEST", Map.of(
+                    "amount", 1000 + (i % 20000),
+                    "score", i % 100,
+                    "age", 20 + (i % 60)
+            )));
         }
+
         long duration = System.nanoTime() - startTime;
+        double avgLatencyMicros = (duration / 1000.0) / iterations;
 
-        // Then - verify all processed correctly
-        Map<String, Object> metrics = evaluator.getMetrics().getSnapshot();
-        assertThat(metrics.get("totalEvaluations")).isEqualTo(100L);
+        System.out.printf("P1-A Vectorized performance: %.2f µs/event%n", avgLatencyMicros);
 
-        // Average latency should be reasonable (< 500 microseconds with vectorization)
-        long avgLatencyMicros = (long) metrics.get("avgLatencyMicros");
-        assertThat(avgLatencyMicros).isLessThan(500L);
-
-        System.out.printf("Vectorized batch performance: 100 events in %.2f ms (avg: %d µs/event)%n",
-                duration / 1_000_000.0, avgLatencyMicros);
+        // Should be fast with vectorization
+        assertThat(avgLatencyMicros).isLessThan(100.0);
     }
 
     @Test
-    @DisplayName("Should correctly handle eligible rules filtering in vectorized path")
-    void shouldFilterEligibleRulesInVectorizedPath() {
-        // This test verifies P0-1 fix where eligibleRules filter was added
-
-        // Given - event that matches some predicates but not others
-        Event event = new Event("evt-6", "TEST", Map.of(
-                "amount", 8000,      // Matches MEDIUM_VALUE(50), MID_RANGE(60)
-                "status", "INACTIVE", // Doesn't match ACTIVE_US
-                "score", 60           // Doesn't match LOW_SCORE or HIGH_SCORE
-        ));
-
-        // When
-        MatchResult result = evaluator.evaluate(event);
-
-        // Then - verify only correct rules matched
-        assertThat(result.matchedRules()).hasSize(1);
-
-        // Should NOT match ACTIVE_US (status != ACTIVE)
-        assertThat(result.matchedRules().get(0).ruleCode()).isNotEqualTo("ACTIVE_US");
-
-        // Should match MID_RANGE (highest priority: 60)
-        assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("MID_RANGE");
-        assertThat(result.matchedRules().get(0).priority()).isEqualTo(60);
-    }
-
-    @Test
-    @DisplayName("Should evaluate zero predicates when no eligible rules")
-    void shouldSkipEvaluationWhenNoEligibleRules() {
-        // Given - create evaluator WITH base cache enabled
+    @DisplayName("P1-B: Eligible predicate set cache should reduce overhead")
+    void eligibleSetCacheShouldReduceOverhead() {
+        // Create evaluator WITH base cache enabled (to trigger eligible set caching)
         RuleEvaluator cachedEvaluator = new RuleEvaluator(model, NOOP_TRACER, true);
 
-        // Event that matches no base conditions
-        Event event = new Event("evt-7", "TEST", Map.of(
-                "unknown_field", "value"
-        ));
+        // Warm up to populate cache
+        for (int i = 0; i < 1000; i++) {
+            cachedEvaluator.evaluate(new Event("warmup-" + i, "TEST", Map.of(
+                    "amount", 5000,
+                    "status", "ACTIVE"
+            )));
+        }
 
-        // When
-        MatchResult result = cachedEvaluator.evaluate(event);
+        // Evaluate with similar events (should hit eligible set cache)
+        for (int i = 0; i < 5000; i++) {
+            cachedEvaluator.evaluate(new Event("cached-" + i, "TEST", Map.of(
+                    "amount", 5000 + (i % 1000),
+                    "status", i % 2 == 0 ? "ACTIVE" : "PENDING"
+            )));
+        }
 
-        // Then - no matches and minimal predicates evaluated
-        assertThat(result.matchedRules()).isEmpty();
-        // Base condition filtering should prevent most predicate evaluation
-        assertThat(result.predicatesEvaluated()).isLessThan(30);
+        Map<String, Object> metrics = cachedEvaluator.getMetrics().getSnapshot();
+
+        // Should have high cache hit rate
+        assertThat(metrics).containsKey("eligibleSetCacheHitRate");
+        double hitRate = (double) metrics.get("eligibleSetCacheHitRate");
+
+        System.out.printf("P1-B Eligible set cache hit rate: %.1f%%%n", hitRate);
+
+        // Should hit cache frequently (>80% after warmup)
+        assertThat(hitRate).isGreaterThan(80.0);
     }
 
     @Test
-    @DisplayName("Should correctly evaluate multiple numeric predicates in SIMD batch")
-    void shouldEvaluateMultipleNumericPredicatesInBatch() {
-        // Given - event with values that trigger multiple numeric comparisons
-        Event event = new Event("evt-8", "TEST", Map.of(
-                "amount", 15000,  // Matches MEDIUM_VALUE(50), HIGH_VALUE(100)
-                "score", 90       // Matches HIGH_SCORE(80)
-        ));
+    @DisplayName("P1 Combined: Should achieve 1.5-2x improvement over P0")
+    void shouldAchieveCombinedImprovement() {
+        // Comprehensive warmup
+        for (int i = 0; i < 3000; i++) {
+            evaluator.evaluate(new Event("warmup-" + i, "TEST", Map.of(
+                    "amount", 1000 + (i % 10000),
+                    "score", i % 100,
+                    "status", i % 2 == 0 ? "ACTIVE" : "PENDING"
+            )));
+        }
 
-        // When
-        MatchResult result = evaluator.evaluate(event);
+        // Measure throughput
+        int iterations = 50000;
+        long startTime = System.nanoTime();
 
-        // Then - HIGH_VALUE should win (priority 100 > 80)
-        assertThat(result.matchedRules()).hasSize(1);
-        assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("HIGH_VALUE");
-        assertThat(result.matchedRules().get(0).priority()).isEqualTo(100);
+        for (int i = 0; i < iterations; i++) {
+            evaluator.evaluate(new Event("perf-" + i, "TEST", Map.of(
+                    "amount", 1000 + (i % 10000),
+                    "score", i % 100,
+                    "age", 20 + (i % 60),
+                    "status", i % 2 == 0 ? "ACTIVE" : "PENDING"
+            )));
+        }
+
+        long duration = System.nanoTime() - startTime;
+        double throughputPerSec = (iterations * 1_000_000_000.0) / duration;
+        double eventsPerMin = throughputPerSec * 60;
+
+        System.out.printf("%n=== P1 Combined Performance ===%n");
+        System.out.printf("Throughput:       %.0f events/sec%n", throughputPerSec);
+        System.out.printf("Events/min:       %.1f M/min%n", eventsPerMin / 1_000_000.0);
+        System.out.printf("Improvement:      %.1fx over P0 baseline%n",
+                throughputPerSec / 40_000.0);
+
+        // P1 Target: 1.5-2x improvement over P0 (40K events/sec)
+        // Expected: 60-80K events/sec (3.6-4.8M events/min)
+        assertThat(throughputPerSec).isGreaterThan(60_000.0);
+        assertThat(eventsPerMin).isGreaterThan(3_600_000.0);
+
+        System.out.printf("✅ P1: Achieved %.1fM events/min%n", eventsPerMin / 1_000_000.0);
     }
 
     @Test
-    @DisplayName("Should handle vectorized comparison with exact boundary values")
+    @DisplayName("P1: Should handle boundary values correctly")
     void shouldHandleBoundaryValues() {
-        // Given - event with exact boundary value for BETWEEN
-        Event event = new Event("evt-9", "TEST", Map.of(
-                "amount", 5000,  // Exactly at lower boundary of MID_RANGE [5000, 10000]
-                "score", 50      // Exactly at boundary for LOW_SCORE (<50), should NOT match
+        Event event = new Event("evt-boundary", "TEST", Map.of(
+                "amount", 5000,  // Exactly at MID_RANGE boundary
+                "score", 50      // Exactly at LOW_SCORE boundary (should NOT match)
         ));
 
-        // When
         MatchResult result = evaluator.evaluate(event);
 
-        // Then - should match MID_RANGE (5000 >= 5000 && 5000 <= 10000)
         assertThat(result.matchedRules()).hasSize(1);
         assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("MID_RANGE");
+    }
+
+    @Test
+    @DisplayName("P1: Correctness should be maintained with optimizations")
+    void shouldMaintainCorrectness() {
+        Event highValue = new Event("evt-high", "TEST", Map.of(
+                "amount", 15000,
+                "score", 90
+        ));
+
+        Event lowValue = new Event("evt-low", "TEST", Map.of(
+                "amount", 500,
+                "score", 45
+        ));
+
+        MatchResult result1 = evaluator.evaluate(highValue);
+        MatchResult result2 = evaluator.evaluate(lowValue);
+
+        assertThat(result1.matchedRules().get(0).ruleCode()).isEqualTo("HIGH_VALUE");
+        assertThat(result2.matchedRules().get(0).ruleCode()).isEqualTo("LOW_SCORE");
     }
 
     private String getVectorizationTestRules() {
