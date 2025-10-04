@@ -114,21 +114,22 @@ public class BaseConditionEvaluator {
                 setId++;
             }
         }
-        baseConditionSets.values().stream()
-                .sorted(Comparator.comparingDouble(s -> s.avgSelectivity))
-                .forEach(set -> {
-                    if (logger.isLoggable(Level.FINE)) {
-                        logger.fine(String.format(
-                                "Base set %d: %d predicates, %d combinations, %.2f selectivity",
-                                set.setId, set.size(), set.affectedRules.getCardinality(), set.avgSelectivity
-                        ));
-                    }
-                });
+
+        // P0-3 FIX: Remove stream allocation in logging
+        if (logger.isLoggable(Level.FINE)) {
+            // Manual sort without stream
+            List<BaseConditionSet> sortedSets = new ArrayList<>(baseConditionSets.values());
+            sortedSets.sort(Comparator.comparingDouble(s -> s.avgSelectivity));
+
+            for (BaseConditionSet set : sortedSets) {
+                logger.fine(String.format(
+                        "Base set %d: %d predicates, %d combinations, %.2f selectivity",
+                        set.setId, set.size(), set.affectedRules.getCardinality(), set.avgSelectivity
+                ));
+            }
+        }
     }
 
-    /**
-     * P0-2 FIX: Pre-allocate collections, avoid stream() allocations
-     */
     public CompletableFuture<EvaluationResult> evaluateBaseConditions(Event event) {
         long startTime = System.nanoTime();
         totalEvaluations++;
@@ -253,6 +254,9 @@ public class BaseConditionEvaluator {
         return (float) (sum / predicateIds.size());
     }
 
+    /**
+     * P0-3 FIX: Removed stream allocation in metrics reporting
+     */
     public Map<String, Object> getMetrics() {
         BaseConditionCache.CacheMetrics cacheMetrics = cache.getMetrics();
         Map<String, Object> metrics = new LinkedHashMap<>();
@@ -261,7 +265,18 @@ public class BaseConditionEvaluator {
         metrics.put("cacheMisses", cacheMisses);
         metrics.put("cacheHitRate", totalEvaluations > 0 ? (double) cacheHits / totalEvaluations : 0.0);
         metrics.put("baseConditionSets", baseConditionSets.size());
-        metrics.put("avgSetSize", baseConditionSets.values().stream().mapToInt(BaseConditionSet::size).average().orElse(0));
+
+        // P0-3 FIX: Manual average calculation instead of stream().mapToInt().average()
+        double avgSetSize = 0.0;
+        if (!baseConditionSets.isEmpty()) {
+            int totalSize = 0;
+            for (BaseConditionSet set : baseConditionSets.values()) {
+                totalSize += set.size();
+            }
+            avgSetSize = (double) totalSize / baseConditionSets.size();
+        }
+        metrics.put("avgSetSize", avgSetSize);
+
         metrics.put("cache", Map.of(
                 "size", cacheMetrics.size(),
                 "hitRate", cacheMetrics.getHitRate(),
