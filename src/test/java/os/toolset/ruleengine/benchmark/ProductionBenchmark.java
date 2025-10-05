@@ -18,6 +18,8 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static org.openjdk.jmh.annotations.Threads.MAX;
+
 /**
  * Production-scale performance benchmarks targeting:
  * - 15-20M events/min throughput
@@ -47,7 +49,7 @@ import java.util.concurrent.atomic.AtomicLong;
 })
 @Warmup(iterations = 10, time = 2)
 @Measurement(iterations = 20, time = 5)
-@Threads(16)  // Simulating concurrent load
+@Threads(MAX)  // Simulating concurrent load
 public class ProductionBenchmark {
 
     @Param({"1000", "10000", "50000", "100000"})
