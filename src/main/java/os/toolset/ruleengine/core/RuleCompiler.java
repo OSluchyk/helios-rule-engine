@@ -148,7 +148,8 @@ public class RuleCompiler {
             Predicate.Operator operator = Predicate.Operator.fromString(cond.operator());
             float selectivity = profile.calculateSelectivity(fieldId, operator, cond.value());
             // FIX: Weight should be directly proportional to selectivity.
-            // Low selectivity (rare) means low weight (cheap to evaluate first).
+            // Sorting is ascending on weight, so the predicates with the lowest selectivity
+            // (most rare, most efficient to check first) will appear first in the sorted list.
             float weight = selectivity;
 
             if (operator == Predicate.Operator.IS_ANY_OF) {
