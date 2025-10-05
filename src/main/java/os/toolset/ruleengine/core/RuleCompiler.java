@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
 import os.toolset.ruleengine.core.optimization.SmartIsAnyOfFactorizer;
@@ -146,7 +147,9 @@ public class RuleCompiler {
             int fieldId = fieldDictionary.getId(cond.field().toUpperCase().replace('-', '_'));
             Predicate.Operator operator = Predicate.Operator.fromString(cond.operator());
             float selectivity = profile.calculateSelectivity(fieldId, operator, cond.value());
-            float weight = 1.0f - selectivity;
+            // FIX: Weight should be directly proportional to selectivity.
+            // Low selectivity (rare) means low weight (cheap to evaluate first).
+            float weight = selectivity;
 
             if (operator == Predicate.Operator.IS_ANY_OF) {
                 List<?> values = (List<?>) cond.value();
@@ -213,16 +216,78 @@ public class RuleCompiler {
     }
 
     private SelectivityProfile profileSelectivity(List<RuleDefinition> definitions, Dictionary fieldDictionary, Dictionary valueDictionary) {
-        // Profiling logic...
-        return new SelectivityProfile(new HashMap<>());
+        return new SelectivityProfile(definitions, fieldDictionary, valueDictionary);
     }
 
+    /**
+     * Phase 4 Optimization: Calculates predicate selectivity to inform evaluation order.
+     * Predicates that are more selective (less likely to be true) are evaluated first.
+     */
     private static class SelectivityProfile {
-        SelectivityProfile(Map<Integer, Set<Integer>> fieldValues) {}
-        float calculateSelectivity(int fieldId, Predicate.Operator operator, Object value) { return 0.5f; }
+        private final Map<Integer, Int2IntOpenHashMap> valueFrequencies = new HashMap<>();
+        private final Int2IntOpenHashMap fieldCounts = new Int2IntOpenHashMap();
+        private final Dictionary valueDictionary;
+
+        SelectivityProfile(List<RuleDefinition> definitions, Dictionary fieldDictionary, Dictionary valueDictionary) {
+            this.valueDictionary = valueDictionary;
+            for (RuleDefinition def : definitions) {
+                for (RuleDefinition.Condition cond : def.conditions()) {
+                    int fieldId = fieldDictionary.getId(cond.field().toUpperCase().replace('-', '_'));
+                    if (fieldId == -1) continue;
+
+                    fieldCounts.addTo(fieldId, 1);
+                    Predicate.Operator op = Predicate.Operator.fromString(cond.operator());
+
+                    if (op == Predicate.Operator.EQUAL_TO) {
+                        int valueId = valueDictionary.getId(String.valueOf(cond.value()));
+                        if (valueId != -1) {
+                            valueFrequencies.computeIfAbsent(fieldId, k -> new Int2IntOpenHashMap()).addTo(valueId, 1);
+                        }
+                    } else if (op == Predicate.Operator.IS_ANY_OF && cond.value() instanceof List) {
+                        ((List<?>) cond.value()).forEach(v -> {
+                            int valueId = valueDictionary.getId(String.valueOf(v));
+                            if (valueId != -1) {
+                                valueFrequencies.computeIfAbsent(fieldId, k -> new Int2IntOpenHashMap()).addTo(valueId, 1);
+                            }
+                        });
+                    }
+                }
+            }
+        }
+
+        float calculateSelectivity(int fieldId, Predicate.Operator operator, Object value) {
+            int total = fieldCounts.getOrDefault(fieldId, 0);
+            if (total == 0) return 0.5f; // Default for unknown fields
+
+            return switch (operator) {
+                case EQUAL_TO -> {
+                    Int2IntOpenHashMap freqs = valueFrequencies.get(fieldId);
+                    if (freqs == null) yield 0.5f;
+                    int valueId = valueDictionary.getId(String.valueOf(value));
+                    yield (float) freqs.getOrDefault(valueId, 0) / total;
+                }
+                case IS_ANY_OF -> {
+                    if (value instanceof List) {
+                        Int2IntOpenHashMap freqs = valueFrequencies.get(fieldId);
+                        if (freqs == null) yield 0.5f;
+                        double sum = ((List<?>) value).stream()
+                                .mapToInt(v -> valueDictionary.getId(String.valueOf(v)))
+                                .mapToDouble(valueId -> (float) freqs.getOrDefault(valueId, 0) / total)
+                                .sum();
+                        yield (float) Math.min(1.0, sum); // Cap at 1.0
+                    }
+                    yield 0.5f;
+                }
+                // Heuristics for non-equality operators
+                case GREATER_THAN, LESS_THAN, BETWEEN -> 0.3f;
+                case CONTAINS, REGEX -> 0.1f;
+                default -> 0.5f;
+            };
+        }
     }
 
     public static class CompilationException extends Exception {
         public CompilationException(String message) { super(message); }
     }
 }
+

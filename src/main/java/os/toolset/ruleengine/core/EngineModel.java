@@ -10,6 +10,7 @@ import os.toolset.ruleengine.core.bitmap.AdaptiveBitmapManager;
 import os.toolset.ruleengine.model.Predicate;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -29,6 +30,7 @@ public final class EngineModel {
     private final Int2ObjectMap<String> combinationIdToLogicalRuleCode;
     private final Int2IntMap combinationIdToPriority;
     private final EngineStats stats;
+    private final List<Predicate> sortedPredicates;
 
     private EngineModel(Builder builder) {
         this.fieldDictionary = builder.fieldDictionary;
@@ -45,6 +47,7 @@ public final class EngineModel {
         this.combinationIdToLogicalRuleCode = builder.combinationIdToLogicalRuleCode;
         this.combinationIdToPriority = builder.combinationIdToPriority;
         this.stats = builder.stats;
+        this.sortedPredicates = builder.sortedPredicates;
     }
 
     public int getNumRules() { return numCombinations; }
@@ -60,6 +63,8 @@ public final class EngineModel {
     public String getCombinationRuleCode(int combinationId) { return combinationIdToLogicalRuleCode.get(combinationId); }
     public int getCombinationPriority(int combinationId) { return combinationIdToPriority.get(combinationId); }
     public IntList getCombinationPredicateIds(int combinationId) { return combinationToPredicateIds[combinationId]; }
+    public List<Predicate> getSortedPredicates() { return sortedPredicates; }
+
 
     public static class Builder {
         Dictionary fieldDictionary;
@@ -69,6 +74,7 @@ public final class EngineModel {
         final Int2ObjectMap<List<Predicate>> fieldToPredicates = new Int2ObjectOpenHashMap<>();
         final Int2ObjectMap<RoaringBitmap> invertedIndex = new Int2ObjectOpenHashMap<>();
         EngineStats stats;
+        List<Predicate> sortedPredicates;
 
         private final Object2IntMap<IntList> combinationToIdMap = new Object2IntOpenHashMap<>();
         final Int2ObjectMap<IntList> idToCombinationMap = new Int2ObjectOpenHashMap<>();
@@ -135,6 +141,10 @@ public final class EngineModel {
                 predicateCounts[i] = pIds.size();
                 combinationToPredicateIds[i] = pIds;
             }
+
+            // Phase 4: Sort all registered predicates by weight (selectivity)
+            sortedPredicates = new ArrayList<>(predicateLookup.values());
+            sortedPredicates.sort(Comparator.comparing(Predicate::weight));
         }
 
         public EngineModel build() {

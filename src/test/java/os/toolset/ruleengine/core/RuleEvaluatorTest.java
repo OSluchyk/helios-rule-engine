@@ -7,6 +7,7 @@ import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import os.toolset.ruleengine.core.RuleCompiler.CompilationException;
 import os.toolset.ruleengine.model.Event;
@@ -17,6 +18,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -185,9 +190,9 @@ class RuleEvaluatorTest {
         assertTrue(spans.stream().anyMatch(s -> s.getName().equals("rule-evaluation")),
                 "Should have 'rule-evaluation' span");
 
-        // Check for updated span names after P0-1 optimization
-        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("evaluate-predicates-vectorized")),
-                "Should have 'evaluate-predicates-vectorized' span");
+        // Check for updated span names after Phase 4 optimization
+        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("evaluate-predicates-weighted")),
+                "Should have 'evaluate-predicates-weighted' span");
         assertTrue(spans.stream().anyMatch(s -> s.getName().equals("update-counters-optimized")),
                 "Should have 'update-counters-optimized' span");
         assertTrue(spans.stream().anyMatch(s -> s.getName().equals("detect-matches-optimized")),
@@ -206,41 +211,54 @@ class RuleEvaluatorTest {
     }
 
     @Test
-    void evaluate_shouldHandleMultipleEvaluationsWithSameContext() {
-        // P0-2 TEST: Verify context reset and pooling works across multiple evaluations
-        Event event1 = new Event("evt-6", "TRANSACTION", Map.of(
-                "transaction_amount", 15000,
-                "country_code", "US"
-        ));
+    @DisplayName("Should work correctly in concurrent scenarios with ScopedValue")
+    void shouldWorkCorrectlyInConcurrentScenariosWithScopedValue() throws InterruptedException {
+        // Given
+        final int threadCount = 8;
+        final int iterationsPerThread = 1000;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch latch = new CountDownLatch(threadCount);
+        AtomicBoolean success = new AtomicBoolean(true);
 
-        Event event2 = new Event("evt-7", "TRANSACTION", Map.of(
-                "transaction_amount", 500,
-                "country_code", "FR",
-                "user_age_days", 1
-        ));
+        // When
+        for (int i = 0; i < threadCount; i++) {
+            final int threadId = i;
+            executor.submit(() -> {
+                try {
+                    for (int j = 0; j < iterationsPerThread; j++) {
+                        int amount = (threadId % 2 == 0) ? 20000 : 500;
+                        int age = (threadId % 2 != 0) ? 1 : 30;
+                        String country = (threadId % 2 == 0) ? "CA" : "DE";
 
-        Event event3 = new Event("evt-8", "TRANSACTION", Map.of(
-                "transaction_amount", 25000,
-                "country_code", "GB"
-        ));
+                        Event event = new Event("evt-" + threadId + "-" + j, "TEST", Map.of(
+                                "transaction_amount", amount,
+                                "country_code", country,
+                                "user_age_days", age
+                        ));
 
-        // When - evaluate multiple times (should reuse context and pooled objects)
-        MatchResult result1 = ruleEvaluator.evaluate(event1);
-        MatchResult result2 = ruleEvaluator.evaluate(event2);
-        MatchResult result3 = ruleEvaluator.evaluate(event3);
+                        MatchResult result = ruleEvaluator.evaluate(event);
 
-        // Then - all should work correctly
-        assertEquals(1, result1.matchedRules().size());
-        assertEquals("HIGH_VALUE_TRANSACTION", result1.matchedRules().get(0).ruleCode());
+                        // Then - verify results are correct and not mixed up between threads
+                        assertNotNull(result);
+                        assertEquals(1, result.matchedRules().size());
+                        if (threadId % 2 == 0) {
+                            assertEquals("HIGH_VALUE_TRANSACTION", result.matchedRules().get(0).ruleCode());
+                        } else {
+                            assertEquals("NEW_USER_ALERT", result.matchedRules().get(0).ruleCode());
+                        }
+                    }
+                } catch (Throwable t) {
+                    t.printStackTrace();
+                    success.set(false);
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
 
-        assertEquals(1, result2.matchedRules().size());
-        assertEquals("NEW_USER_ALERT", result2.matchedRules().get(0).ruleCode());
+        latch.await(30, java.util.concurrent.TimeUnit.SECONDS);
+        executor.shutdown();
 
-        assertEquals(1, result3.matchedRules().size());
-        assertEquals("HIGH_VALUE_TRANSACTION", result3.matchedRules().get(0).ruleCode());
-
-        // Verify metrics show all evaluations
-        Map<String, Object> metrics = ruleEvaluator.getMetrics().getSnapshot();
-        assertEquals(3L, metrics.get("totalEvaluations"));
+        assertTrue(success.get(), "One or more threads failed during concurrent evaluation.");
     }
 }

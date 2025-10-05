@@ -8,7 +8,6 @@ import org.roaringbitmap.IntIterator;
 import org.roaringbitmap.RoaringBitmap;
 import os.toolset.ruleengine.core.cache.BaseConditionCache;
 import os.toolset.ruleengine.core.cache.InMemoryBaseConditionCache;
-import os.toolset.ruleengine.core.evaluation.VectorizedPredicateEvaluator;
 import os.toolset.ruleengine.model.Event;
 import os.toolset.ruleengine.model.MatchResult;
 import os.toolset.ruleengine.model.Predicate;
@@ -18,21 +17,17 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * P0-A FIX: Use pre-converted RoaringBitmap from BaseConditionEvaluator
- * P1-B FIX: Cache eligible predicate sets to avoid rebuilding
- */
 public class RuleEvaluator {
     private final EngineModel model;
     private final EvaluatorMetrics metrics;
     private final Tracer tracer;
-    private final ThreadLocal<OptimizedEvaluationContext> contextPool;
-    private final VectorizedPredicateEvaluator vectorizedEvaluator;
+
+    // Phase 5 Optimization: Replaced ThreadLocal with ScopedValue for evaluation context
+    private static final ScopedValue<OptimizedEvaluationContext> CONTEXT = ScopedValue.newInstance();
 
     private final BaseConditionEvaluator baseConditionEvaluator;
     private final boolean useBaseConditionCache;
 
-    // P1-B FIX: Cache eligible predicates per base condition set
     private final Map<BitSet, IntSet> eligiblePredicateSetCache;
     private static final int MAX_CACHE_SIZE = 10_000;
 
@@ -51,15 +46,7 @@ public class RuleEvaluator {
         this.metrics = new EvaluatorMetrics();
         this.tracer = tracer;
         this.useBaseConditionCache = useBaseConditionCache;
-
-        // P1-B FIX: Initialize eligible predicate set cache
         this.eligiblePredicateSetCache = new ConcurrentHashMap<>(1024);
-
-        int estimatedTouched = Math.min(model.getNumRules() / 10, 1000);
-        this.contextPool = ThreadLocal.withInitial(() ->
-                new OptimizedEvaluationContext(estimatedTouched));
-
-        this.vectorizedEvaluator = new VectorizedPredicateEvaluator(model);
 
         if (useBaseConditionCache) {
             BaseConditionCache cache = new InMemoryBaseConditionCache.Builder()
@@ -73,97 +60,128 @@ public class RuleEvaluator {
     }
 
     public MatchResult evaluate(Event event) {
-        long startTime = System.nanoTime();
-        final OptimizedEvaluationContext ctx = contextPool.get();
-        ctx.reset();
+        int estimatedTouched = Math.min(model.getNumRules() / 10, 1000);
+        OptimizedEvaluationContext freshContext = new OptimizedEvaluationContext(estimatedTouched);
 
-        Span evaluationSpan = tracer.spanBuilder("rule-evaluation").startSpan();
-        try (Scope scope = evaluationSpan.makeCurrent()) {
+        // Phase 5: Use ScopedValue to bind the context for the duration of this call
+        return ScopedValue.where(CONTEXT, freshContext)
+                .call(() -> {
+                    long startTime = System.nanoTime();
+                    final OptimizedEvaluationContext ctx = CONTEXT.get();
 
-            BitSet eligibleRules = null;
-            RoaringBitmap eligibleRulesRoaring = null;
+                    Span evaluationSpan = tracer.spanBuilder("rule-evaluation").startSpan();
+                    try (Scope scope = evaluationSpan.makeCurrent()) {
 
-            if (useBaseConditionCache && baseConditionEvaluator != null) {
-                CompletableFuture<BaseConditionEvaluator.EvaluationResult> baseFuture =
-                        baseConditionEvaluator.evaluateBaseConditions(event);
+                        BitSet eligibleRules = null;
+                        RoaringBitmap eligibleRulesRoaring = null;
 
-                try {
-                    BaseConditionEvaluator.EvaluationResult baseResult = baseFuture.get();
-                    eligibleRules = baseResult.matchingRules;
-                    eligibleRulesRoaring = baseResult.matchingRulesRoaring;
-                    ctx.predicatesEvaluated += baseResult.predicatesEvaluated;
+                        if (useBaseConditionCache && baseConditionEvaluator != null) {
+                            CompletableFuture<BaseConditionEvaluator.EvaluationResult> baseFuture =
+                                    baseConditionEvaluator.evaluateBaseConditions(event);
+                            try {
+                                BaseConditionEvaluator.EvaluationResult baseResult = baseFuture.get();
+                                eligibleRules = baseResult.matchingRules;
+                                eligibleRulesRoaring = baseResult.matchingRulesRoaring;
+                                ctx.predicatesEvaluated += baseResult.predicatesEvaluated;
 
-                    evaluationSpan.setAttribute("baseConditionHit", baseResult.fromCache);
-                    evaluationSpan.setAttribute("eligibleRules", eligibleRules.cardinality());
+                                evaluationSpan.setAttribute("baseConditionHit", baseResult.fromCache);
+                                evaluationSpan.setAttribute("eligibleRules", eligibleRules.cardinality());
 
-                    if (eligibleRulesRoaring != null) {
-                        metrics.roaringConversionsSaved.incrementAndGet();
-                    }
+                                if (eligibleRulesRoaring != null) {
+                                    metrics.roaringConversionsSaved.incrementAndGet();
+                                }
 
-                    if (eligibleRules.isEmpty()) {
+                                if (eligibleRules.isEmpty()) {
+                                    long evaluationTime = System.nanoTime() - startTime;
+                                    metrics.recordEvaluation(evaluationTime, ctx.predicatesEvaluated, 0);
+                                    return new MatchResult(event.getEventId(), Collections.emptyList(),
+                                            evaluationTime, ctx.predicatesEvaluated, 0);
+                                }
+                            } catch (Exception e) {
+                                // Fallback if base condition evaluation fails
+                                eligibleRules = null;
+                                eligibleRulesRoaring = null;
+                            }
+                        }
+
+                        // Phase 4 Optimization: Evaluate predicates based on their global weight (selectivity)
+                        evaluatePredicatesWeighted(event, ctx, eligibleRules);
+
+                        updateCountersOptimized(ctx, eligibleRulesRoaring);
+
+                        detectMatchesOptimized(ctx, eligibleRules);
+
+                        selectMatches(ctx);
+
                         long evaluationTime = System.nanoTime() - startTime;
-                        metrics.recordEvaluation(evaluationTime, ctx.predicatesEvaluated, 0);
-                        return new MatchResult(event.getEventId(), Collections.emptyList(),
-                                evaluationTime, ctx.predicatesEvaluated, 0);
+                        metrics.recordEvaluation(evaluationTime, ctx.predicatesEvaluated, ctx.rulesEvaluated);
+
+                        evaluationSpan.setAttribute("predicatesEvaluated", ctx.predicatesEvaluated);
+                        evaluationSpan.setAttribute("rulesEvaluated", ctx.rulesEvaluated);
+                        evaluationSpan.setAttribute("matchCount", ctx.getMatchedRules().size());
+
+                        return new MatchResult(
+                                event.getEventId(),
+                                ctx.getMatchedRules(),
+                                evaluationTime,
+                                ctx.predicatesEvaluated,
+                                ctx.rulesEvaluated
+                        );
+
+                    } catch (Exception e) {
+                        evaluationSpan.recordException(e);
+                        throw new RuntimeException("Rule evaluation failed", e);
+                    } finally {
+                        evaluationSpan.end();
                     }
-                } catch (Exception e) {
-                    eligibleRules = null;
-                    eligibleRulesRoaring = null;
-                }
-            }
-
-            // P1-B FIX: Use cached or build eligible predicate set
-            IntSet eligiblePredicateIds = getEligiblePredicateSet(eligibleRules);
-
-            // Vectorized predicate evaluation (P1-A optimized)
-            evaluatePredicatesVectorized(event, ctx, eligibleRules, eligiblePredicateIds);
-
-            updateCountersOptimized(ctx, eligibleRulesRoaring);
-
-            detectMatchesOptimized(ctx, eligibleRules);
-
-            selectMatches(ctx);
-
-            long evaluationTime = System.nanoTime() - startTime;
-            metrics.recordEvaluation(evaluationTime, ctx.predicatesEvaluated, ctx.rulesEvaluated);
-
-            evaluationSpan.setAttribute("predicatesEvaluated", ctx.predicatesEvaluated);
-            evaluationSpan.setAttribute("rulesEvaluated", ctx.rulesEvaluated);
-            evaluationSpan.setAttribute("matchCount", ctx.getMatchedRules().size());
-
-            return new MatchResult(
-                    event.getEventId(),
-                    ctx.getMatchedRules(),
-                    evaluationTime,
-                    ctx.predicatesEvaluated,
-                    ctx.rulesEvaluated
-            );
-
-        } catch (Exception e) {
-            evaluationSpan.recordException(e);
-            throw new RuntimeException("Rule evaluation failed", e);
-        } finally {
-            evaluationSpan.end();
-        }
+                });
     }
 
     /**
-     * P1-B FIX: Get eligible predicate set from cache or build and cache it
-     * This eliminates rebuilding the same set thousands of times
+     * Phase 4: Evaluate predicates in an optimized order based on their pre-calculated weight.
+     * This replaces the previous field-by-field batch evaluation.
      */
+    private void evaluatePredicatesWeighted(Event event, OptimizedEvaluationContext ctx, BitSet eligibleRules) {
+        Span span = tracer.spanBuilder("evaluate-predicates-weighted").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            Int2ObjectMap<Object> attributes = event.getEncodedAttributes(model.getFieldDictionary(), model.getValueDictionary());
+            IntSet eligiblePredicateIds = getEligiblePredicateSet(eligibleRules);
+
+            // Iterate through all predicates, sorted by weight (cheapest first)
+            for (Predicate p : model.getSortedPredicates()) {
+                // Skip if this predicate is not part of any potentially matching rule
+                if (eligiblePredicateIds != null && !eligiblePredicateIds.contains(model.getPredicateId(p))) {
+                    continue;
+                }
+
+                // Check if the event contains the field for this predicate
+                if (attributes.containsKey(p.fieldId())) {
+                    Object eventValue = attributes.get(p.fieldId());
+                    ctx.incrementPredicatesEvaluatedCount();
+                    if (p.evaluate(eventValue)) {
+                        ctx.addTruePredicate(model.getPredicateId(p));
+                    }
+                }
+            }
+            span.setAttribute("predicatesEvaluated", ctx.getPredicatesEvaluatedCount());
+            span.setAttribute("truePredicatesFound", ctx.getTruePredicates().size());
+        } finally {
+            span.end();
+        }
+    }
+
+
     private IntSet getEligiblePredicateSet(BitSet eligibleRules) {
         if (eligibleRules == null) {
             return null;
         }
 
-        // P1-B FIX: Check cache first
         IntSet cached = eligiblePredicateSetCache.get(eligibleRules);
         if (cached != null) {
             metrics.eligibleSetCacheHits.incrementAndGet();
             return cached;
         }
 
-        // Build new set
         IntSet predicateIds = new IntOpenHashSet();
         for (int ruleId = eligibleRules.nextSetBit(0); ruleId >= 0;
              ruleId = eligibleRules.nextSetBit(ruleId + 1)) {
@@ -173,7 +191,6 @@ public class RuleEvaluator {
             }
         }
 
-        // P1-B FIX: Cache it (with size limit to prevent unbounded growth)
         if (eligiblePredicateSetCache.size() < MAX_CACHE_SIZE) {
             eligiblePredicateSetCache.put(eligibleRules, predicateIds);
         }
@@ -181,24 +198,6 @@ public class RuleEvaluator {
         return predicateIds;
     }
 
-    /**
-     * P1-A FIX: Pass eligiblePredicateIds to vectorized evaluator
-     */
-    private void evaluatePredicatesVectorized(Event event, OptimizedEvaluationContext ctx,
-                                              BitSet eligibleRules, IntSet eligiblePredicateIds) {
-        Span span = tracer.spanBuilder("evaluate-predicates-vectorized").startSpan();
-        try (Scope scope = span.makeCurrent()) {
-
-            // P1-A: VectorizedPredicateEvaluator now uses eligiblePredicateIds internally
-            vectorizedEvaluator.evaluate(event, ctx, eligibleRules);
-
-            span.setAttribute("truePredicatesFound", ctx.getTruePredicates().size());
-            span.setAttribute("predicatesEvaluated", ctx.getPredicatesEvaluatedCount());
-
-        } finally {
-            span.end();
-        }
-    }
 
     private void updateCountersOptimized(OptimizedEvaluationContext ctx,
                                          RoaringBitmap eligibleRulesRoaring) {
@@ -332,9 +331,6 @@ public class RuleEvaluator {
         return metrics;
     }
 
-    /**
-     * P0-A + P1-B: Enhanced metrics
-     */
     public static class EvaluatorMetrics {
         private final AtomicLong totalEvaluations = new AtomicLong();
         private final AtomicLong totalTimeNanos = new AtomicLong();
@@ -342,11 +338,7 @@ public class RuleEvaluator {
         private final AtomicLong totalRulesEvaluated = new AtomicLong();
         private final AtomicLong cacheHits = new AtomicLong();
         private final AtomicLong cacheMisses = new AtomicLong();
-
-        // P0-A: RoaringBitmap conversion savings
         final AtomicLong roaringConversionsSaved = new AtomicLong();
-
-        // P1-B FIX: Eligible set cache hits
         final AtomicLong eligibleSetCacheHits = new AtomicLong();
 
         void recordEvaluation(long timeNanos, int predicatesEvaluated, int rulesEvaluated) {
@@ -363,8 +355,8 @@ public class RuleEvaluator {
             if (evals > 0) {
                 snapshot.put("totalEvaluations", evals);
                 snapshot.put("avgLatencyMicros", totalTimeNanos.get() / 1000 / evals);
-                snapshot.put("avgPredicatesPerEvent", totalPredicatesEvaluated.get() / evals);
-                snapshot.put("avgRulesConsideredPerEvent", totalRulesEvaluated.get() / evals);
+                snapshot.put("avgPredicatesPerEvent", (double) totalPredicatesEvaluated.get() / evals);
+                snapshot.put("avgRulesConsideredPerEvent", (double) totalRulesEvaluated.get() / evals);
 
                 long hits = cacheHits.get();
                 long misses = cacheMisses.get();
@@ -372,13 +364,11 @@ public class RuleEvaluator {
                     snapshot.put("cacheHitRate", (double) hits / (hits + misses));
                 }
 
-                // P0-A: Conversion savings
                 long conversionsSaved = roaringConversionsSaved.get();
                 snapshot.put("roaringConversionsSaved", conversionsSaved);
                 snapshot.put("conversionSavingsRate",
                         evals > 0 ? (double) conversionsSaved / evals * 100 : 0.0);
 
-                // P1-B FIX: Eligible set cache metrics
                 long eligibleHits = eligibleSetCacheHits.get();
                 snapshot.put("eligibleSetCacheHits", eligibleHits);
                 snapshot.put("eligibleSetCacheHitRate",
@@ -389,3 +379,4 @@ public class RuleEvaluator {
         }
     }
 }
+
