@@ -94,6 +94,12 @@
             <version>1.23.1-alpha</version>
         </dependency>
 
+<!--        cache-->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>3.2.2</version>
+        </dependency>
 
         <dependency>
             <groupId>org.openjdk.jmh</groupId>

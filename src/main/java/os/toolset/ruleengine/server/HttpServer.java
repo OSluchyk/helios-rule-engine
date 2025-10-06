@@ -48,7 +48,7 @@ public class HttpServer {
                     return;
                 }
                 EngineModel currentModel = modelManager.getEngineModel();
-                RuleEvaluator evaluator = new RuleEvaluator(currentModel);
+                RuleEvaluator evaluator = new RuleEvaluator(currentModel, tracer, true);
 
                 String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
                 Map<String, Object> request = objectMapper.readValue(body, Map.class);

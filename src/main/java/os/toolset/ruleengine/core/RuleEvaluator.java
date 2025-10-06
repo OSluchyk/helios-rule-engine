@@ -7,6 +7,7 @@ import it.unimi.dsi.fastutil.ints.*;
 import org.roaringbitmap.IntIterator;
 import org.roaringbitmap.RoaringBitmap;
 import os.toolset.ruleengine.core.cache.BaseConditionCache;
+import os.toolset.ruleengine.core.cache.CaffeineBaseConditionCache;
 import os.toolset.ruleengine.core.cache.InMemoryBaseConditionCache;
 import os.toolset.ruleengine.core.evaluation.VectorizedPredicateEvaluator;
 import os.toolset.ruleengine.model.Event;
@@ -51,14 +52,17 @@ public class RuleEvaluator {
         this.vectorizedEvaluator = new VectorizedPredicateEvaluator(model);
 
         if (useBaseConditionCache) {
-            BaseConditionCache cache = new InMemoryBaseConditionCache.Builder()
-                    .maxSize(10_000)
-                    .defaultTtl(5, java.util.concurrent.TimeUnit.MINUTES)
+            BaseConditionCache cache = CaffeineBaseConditionCache.builder()
+                    .maxSize(100_000)  // Increased from 10k to 100k
+                    .expireAfterWrite(10, java.util.concurrent.TimeUnit.MINUTES)
+                    .recordStats(true)  // Enable monitoring
+                    .initialCapacity(10_000)  // Pre-allocate
                     .build();
             this.baseConditionEvaluator = new BaseConditionEvaluator(model, cache);
         } else {
             this.baseConditionEvaluator = null;
         }
+
     }
 
     public MatchResult evaluate(Event event) {
