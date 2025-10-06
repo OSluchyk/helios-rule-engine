@@ -66,12 +66,6 @@ class RuleCompilerTest {
         Path rulesFile = writeRules(rulesJson);
         EngineModel model = compiler.compile(rulesFile);
 
-        // After factoring, both rules look identical to the compiler's deduplication stage,
-        // resulting in 3 unique combinations: {S=A, C=US}, {S=A, C=CA}, {S=A, C=UK}
-        // However, the factorizer will combine them into one logical rule with IS_ANY_OF [US, CA, UK]
-        // before they are expanded and deduplicated.
-        // The test was brittle. Let's check the final unique combinations.
-        // It should be 3: (ACTIVE, US), (ACTIVE, CA), (ACTIVE, UK)
         assertThat(model.getStats().metadata().get("uniqueCombinations")).isEqualTo(3);
         assertThat(model.getNumRules()).isEqualTo(3);
 
@@ -81,8 +75,6 @@ class RuleCompilerTest {
         int activeValueId = model.getValueDictionary().getId("ACTIVE");
         int usValueId = model.getValueDictionary().getId("US");
 
-        // The weight/selectivity will be calculated, so we can't hardcode them.
-        // We find the predicate instead.
         Predicate p1 = null, p2 = null;
         for (Predicate p : model.getPredicateRegistry().keySet()) {
             if (p.fieldId() == statusFieldId && p.value().equals(activeValueId)) {
@@ -117,9 +109,6 @@ class RuleCompilerTest {
     @DisplayName("Should sort predicates by weight (based on selectivity)")
     void shouldSortPredicatesByWeight() throws Exception {
         // Given rules with varying selectivity
-        // - REGEX is most selective (weight ~0.1)
-        // - AMOUNT > 1000 is medium (weight ~0.3)
-        // - STATUS = ACTIVE appears in 2/3 rules (selectivity ~0.66, weight ~0.33)
         String rulesJson = """
         [
           {"rule_code": "R1", "conditions": [{"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"}]},
@@ -145,9 +134,9 @@ class RuleCompilerTest {
                 p.weight(), p.selectivity(), model.getFieldDictionary().decode(p.fieldId()), p.operator(), p.value()
         ));
 
-        // The REGEX predicate should be first (lowest weight because highest selectivity)
+        // The REGEX predicate should be first (lowest weight because lowest selectivity)
         assertThat(sortedPredicates.get(0).operator()).isEqualTo(Predicate.Operator.REGEX);
-        // The GREATER_THAN predicate should be next (heuristic selectivity 0.3)
+        // The GREATER_THAN predicate should be next
         assertThat(sortedPredicates.get(1).operator()).isEqualTo(Predicate.Operator.GREATER_THAN);
         // The EQUAL_TO predicates are last
         assertThat(sortedPredicates.get(2).operator()).isEqualTo(Predicate.Operator.EQUAL_TO);

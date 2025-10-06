@@ -4,7 +4,6 @@ import jdk.incubator.vector.*;
 import it.unimi.dsi.fastutil.ints.*;
 import os.toolset.ruleengine.core.EngineModel;
 import os.toolset.ruleengine.core.OptimizedEvaluationContext;
-import os.toolset.ruleengine.model.Event;
 import os.toolset.ruleengine.model.Predicate;
 
 import java.lang.foreign.Arena;
@@ -14,14 +13,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.logging.Logger;
 
-/**
- * P1-A FIX: Optimized vectorization with bitwise filtering
- *
- * Enhancements:
- * - Pre-compute eligibility bitmasks to eliminate branch mispredictions
- * - Batch-process vector mask results using bitwise operations
- * - Reduce hash lookups in post-vectorization filtering
- */
 public class VectorizedPredicateEvaluator {
     private static final Logger logger = Logger.getLogger(VectorizedPredicateEvaluator.class.getName());
 
@@ -29,13 +20,7 @@ public class VectorizedPredicateEvaluator {
     private final Map<Integer, NumericBatchEvaluator> numericEvaluators;
     private final Map<Integer, StringBatchEvaluator> stringEvaluators;
 
-    private static final VectorSpecies<Float> FLOAT16_SPECIES = FloatVector.SPECIES_PREFERRED;
-    private static final VectorSpecies<Double> DOUBLE_SPECIES = DoubleVector.SPECIES_PREFERRED;
-    private static final VectorSpecies<Integer> INT_SPECIES = IntVector.SPECIES_PREFERRED;
-
-    private static final BufferPool SMALL_POOL = new BufferPool(16, 64);
-    private static final BufferPool MEDIUM_POOL = new BufferPool(64, 32);
-    private static final BufferPool LARGE_POOL = new BufferPool(256, 16);
+    private static final VectorSpecies<Float> FLOAT_SPECIES = FloatVector.SPECIES_PREFERRED;
 
     private static final Arena ARENA = Arena.ofShared();
     private static final int CACHE_LINE_SIZE = 64;
@@ -83,50 +68,32 @@ public class VectorizedPredicateEvaluator {
         ));
     }
 
-    public void evaluate(Event event, OptimizedEvaluationContext ctx, BitSet eligibleRules) {
-        Int2ObjectMap<Object> attributes = event.getEncodedAttributes(
-                model.getFieldDictionary(), model.getValueDictionary());
-
-        IntSet eligiblePredicateIds = null;
-        if (eligibleRules != null) {
-            eligiblePredicateIds = buildEligiblePredicateSet(eligibleRules);
+    public void evaluateField(int fieldId, Int2ObjectMap<Object> attributes,
+                              OptimizedEvaluationContext ctx, IntSet eligiblePredicateIds) {
+        Object value = attributes.get(fieldId);
+        if (value == null) {
+            return;
         }
 
-        evaluateNumericBatch(attributes, ctx, eligiblePredicateIds);
-        evaluateStringBatch(attributes, ctx, eligiblePredicateIds);
-        evaluateEqualityBatch(attributes, ctx, eligiblePredicateIds);
-    }
-
-    private IntSet buildEligiblePredicateSet(BitSet eligibleRules) {
-        IntSet predicateIds = new IntOpenHashSet();
-
-        for (int ruleId = eligibleRules.nextSetBit(0); ruleId >= 0;
-             ruleId = eligibleRules.nextSetBit(ruleId + 1)) {
-
-            IntList rulePreds = model.getCombinationPredicateIds(ruleId);
-            for (int predId : rulePreds) {
-                predicateIds.add(predId);
+        if (value instanceof Number) {
+            NumericBatchEvaluator evaluator = numericEvaluators.get(fieldId);
+            if (evaluator != null) {
+                IntSet matches = evaluator.evaluateFloat16(((Number) value).floatValue(), eligiblePredicateIds);
+                matches.forEach((int predId) -> {
+                    ctx.addTruePredicate(predId);
+                    ctx.incrementPredicatesEvaluatedCount();
+                });
             }
         }
+        else if (value instanceof String || value instanceof Integer) {
+            String strValue = value instanceof Integer ?
+                    model.getValueDictionary().decode((Integer) value) :
+                    (String) value;
 
-        return predicateIds;
-    }
-
-    private void evaluateNumericBatch(Int2ObjectMap<Object> attributes,
-                                      OptimizedEvaluationContext ctx,
-                                      IntSet eligiblePredicateIds) {
-        for (Int2ObjectMap.Entry<Object> entry : attributes.int2ObjectEntrySet()) {
-            int fieldId = entry.getIntKey();
-            Object value = entry.getValue();
-
-            if (value instanceof Number) {
-                NumericBatchEvaluator evaluator = numericEvaluators.get(fieldId);
+            if (strValue != null) {
+                StringBatchEvaluator evaluator = stringEvaluators.get(fieldId);
                 if (evaluator != null) {
-                    IntSet matches = evaluator.evaluateFloat16(
-                            ((Number) value).floatValue(),
-                            eligiblePredicateIds
-                    );
-
+                    IntSet matches = evaluator.evaluate(strValue, eligiblePredicateIds);
                     matches.forEach((int predId) -> {
                         ctx.addTruePredicate(predId);
                         ctx.incrementPredicatesEvaluatedCount();
@@ -134,64 +101,34 @@ public class VectorizedPredicateEvaluator {
                 }
             }
         }
+
+        evaluateEqualityForField(fieldId, value, ctx, eligiblePredicateIds);
     }
 
-    private void evaluateStringBatch(Int2ObjectMap<Object> attributes,
-                                     OptimizedEvaluationContext ctx,
-                                     IntSet eligiblePredicateIds) {
-        for (Int2ObjectMap.Entry<Object> entry : attributes.int2ObjectEntrySet()) {
-            int fieldId = entry.getIntKey();
-            Object value = entry.getValue();
 
-            if (value instanceof String || value instanceof Integer) {
-                StringBatchEvaluator evaluator = stringEvaluators.get(fieldId);
-                if (evaluator != null) {
-                    String strValue = value instanceof Integer ?
-                            model.getValueDictionary().decode((Integer) value) :
-                            (String) value;
+    private void evaluateEqualityForField(int fieldId, Object value,
+                                          OptimizedEvaluationContext ctx,
+                                          IntSet eligiblePredicateIds) {
+        List<Predicate> predicates = model.getFieldToPredicates().get(fieldId);
+        if (predicates != null) {
+            for (Predicate p : predicates) {
+                if (p.operator() == Predicate.Operator.EQUAL_TO) {
+                    int predId = model.getPredicateId(p);
 
-                    if (strValue != null) {
-                        IntSet matches = evaluator.evaluate(strValue, eligiblePredicateIds);
-                        matches.forEach((int predId) -> {
-                            ctx.addTruePredicate(predId);
-                            ctx.incrementPredicatesEvaluatedCount();
-                        });
+                    if (eligiblePredicateIds != null && !eligiblePredicateIds.contains(predId)) {
+                        continue;
+                    }
+
+                    ctx.incrementPredicatesEvaluatedCount();
+                    if (p.evaluate(value)) {
+                        ctx.addTruePredicate(predId);
                     }
                 }
             }
         }
     }
 
-    private void evaluateEqualityBatch(Int2ObjectMap<Object> attributes,
-                                       OptimizedEvaluationContext ctx,
-                                       IntSet eligiblePredicateIds) {
-        for (Int2ObjectMap.Entry<Object> entry : attributes.int2ObjectEntrySet()) {
-            int fieldId = entry.getIntKey();
-            Object value = entry.getValue();
 
-            List<Predicate> predicates = model.getFieldToPredicates().get(fieldId);
-            if (predicates != null) {
-                for (Predicate p : predicates) {
-                    if (p.operator() == Predicate.Operator.EQUAL_TO) {
-                        int predId = model.getPredicateId(p);
-
-                        if (eligiblePredicateIds != null && !eligiblePredicateIds.contains(predId)) {
-                            continue;
-                        }
-
-                        ctx.incrementPredicatesEvaluatedCount();
-                        if (p.evaluate(value)) {
-                            ctx.addTruePredicate(predId);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * P1-A FIX: Enhanced numeric batch evaluator with optimized bitwise filtering
-     */
     public static class NumericBatchEvaluator {
         private final int fieldId;
         private final PredicateGroup[] groups;
@@ -210,11 +147,11 @@ public class VectorizedPredicateEvaluator {
                     .max().orElse(0);
 
             this.alignedWorkspace = ARENA.allocate(
-                    ((maxGroupSize * 4 + CACHE_LINE_SIZE - 1) / CACHE_LINE_SIZE) * CACHE_LINE_SIZE
+                    ((long) maxGroupSize * 4 + CACHE_LINE_SIZE - 1) / CACHE_LINE_SIZE * CACHE_LINE_SIZE
             );
 
-            int paddedSize = ((maxGroupSize + FLOAT16_SPECIES.length() - 1) / FLOAT16_SPECIES.length())
-                    * FLOAT16_SPECIES.length();
+            int paddedSize = ((maxGroupSize + FLOAT_SPECIES.length() - 1) / FLOAT_SPECIES.length())
+                    * FLOAT_SPECIES.length();
             this.thresholdCache = new float[paddedSize];
         }
 
@@ -240,48 +177,40 @@ public class VectorizedPredicateEvaluator {
             return matches;
         }
 
-        /**
-         * P1-A FIX: Optimized GREATER_THAN with bitwise eligibility filtering
-         */
         private void evaluateGTFloat16Optimized(float eventValue, PredicateGroup group,
                                                 IntSet matches, IntSet eligiblePredicateIds) {
             int count = group.predicates.length;
 
-            if (count >= FLOAT16_SPECIES.length() * 2) {
+            if (count >= FLOAT_SPECIES.length() * 2) {
                 vectorOps++;
 
-                // Prepare thresholds
                 for (int i = 0; i < count; i++) {
                     thresholdCache[i] = (float) group.predicates[i].value;
                 }
                 Arrays.fill(thresholdCache, count, thresholdCache.length, 0.0f);
 
-                // P1-A FIX: Pre-compute eligibility bitmask
                 long[] eligibilityMask = buildEligibilityMask(group, count, eligiblePredicateIds);
 
-                FloatVector eventVec = FloatVector.broadcast(FLOAT16_SPECIES, eventValue);
+                FloatVector eventVec = FloatVector.broadcast(FLOAT_SPECIES, eventValue);
 
-                int vectorCount = count / FLOAT16_SPECIES.length();
-                int remainder = count % FLOAT16_SPECIES.length();
+                int vectorCount = count / FLOAT_SPECIES.length();
+                int remainder = count % FLOAT_SPECIES.length();
 
-                // Process full vectors
                 for (int i = 0; i < vectorCount; i++) {
-                    int offset = i * FLOAT16_SPECIES.length();
+                    int offset = i * FLOAT_SPECIES.length();
 
                     FloatVector thresholdVec = FloatVector.fromArray(
-                            FLOAT16_SPECIES, thresholdCache, offset
+                            FLOAT_SPECIES, thresholdCache, offset
                     );
 
                     VectorMask<Float> compareMask = eventVec.compare(
                             VectorOperators.GT, thresholdVec);
 
-                    // P1-A FIX: Combine comparison mask with eligibility using bitwise ops
                     if (eligibilityMask != null) {
                         processMaskedResults(offset, compareMask, eligibilityMask,
                                 group.predicates, matches);
                     } else {
-                        // Fast path: all eligible
-                        for (int j = 0; j < FLOAT16_SPECIES.length(); j++) {
+                        for (int j = 0; j < FLOAT_SPECIES.length(); j++) {
                             if (compareMask.laneIsSet(j)) {
                                 matches.add(group.predicates[offset + j].id);
                             }
@@ -289,9 +218,8 @@ public class VectorizedPredicateEvaluator {
                     }
                 }
 
-                // Process remainder with scalar code
                 if (remainder > 0) {
-                    int start = vectorCount * FLOAT16_SPECIES.length();
+                    int start = vectorCount * FLOAT_SPECIES.length();
                     processScalarRemainder(start, count, eventValue, group,
                             eligibilityMask, matches, true);
                 }
@@ -300,14 +228,11 @@ public class VectorizedPredicateEvaluator {
             }
         }
 
-        /**
-         * P1-A FIX: Optimized LESS_THAN with bitwise eligibility filtering
-         */
         private void evaluateLTFloat16Optimized(float eventValue, PredicateGroup group,
                                                 IntSet matches, IntSet eligiblePredicateIds) {
             int count = group.predicates.length;
 
-            if (count >= FLOAT16_SPECIES.length() * 2) {
+            if (count >= FLOAT_SPECIES.length() * 2) {
                 vectorOps++;
 
                 for (int i = 0; i < count; i++) {
@@ -315,30 +240,28 @@ public class VectorizedPredicateEvaluator {
                 }
                 Arrays.fill(thresholdCache, count, thresholdCache.length, 0.0f);
 
-                // P1-A FIX: Pre-compute eligibility bitmask
                 long[] eligibilityMask = buildEligibilityMask(group, count, eligiblePredicateIds);
 
-                FloatVector eventVec = FloatVector.broadcast(FLOAT16_SPECIES, eventValue);
+                FloatVector eventVec = FloatVector.broadcast(FLOAT_SPECIES, eventValue);
 
-                int vectorCount = count / FLOAT16_SPECIES.length();
-                int remainder = count % FLOAT16_SPECIES.length();
+                int vectorCount = count / FLOAT_SPECIES.length();
+                int remainder = count % FLOAT_SPECIES.length();
 
                 for (int i = 0; i < vectorCount; i++) {
-                    int offset = i * FLOAT16_SPECIES.length();
+                    int offset = i * FLOAT_SPECIES.length();
 
                     FloatVector thresholdVec = FloatVector.fromArray(
-                            FLOAT16_SPECIES, thresholdCache, offset
+                            FLOAT_SPECIES, thresholdCache, offset
                     );
 
                     VectorMask<Float> compareMask = eventVec.compare(
                             VectorOperators.LT, thresholdVec);
 
-                    // P1-A FIX: Bitwise filtering
                     if (eligibilityMask != null) {
                         processMaskedResults(offset, compareMask, eligibilityMask,
                                 group.predicates, matches);
                     } else {
-                        for (int j = 0; j < FLOAT16_SPECIES.length(); j++) {
+                        for (int j = 0; j < FLOAT_SPECIES.length(); j++) {
                             if (compareMask.laneIsSet(j)) {
                                 matches.add(group.predicates[offset + j].id);
                             }
@@ -347,7 +270,7 @@ public class VectorizedPredicateEvaluator {
                 }
 
                 if (remainder > 0) {
-                    int start = vectorCount * FLOAT16_SPECIES.length();
+                    int start = vectorCount * FLOAT_SPECIES.length();
                     processScalarRemainder(start, count, eventValue, group,
                             eligibilityMask, matches, false);
                 }
@@ -356,48 +279,43 @@ public class VectorizedPredicateEvaluator {
             }
         }
 
-        /**
-         * P1-A FIX: Optimized BETWEEN with bitwise eligibility filtering
-         */
         private void evaluateBetweenFloat16Optimized(float eventValue, PredicateGroup group,
                                                      IntSet matches, IntSet eligiblePredicateIds) {
             int count = group.predicates.length;
 
-            if (count >= FLOAT16_SPECIES.length()) {
+            if (count >= FLOAT_SPECIES.length()) {
                 vectorOps++;
 
-                // P1-A FIX: Pre-compute eligibility bitmask
                 long[] eligibilityMask = buildEligibilityMask(group, count, eligiblePredicateIds);
 
-                FloatVector eventVec = FloatVector.broadcast(FLOAT16_SPECIES, eventValue);
+                FloatVector eventVec = FloatVector.broadcast(FLOAT_SPECIES, eventValue);
 
-                int vectorCount = count / FLOAT16_SPECIES.length();
-                int remainder = count % FLOAT16_SPECIES.length();
+                int vectorCount = count / FLOAT_SPECIES.length();
+                int remainder = count % FLOAT_SPECIES.length();
 
                 for (int i = 0; i < vectorCount; i++) {
-                    int offset = i * FLOAT16_SPECIES.length();
+                    int offset = i * FLOAT_SPECIES.length();
 
-                    float[] lowerBounds = new float[FLOAT16_SPECIES.length()];
-                    float[] upperBounds = new float[FLOAT16_SPECIES.length()];
+                    float[] lowerBounds = new float[FLOAT_SPECIES.length()];
+                    float[] upperBounds = new float[FLOAT_SPECIES.length()];
 
-                    for (int j = 0; j < FLOAT16_SPECIES.length(); j++) {
+                    for (int j = 0; j < FLOAT_SPECIES.length(); j++) {
                         lowerBounds[j] = (float) group.predicates[offset + j].value;
                         upperBounds[j] = (float) group.predicates[offset + j].value2;
                     }
 
-                    FloatVector lowerVec = FloatVector.fromArray(FLOAT16_SPECIES, lowerBounds, 0);
-                    FloatVector upperVec = FloatVector.fromArray(FLOAT16_SPECIES, upperBounds, 0);
+                    FloatVector lowerVec = FloatVector.fromArray(FLOAT_SPECIES, lowerBounds, 0);
+                    FloatVector upperVec = FloatVector.fromArray(FLOAT_SPECIES, upperBounds, 0);
 
                     VectorMask<Float> lowerMask = eventVec.compare(VectorOperators.GE, lowerVec);
                     VectorMask<Float> upperMask = eventVec.compare(VectorOperators.LE, upperVec);
                     VectorMask<Float> combinedMask = lowerMask.and(upperMask);
 
-                    // P1-A FIX: Bitwise filtering
                     if (eligibilityMask != null) {
                         processMaskedResults(offset, combinedMask, eligibilityMask,
                                 group.predicates, matches);
                     } else {
-                        for (int j = 0; j < FLOAT16_SPECIES.length(); j++) {
+                        for (int j = 0; j < FLOAT_SPECIES.length(); j++) {
                             if (combinedMask.laneIsSet(j)) {
                                 matches.add(group.predicates[offset + j].id);
                             }
@@ -405,9 +323,8 @@ public class VectorizedPredicateEvaluator {
                     }
                 }
 
-                // Process remainder
                 if (remainder > 0) {
-                    int start = vectorCount * FLOAT16_SPECIES.length();
+                    int start = vectorCount * FLOAT_SPECIES.length();
                     for (int i = start; i < count; i++) {
                         boolean eligible = eligibilityMask == null ||
                                 ((eligibilityMask[i / 64] & (1L << (i % 64))) != 0);
@@ -423,10 +340,6 @@ public class VectorizedPredicateEvaluator {
             }
         }
 
-        /**
-         * P1-A FIX: Build eligibility bitmask once per group
-         * This eliminates repeated hash lookups in the vector loop
-         */
         private long[] buildEligibilityMask(PredicateGroup group, int count,
                                             IntSet eligiblePredicateIds) {
             if (eligiblePredicateIds == null) {
@@ -442,19 +355,14 @@ public class VectorizedPredicateEvaluator {
             return mask;
         }
 
-        /**
-         * P1-A FIX: Process vector mask results with bitwise eligibility check
-         * Eliminates branch per lane and hash lookups
-         */
         private void processMaskedResults(int offset, VectorMask<Float> compareMask,
                                           long[] eligibilityMask, NumericPredicate[] predicates,
                                           IntSet matches) {
-            for (int j = 0; j < FLOAT16_SPECIES.length(); j++) {
+            for (int j = 0; j < FLOAT_SPECIES.length(); j++) {
                 int globalIdx = offset + j;
                 int wordIdx = globalIdx / 64;
                 int bitIdx = globalIdx % 64;
 
-                // P1-A FIX: Single bitwise check combines eligibility and comparison
                 boolean eligible = (eligibilityMask[wordIdx] & (1L << bitIdx)) != 0;
 
                 if (eligible && compareMask.laneIsSet(j)) {
@@ -463,9 +371,6 @@ public class VectorizedPredicateEvaluator {
             }
         }
 
-        /**
-         * P1-A FIX: Process scalar remainder with eligibility bitmask
-         */
         private void processScalarRemainder(int start, int end, float eventValue,
                                             PredicateGroup group, long[] eligibilityMask,
                                             IntSet matches, boolean isGreaterThan) {
@@ -485,7 +390,6 @@ public class VectorizedPredicateEvaluator {
             }
         }
 
-        // Scalar fallbacks with loop unrolling
         private void evaluateScalarGT(float eventValue, PredicateGroup group, IntSet matches,
                                       IntSet eligiblePredicateIds) {
             scalarOps += group.predicates.length;
@@ -576,9 +480,6 @@ public class VectorizedPredicateEvaluator {
         }
     }
 
-    /**
-     * String batch evaluator with optimized pattern matching
-     */
     public static class StringBatchEvaluator {
         private final int fieldId;
         private final StringPredicate[] predicates;

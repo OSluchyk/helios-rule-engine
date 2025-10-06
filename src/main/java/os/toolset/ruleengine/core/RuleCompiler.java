@@ -291,4 +291,3 @@ public class RuleCompiler {
         public CompilationException(String message) { super(message); }
     }
 }
-

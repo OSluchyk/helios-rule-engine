@@ -31,6 +31,7 @@ public final class EngineModel {
     private final Int2IntMap combinationIdToPriority;
     private final EngineStats stats;
     private final List<Predicate> sortedPredicates;
+    private final Int2FloatMap fieldMinWeights;
 
     private EngineModel(Builder builder) {
         this.fieldDictionary = builder.fieldDictionary;
@@ -48,6 +49,7 @@ public final class EngineModel {
         this.combinationIdToPriority = builder.combinationIdToPriority;
         this.stats = builder.stats;
         this.sortedPredicates = builder.sortedPredicates;
+        this.fieldMinWeights = builder.fieldMinWeights;
     }
 
     public int getNumRules() { return numCombinations; }
@@ -64,6 +66,7 @@ public final class EngineModel {
     public int getCombinationPriority(int combinationId) { return combinationIdToPriority.get(combinationId); }
     public IntList getCombinationPredicateIds(int combinationId) { return combinationToPredicateIds[combinationId]; }
     public List<Predicate> getSortedPredicates() { return sortedPredicates; }
+    public float getFieldMinWeight(int fieldId) { return fieldMinWeights.get(fieldId); }
 
 
     public static class Builder {
@@ -75,6 +78,7 @@ public final class EngineModel {
         final Int2ObjectMap<RoaringBitmap> invertedIndex = new Int2ObjectOpenHashMap<>();
         EngineStats stats;
         List<Predicate> sortedPredicates;
+        final Int2FloatMap fieldMinWeights = new Int2FloatOpenHashMap();
 
         private final Object2IntMap<IntList> combinationToIdMap = new Object2IntOpenHashMap<>();
         final Int2ObjectMap<IntList> idToCombinationMap = new Int2ObjectOpenHashMap<>();
@@ -145,6 +149,14 @@ public final class EngineModel {
             // Phase 4: Sort all registered predicates by weight (selectivity)
             sortedPredicates = new ArrayList<>(predicateLookup.values());
             sortedPredicates.sort(Comparator.comparing(Predicate::weight));
+
+            // Pre-compute the minimum weight for each field
+            fieldMinWeights.defaultReturnValue(Float.MAX_VALUE);
+            for (Predicate p : sortedPredicates) {
+                if (!fieldMinWeights.containsKey(p.fieldId())) {
+                    fieldMinWeights.put(p.fieldId(), p.weight());
+                }
+            }
         }
 
         public EngineModel build() {
@@ -161,3 +173,4 @@ public final class EngineModel {
             Map<String, Object> metadata
     ) {}
 }
+

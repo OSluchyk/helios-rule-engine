@@ -190,9 +190,9 @@ class RuleEvaluatorTest {
         assertTrue(spans.stream().anyMatch(s -> s.getName().equals("rule-evaluation")),
                 "Should have 'rule-evaluation' span");
 
-        // Check for updated span names after Phase 4 optimization
-        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("evaluate-predicates-weighted")),
-                "Should have 'evaluate-predicates-weighted' span");
+        // FIX: Update span name to match the new hybrid evaluation method
+        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("evaluate-predicates-hybrid")),
+                "Should have 'evaluate-predicates-hybrid' span");
         assertTrue(spans.stream().anyMatch(s -> s.getName().equals("update-counters-optimized")),
                 "Should have 'update-counters-optimized' span");
         assertTrue(spans.stream().anyMatch(s -> s.getName().equals("detect-matches-optimized")),

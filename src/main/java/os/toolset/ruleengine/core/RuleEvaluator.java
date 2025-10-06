@@ -8,6 +8,7 @@ import org.roaringbitmap.IntIterator;
 import org.roaringbitmap.RoaringBitmap;
 import os.toolset.ruleengine.core.cache.BaseConditionCache;
 import os.toolset.ruleengine.core.cache.InMemoryBaseConditionCache;
+import os.toolset.ruleengine.core.evaluation.VectorizedPredicateEvaluator;
 import os.toolset.ruleengine.model.Event;
 import os.toolset.ruleengine.model.MatchResult;
 import os.toolset.ruleengine.model.Predicate;
@@ -22,11 +23,11 @@ public class RuleEvaluator {
     private final EvaluatorMetrics metrics;
     private final Tracer tracer;
 
-    // Phase 5 Optimization: Replaced ThreadLocal with ScopedValue for evaluation context
     private static final ScopedValue<OptimizedEvaluationContext> CONTEXT = ScopedValue.newInstance();
 
     private final BaseConditionEvaluator baseConditionEvaluator;
     private final boolean useBaseConditionCache;
+    private final VectorizedPredicateEvaluator vectorizedEvaluator;
 
     private final Map<BitSet, IntSet> eligiblePredicateSetCache;
     private static final int MAX_CACHE_SIZE = 10_000;
@@ -47,6 +48,7 @@ public class RuleEvaluator {
         this.tracer = tracer;
         this.useBaseConditionCache = useBaseConditionCache;
         this.eligiblePredicateSetCache = new ConcurrentHashMap<>(1024);
+        this.vectorizedEvaluator = new VectorizedPredicateEvaluator(model);
 
         if (useBaseConditionCache) {
             BaseConditionCache cache = new InMemoryBaseConditionCache.Builder()
@@ -63,7 +65,6 @@ public class RuleEvaluator {
         int estimatedTouched = Math.min(model.getNumRules() / 10, 1000);
         OptimizedEvaluationContext freshContext = new OptimizedEvaluationContext(estimatedTouched);
 
-        // Phase 5: Use ScopedValue to bind the context for the duration of this call
         return ScopedValue.where(CONTEXT, freshContext)
                 .call(() -> {
                     long startTime = System.nanoTime();
@@ -87,7 +88,7 @@ public class RuleEvaluator {
                                 evaluationSpan.setAttribute("baseConditionHit", baseResult.fromCache);
                                 evaluationSpan.setAttribute("eligibleRules", eligibleRules.cardinality());
 
-                                if (eligibleRulesRoaring != null) {
+                                if (baseResult.fromCache) {
                                     metrics.roaringConversionsSaved.incrementAndGet();
                                 }
 
@@ -98,14 +99,12 @@ public class RuleEvaluator {
                                             evaluationTime, ctx.predicatesEvaluated, 0);
                                 }
                             } catch (Exception e) {
-                                // Fallback if base condition evaluation fails
                                 eligibleRules = null;
                                 eligibleRulesRoaring = null;
                             }
                         }
 
-                        // Phase 4 Optimization: Evaluate predicates based on their global weight (selectivity)
-                        evaluatePredicatesWeighted(event, ctx, eligibleRules);
+                        evaluatePredicatesHybrid(event, ctx, eligibleRules);
 
                         updateCountersOptimized(ctx, eligibleRulesRoaring);
 
@@ -137,32 +136,19 @@ public class RuleEvaluator {
                 });
     }
 
-    /**
-     * Phase 4: Evaluate predicates in an optimized order based on their pre-calculated weight.
-     * This replaces the previous field-by-field batch evaluation.
-     */
-    private void evaluatePredicatesWeighted(Event event, OptimizedEvaluationContext ctx, BitSet eligibleRules) {
-        Span span = tracer.spanBuilder("evaluate-predicates-weighted").startSpan();
+    private void evaluatePredicatesHybrid(Event event, OptimizedEvaluationContext ctx, BitSet eligibleRules) {
+        Span span = tracer.spanBuilder("evaluate-predicates-hybrid").startSpan();
         try (Scope scope = span.makeCurrent()) {
             Int2ObjectMap<Object> attributes = event.getEncodedAttributes(model.getFieldDictionary(), model.getValueDictionary());
             IntSet eligiblePredicateIds = getEligiblePredicateSet(eligibleRules);
 
-            // Iterate through all predicates, sorted by weight (cheapest first)
-            for (Predicate p : model.getSortedPredicates()) {
-                // Skip if this predicate is not part of any potentially matching rule
-                if (eligiblePredicateIds != null && !eligiblePredicateIds.contains(model.getPredicateId(p))) {
-                    continue;
-                }
+            List<Integer> fieldsToEvaluate = new ArrayList<>(attributes.keySet());
+            fieldsToEvaluate.sort(Comparator.comparingDouble(model::getFieldMinWeight));
 
-                // Check if the event contains the field for this predicate
-                if (attributes.containsKey(p.fieldId())) {
-                    Object eventValue = attributes.get(p.fieldId());
-                    ctx.incrementPredicatesEvaluatedCount();
-                    if (p.evaluate(eventValue)) {
-                        ctx.addTruePredicate(model.getPredicateId(p));
-                    }
-                }
+            for (int fieldId : fieldsToEvaluate) {
+                vectorizedEvaluator.evaluateField(fieldId, attributes, ctx, eligiblePredicateIds);
             }
+
             span.setAttribute("predicatesEvaluated", ctx.getPredicatesEvaluatedCount());
             span.setAttribute("truePredicatesFound", ctx.getTruePredicates().size());
         } finally {
@@ -379,4 +365,3 @@ public class RuleEvaluator {
         }
     }
 }
-
