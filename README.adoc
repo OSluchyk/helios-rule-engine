@@ -331,8 +331,8 @@ Event fraudEvent = new Event("txn-999", "TRANSACTION", Map.of(
 
 [source,java]
 ----
-import os.toolset.ruleengine.core.RuleCompiler;
-import os.toolset.ruleengine.core.EngineModel;
+import com.helios.ruleengine.core.RuleCompiler;
+import com.helios.ruleengine.core.EngineModel;
 import java.nio.file.Paths;
 
 RuleCompiler compiler = new RuleCompiler(tracer);
@@ -608,7 +608,7 @@ if (cache instanceof CaffeineBaseConditionCache) {
 ----
 # Run the cliff analysis benchmark
 mvn test-compile exec:java \
-  -Dexec.mainClass="os.toolset.ruleengine.benchmark.GranularCliffBenchmark" \
+  -Dexec.mainClass="com.helios.ruleengine.benchmark.GranularCliffBenchmark" \
   -Dexec.classpathScope=test
 
 # Expected output:
@@ -661,7 +661,7 @@ java -Xms8g -Xmx8g \
 +
 [source,java]
 ----
-Logger.getLogger("os.toolset.ruleengine").setLevel(Level.FINE);
+Logger.getLogger("com.helios.ruleengine").setLevel(Level.FINE);
 ----
 
 === Performance Degradation
@@ -810,8 +810,8 @@ record MatchResult(
 
 [source,java]
 ----
-import os.toolset.ruleengine.core.*;
-import os.toolset.ruleengine.model.*;
+import com.helios.ruleengine.core.*;
+import com.helios.ruleengine.model.*;
 import java.nio.file.*;
 import java.util.*;
 

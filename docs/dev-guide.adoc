@@ -90,7 +90,7 @@
 
 === 1.2 Core Components
 
-*Compilation Layer* (`os.toolset.ruleengine.core`)
+*Compilation Layer* (`com.helios.ruleengine.core`)
 
 - *RuleCompiler.java*: 5-phase compilation orchestrator
 * Validates rules, builds dictionaries, performs deduplication
@@ -259,8 +259,8 @@ mvn clean package -DskipTests  # faster
 
 [source,java]
 ----
-import os.toolset.ruleengine.core.*;
-import os.toolset.ruleengine.model.*;
+import com.helios.ruleengine.core.*;
+import com.helios.ruleengine.model.*;
 import java.nio.file.Path;
 import java.util.Map;
 
@@ -295,14 +295,14 @@ public class QuickStart {
 ----
 # Quick benchmark
 mvn clean test-compile exec:java \
-  -Dexec.mainClass="os.toolset.ruleengine.benchmark.SimpleBenchmark" \
+  -Dexec.mainClass="com.helios.ruleengine.benchmark.SimpleBenchmark" \
   -Dexec.classpathScope=test \
   -Dbench.quick=true
 
 
 # Production benchmark
 mvn clean test-compile exec:java \
-  -Dexec.mainClass="os.toolset.ruleengine.benchmark.ProductionBenchmark" \
+  -Dexec.mainClass="com.helios.ruleengine.benchmark.ProductionBenchmark" \
   -Dexec.classpathScope=test
 ----
 
@@ -896,7 +896,7 @@ mvn test -Dtest=Phase4RuleEngineTest#testSoAMemoryLayout  # Method
 [source,bash]
 ----
 mvn clean test-compile exec:java \
-  -Dexec.mainClass="os.toolset.ruleengine.benchmark.SimpleBenchmark" \
+  -Dexec.mainClass="com.helios.ruleengine.benchmark.SimpleBenchmark" \
   -Dexec.classpathScope=test
 ----
 
@@ -904,7 +904,7 @@ mvn clean test-compile exec:java \
 [source,bash]
 ----
 mvn clean test-compile exec:java \
-  -Dexec.mainClass="os.toolset.ruleengine.benchmark.ProductionBenchmark" \
+  -Dexec.mainClass="com.helios.ruleengine.benchmark.ProductionBenchmark" \
   -Dexec.classpathScope=test
 ----
 

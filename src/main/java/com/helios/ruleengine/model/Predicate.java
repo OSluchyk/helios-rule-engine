@@ -1,0 +1,87 @@
+package com.helios.ruleengine.model;
+
+import java.util.List;
+import java.util.Objects;
+import java.util.regex.Pattern;
+
+/**
+ * Immutable atomic condition using dictionary-encoded integer IDs for fields and values.
+ * Weight and selectivity are metadata for optimization.
+ */
+public record Predicate(
+        int fieldId,
+        Operator operator,
+        Object value,
+        Pattern pattern,
+        float weight,
+        float selectivity
+) {
+
+    public enum Operator {
+        EQUAL_TO, IS_ANY_OF,
+        GREATER_THAN, LESS_THAN, BETWEEN, CONTAINS, REGEX;
+
+        public static Operator fromString(String text) {
+            if (text == null) return null;
+            try { return Operator.valueOf(text.toUpperCase()); }
+            catch (IllegalArgumentException e) { return null; }
+        }
+
+        public boolean isNumeric() {
+            return this == GREATER_THAN || this == LESS_THAN || this == BETWEEN;
+        }
+    }
+
+    public Predicate {
+        Objects.requireNonNull(operator, "Operator cannot be null");
+        Objects.requireNonNull(value, "Value cannot be null");
+    }
+
+    public Predicate(int fieldId, Operator operator, Object value) {
+        this(fieldId, operator, value, null, 0, 0);
+    }
+
+    public boolean evaluate(Object eventValue) {
+        if (eventValue == null) return false;
+        // Non-numeric and non-vectorizable operations
+        return switch (operator) {
+            case EQUAL_TO -> value.equals(eventValue);
+            case CONTAINS -> (eventValue instanceof String) && ((String) eventValue).contains((String) value);
+            case REGEX -> (eventValue instanceof String) && pattern.matcher((String) eventValue).matches();
+            // Numeric operations are now handled by dedicated methods for vectorization
+            case GREATER_THAN, LESS_THAN, BETWEEN -> evaluateNumeric(eventValue);
+            default -> false;
+        };
+    }
+
+    // Dedicated method for numeric evaluation
+    private boolean evaluateNumeric(Object eventValue) {
+        if (!(eventValue instanceof Number)) return false;
+        double eventDouble = ((Number) eventValue).doubleValue();
+
+        return switch (operator) {
+            case GREATER_THAN -> eventDouble > ((Number) value).doubleValue();
+            case LESS_THAN -> eventDouble < ((Number) value).doubleValue();
+            case BETWEEN -> {
+                List<?> range = (List<?>) value;
+                double lower = ((Number) range.get(0)).doubleValue();
+                double upper = ((Number) range.get(1)).doubleValue();
+                yield eventDouble >= lower && eventDouble <= upper;
+            }
+            default -> false;
+        };
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Predicate that = (Predicate) o;
+        return fieldId == that.fieldId && operator == that.operator && Objects.equals(value, that.value);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(fieldId, operator, value);
+    }
+}
