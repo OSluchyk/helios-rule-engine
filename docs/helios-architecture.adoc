@@ -234,14 +234,16 @@ The final phase assembles the optimized data structures into the `EngineModel` a
 
 The `RuleEvaluator` executes a highly optimized pipeline to evaluate an event in under a millisecond.
 
+[cols="1,2"]
+|===
 |*Step*|*Typical Time (P50)*
-|---|---
 |1. Event Normalization|~5-10µs
 |2. Base Condition Evaluation (Cache Hit)|~20-50µs
 |3. Predicate Evaluation (Vectorized)|~50-100µs
 |4. Counter-Based Matching|~30-50µs
 |5. Rule Selection|~10-20µs
 |**Total**|**~115-230µs**
+|===
 
 === 6.1. Step 1: Event Normalization
 
