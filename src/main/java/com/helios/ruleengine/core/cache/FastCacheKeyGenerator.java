@@ -130,31 +130,23 @@ public class FastCacheKeyGenerator {
     }
 
     private static void writeValue(ByteBuffer buffer, Object value) {
-        if (value instanceof Integer) {
-            buffer.putInt((Integer) value);
-        } else if (value instanceof Long) {
-            buffer.putLong((Long) value);
-        } else if (value instanceof Double) {
-            buffer.putDouble((Double) value);
-        } else if (value instanceof String) {
-            buffer.putLong(stringHash((String) value));
-        } else {
-            buffer.putInt(value.hashCode());
+        switch (value) {
+            case Integer i -> buffer.putInt(i);
+            case Long l -> buffer.putLong(l);
+            case Double v -> buffer.putDouble(v);
+            case String s -> buffer.putLong(stringHash(s));
+            default -> buffer.putInt(value.hashCode());
         }
     }
 
     private static long valueHash(Object value) {
-        if (value instanceof Integer) {
-            return (Integer) value;
-        } else if (value instanceof Long) {
-            return (Long) value;
-        } else if (value instanceof Double) {
-            return Double.doubleToLongBits((Double) value);
-        } else if (value instanceof String) {
-            return stringHash((String) value);
-        } else {
-            return value.hashCode();
-        }
+        return switch (value) {
+            case Integer i -> i;
+            case Long l -> l;
+            case Double v -> Double.doubleToLongBits(v);
+            case String s -> stringHash(s);
+            default -> value.hashCode();
+        };
     }
 
     private static long xxHash3_128(ByteBuffer buffer, long seed) {
