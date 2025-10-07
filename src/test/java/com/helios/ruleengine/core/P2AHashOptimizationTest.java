@@ -1,5 +1,9 @@
 package com.helios.ruleengine.core;
 
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.evaluation.BaseConditionEvaluator;
+import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import io.opentelemetry.api.trace.Tracer;
 import org.junit.jupiter.api.*;
 import com.helios.ruleengine.core.cache.InMemoryBaseConditionCache;
@@ -50,8 +54,8 @@ class P2AHashOptimizationTest {
         Files.writeString(rulesFile, createDiverseRules(1000));
 
         // When - Compile and extract base conditions
-        RuleCompiler compiler = new RuleCompiler(NOOP_TRACER);
-        EngineModel model = compiler.compile(rulesFile);
+        DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
+        DefaultEngineModel model = compiler.compile(rulesFile);
 
         InMemoryBaseConditionCache cache = new InMemoryBaseConditionCache.Builder().build();
         BaseConditionEvaluator evaluator = new BaseConditionEvaluator(model, cache);
@@ -131,8 +135,8 @@ class P2AHashOptimizationTest {
         Files.writeString(rulesFile, createHighDeduplicationRules(500));
 
         // When
-        RuleCompiler compiler = new RuleCompiler(NOOP_TRACER);
-        EngineModel model = compiler.compile(rulesFile);
+        DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
+        DefaultEngineModel model = compiler.compile(rulesFile);
 
         InMemoryBaseConditionCache cache = new InMemoryBaseConditionCache.Builder().build();
         BaseConditionEvaluator evaluator = new BaseConditionEvaluator(model, cache);
@@ -365,8 +369,8 @@ class P2AHashOptimizationTest {
         Files.writeString(rulesFile, rules);
 
         // When
-        RuleCompiler compiler = new RuleCompiler(NOOP_TRACER);
-        EngineModel model = compiler.compile(rulesFile);
+        DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
+        DefaultEngineModel model = compiler.compile(rulesFile);
 
         InMemoryBaseConditionCache cache = new InMemoryBaseConditionCache.Builder().build();
         BaseConditionEvaluator evaluator = new BaseConditionEvaluator(model, cache);

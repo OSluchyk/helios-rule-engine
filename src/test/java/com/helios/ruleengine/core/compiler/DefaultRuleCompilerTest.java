@@ -1,5 +1,7 @@
-package com.helios.ruleengine.core;
+package com.helios.ruleengine.core.compiler;
 
+import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
 import org.junit.jupiter.api.AfterEach;
@@ -16,14 +18,14 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class RuleCompilerTest {
+class DefaultRuleCompilerTest {
 
-    private RuleCompiler compiler;
+    private DefaultRuleCompiler compiler;
     private Path tempDir;
 
     @BeforeEach
     void setUp() throws IOException {
-        compiler = new RuleCompiler(TracingService.getInstance().getTracer());
+        compiler = new DefaultRuleCompiler(TracingService.getInstance().getTracer());
         tempDir = Files.createTempDirectory("rule_engine_test");
     }
 
@@ -63,7 +65,7 @@ class RuleCompilerTest {
         ]
         """;
         Path rulesFile = writeRules(rulesJson);
-        EngineModel model = compiler.compile(rulesFile);
+        DefaultEngineModel model = compiler.compile(rulesFile);
 
         assertThat(model.getStats().metadata().get("uniqueCombinations")).isEqualTo(3);
         assertThat(model.getNumRules()).isEqualTo(3);
@@ -122,7 +124,7 @@ class RuleCompilerTest {
         Path rulesFile = writeRules(rulesJson);
 
         // When
-        EngineModel model = compiler.compile(rulesFile);
+        DefaultEngineModel model = compiler.compile(rulesFile);
         List<Predicate> sortedPredicates = model.getSortedPredicates();
 
         // Then

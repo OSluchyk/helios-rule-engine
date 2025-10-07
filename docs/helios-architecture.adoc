@@ -72,13 +72,13 @@ To overcome these challenges, the Helios architecture is built on four core prin
 |To enable systematic optimization, all user-defined rules are constrained to be "AND-only". All OR-like logic must be expressed through set-based operators like `IS_ANY_OF`. This constraint is the foundation for effective factoring and deduplication.
 
 |**2. Aggressive Offline Compilation**
-|The engine performs nearly all expensive work—such as validation, optimization, data structure construction, and deduplication—during an offline compilation phase. This transforms complex rules into a highly optimized, evaluation-ready `EngineModel`.
+|The engine performs nearly all expensive work—such as validation, optimization, data structure construction, and deduplication—during an offline compilation phase. This transforms complex rules into a highly optimized, evaluation-ready `DefaultEngineModel`.
 
 |**3. Cache-Conscious Design**
 |Data structures are explicitly designed to align with modern CPU architectures. This includes the **Structure-of-Arrays (SoA)** layout, 64-byte memory alignment, and tiered memory access patterns (hot/warm/cold) to maximize CPU cache hits and minimize memory bandwidth usage.
 
 |**4. Deterministic Compilation**
-|For a given set of rules, the compilation process is guaranteed to produce an identical, byte-for-byte `EngineModel`. This reproducibility is critical for enabling safe deployment strategies like A/B testing, blue-green deployments, and confident rollbacks.
+|For a given set of rules, the compilation process is guaranteed to produce an identical, byte-for-byte `DefaultEngineModel`. This reproducibility is critical for enabling safe deployment strategies like A/B testing, blue-green deployments, and confident rollbacks.
 |===
 
 ---
@@ -158,7 +158,7 @@ The system is logically divided into two main stages: a **Compile-Time** stage w
 |*Compile-Time (Offline)* |*Runtime (Online)*
 
 a|
-This is where the heavy lifting occurs. The `RuleCompiler` takes raw JSON rules and transforms them into a hyper-optimized, binary `EngineModel`. This process takes seconds but enables sub-millisecond evaluation at runtime.
+This is where the heavy lifting occurs. The `DefaultRuleCompiler` takes raw JSON rules and transforms them into a hyper-optimized, binary `DefaultEngineModel`. This process takes seconds but enables sub-millisecond evaluation at runtime.
 
 * **Dictionary Encoding**: Compresses string fields and values into integers, reducing memory by 4-20x.
 * **Smart Factoring**: Identifies and reuses common predicate subsets across the entire rule set.
@@ -166,7 +166,7 @@ This is where the heavy lifting occurs. The `RuleCompiler` takes raw JSON rules 
 * **Data Structure Construction**: Builds the inverted index and the cache-friendly SoA data layout.
 
 a|
-This stage is designed to be ultra-fast and allocation-free in the hot path. The `RuleEvaluator` uses the pre-computed `EngineModel` to evaluate incoming events.
+This stage is designed to be ultra-fast and allocation-free in the hot path. The `DefaultRuleEvaluator` uses the pre-computed `DefaultEngineModel` to evaluate incoming events.
 
 * **Cache-First Lookup**: First checks the multi-tier cache for pre-computed results of static "base conditions".
 * **Vectorized Predicate Evaluation**: Uses the Java Vector API to evaluate batches of numeric predicates simultaneously using SIMD instructions.
@@ -177,7 +177,7 @@ This stage is designed to be ultra-fast and allocation-free in the hot path. The
 
 == 5. Compilation Pipeline Deep Dive
 
-The `RuleCompiler` executes a five-phase pipeline to transform human-readable JSON rules into the optimized `EngineModel`.
+The `DefaultRuleCompiler` executes a five-phase pipeline to transform human-readable JSON rules into the optimized `DefaultEngineModel`.
 
 === 5.1. Phase 1: Validation & Canonicalization
 
@@ -211,7 +211,7 @@ This phase builds the final, runtime-ready data structures.
 
 ==== 5.4.1. Structure-of-Arrays (SoA) Layout
 
-Instead of a traditional Array-of-Structures (AoS) (e.g., `Rule[]`), the `EngineModel` uses a **Structure-of-Arrays (SoA)** layout. All related rule attributes are stored in separate, contiguous primitive arrays, indexed by a `ruleId`.
+Instead of a traditional Array-of-Structures (AoS) (e.g., `Rule[]`), the `DefaultEngineModel` uses a **Structure-of-Arrays (SoA)** layout. All related rule attributes are stored in separate, contiguous primitive arrays, indexed by a `ruleId`.
 
 * **AoS (Bad)**: `class Rule { int priority; int predicateCount; ... }`, `Rule[] rules;`
 * **SoA (Good)**: `int[] priorities;`, `int[] predicateCounts;`
@@ -226,13 +226,13 @@ The index uses **adaptive bitmaps** for memory efficiency. Based on the density 
 
 === 5.5. Phase 5: Execution Plan Generation
 
-The final phase assembles the optimized data structures into the `EngineModel` and generates the final evaluation plan. This includes sorting predicates by weight and pre-computing metadata to enable further runtime optimizations like early termination.
+The final phase assembles the optimized data structures into the `DefaultEngineModel` and generates the final evaluation plan. This includes sorting predicates by weight and pre-computing metadata to enable further runtime optimizations like early termination.
 
 ---
 
 == 6. Runtime Evaluation Pipeline
 
-The `RuleEvaluator` executes a highly optimized pipeline to evaluate an event in under a millisecond.
+The `DefaultRuleEvaluator` executes a highly optimized pipeline to evaluate an event in under a millisecond.
 
 [cols="1,2"]
 |===
@@ -321,7 +321,7 @@ The recommended deployment is on a container orchestration platform like GCP Clo
 === 8.2. Zero-Downtime Updates
 
 * **Blue-Green Deployments**: New versions of the application are deployed alongside the live version. Once the new version passes readiness checks, traffic is atomically switched over, ensuring zero downtime.
-* **Hot Reload**: For rule changes that don't require a code change, the `EngineModelManager` can automatically detect updates to the rules file, compile a new `EngineModel` in the background, and atomically swap it into service with no interruption to traffic.
+* **Hot Reload**: For rule changes that don't require a code change, the `EngineModelManager` can automatically detect updates to the rules file, compile a new `DefaultEngineModel` in the background, and atomically swap it into service with no interruption to traffic.
 
 === 8.3. Observability
 

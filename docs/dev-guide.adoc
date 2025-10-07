@@ -94,7 +94,7 @@
 
 - *RuleCompiler.java*: 5-phase compilation orchestrator
 * Validates rules, builds dictionaries, performs deduplication
-* Outputs optimized `EngineModel`
+* Outputs optimized `DefaultEngineModel`
 * Compilation time: 5–30 s depending on rule complexity
 
 - *Dictionary.java*: Bidirectional string↔int encoding
@@ -180,7 +180,7 @@
 
 === 2.4 Deterministic Compilation
 
-*Guarantee*: Identical input rules → byte-for-byte identical `EngineModel`.
+*Guarantee*: Identical input rules → byte-for-byte identical `DefaultEngineModel`.
 
 *Benefits*: A/B confidence, safe rollbacks, reproducible builds.
 
@@ -259,18 +259,18 @@ mvn clean package -DskipTests  # faster
 
 [source,java]
 ----
-import com.helios.ruleengine.core.*;
-import com.helios.ruleengine.model.*;
+
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;import com.helios.ruleengine.core.model.DefaultEngineModel;import com.helios.ruleengine.infrastructure.telemetry.TracingService;import com.helios.ruleengine.model.*;
 import java.nio.file.Path;
 import java.util.Map;
 
 public class QuickStart {
     public static void main(String[] args) throws Exception {
         Path rulesFile = Path.of("rules.json");
-        RuleCompiler compiler = new RuleCompiler(TracingService.getInstance().getTracer());
-        EngineModel model = compiler.compile(rulesFile);
+        DefaultRuleCompiler compiler = new DefaultRuleCompiler(TracingService.getInstance().getTracer());
+        DefaultEngineModel model = compiler.compile(rulesFile);
 
-        RuleEvaluator evaluator = new RuleEvaluator(model);
+        DefaultRuleEvaluator evaluator = new DefaultRuleEvaluator(model);
 
         Event event = new Event(
             "evt-001",
@@ -1052,7 +1052,7 @@ GET /health
 
 === 12.1 Core Classes
 
-*RuleCompiler* — compiles JSON rules into optimized `EngineModel`.
+*DefaultRuleCompiler* — compiles JSON rules into optimized `DefaultEngineModel`.
 
 [source,java]
 ----
@@ -1068,7 +1068,7 @@ RuleCompiler compiler = new RuleCompiler(
 EngineModel model = compiler.compile(Path.of("rules.json"));
 ----
 
-*RuleEvaluator* — evaluates events against compiled rules.
+*DefaultRuleEvaluator* — evaluates events against compiled rules.
 
 [source,java]
 ----
@@ -1131,7 +1131,7 @@ result.matchedRules().forEach(rule ->
 );
 ----
 
-*EngineModel* — immutable compiled rule model.
+*DefaultEngineModel* — immutable compiled rule model.
 
 [source,java]
 ----

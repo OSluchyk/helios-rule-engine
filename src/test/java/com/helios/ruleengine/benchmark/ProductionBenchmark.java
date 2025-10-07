@@ -1,12 +1,15 @@
 package com.helios.ruleengine.benchmark;
 
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
+import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 import org.openjdk.jmh.results.format.ResultFormatType;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
-import com.helios.ruleengine.core.*;
 import com.helios.ruleengine.core.cache.*;
 import com.helios.ruleengine.model.Event;
 import com.helios.ruleengine.model.MatchResult;
@@ -58,10 +61,10 @@ public class ProductionBenchmark {
     @Param({"SIMPLE", "MEDIUM", "COMPLEX", "MIXED"})
     private String workloadType;
 
-    private RuleEvaluator evaluator;
+    private DefaultRuleEvaluator evaluator;
     private List<Event> eventPool;
     private AtomicLong eventIndex;
-    private EngineModel model;
+    private DefaultEngineModel model;
 
     // Monitoring
     private static final boolean ENABLE_MONITORING = true;
@@ -76,7 +79,7 @@ public class ProductionBenchmark {
         Path rulesPath = createProductionRules(ruleCount, workloadType);
 
         // Compile with production optimizations
-        RuleCompiler compiler = new RuleCompiler(TracingService.getInstance().getTracer());
+        DefaultRuleCompiler compiler = new DefaultRuleCompiler(TracingService.getInstance().getTracer());
         model = compiler.compile(rulesPath);
 
         // Print model statistics
@@ -84,7 +87,7 @@ public class ProductionBenchmark {
 
         // Initialize evaluator with production cache
         BaseConditionCache cache = createProductionCache();
-        evaluator = new RuleEvaluator(model, TracingService.getInstance().getTracer(), true);
+        evaluator = new DefaultRuleEvaluator(model, TracingService.getInstance().getTracer(), true);
 
         // Pre-generate event pool
         eventPool = generateEventPool(10000, workloadType);
@@ -363,14 +366,14 @@ public class ProductionBenchmark {
      * Performance monitor for detailed metrics
      */
     private static class PerformanceMonitor {
-        private final EngineModel model;
+        private final DefaultEngineModel model;
         private final Timer timer;
         private long startTime;
         private long totalEvents = 0;
         private long totalLatency = 0;
         private final List<Long> latencies = new ArrayList<>();
 
-        public PerformanceMonitor(EngineModel model) {
+        public PerformanceMonitor(DefaultEngineModel model) {
             this.model = model;
             this.timer = new Timer(true);
         }

@@ -8,10 +8,10 @@ import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
-import com.helios.ruleengine.core.EngineModel;
-import com.helios.ruleengine.core.RuleCompiler;
-import com.helios.ruleengine.core.RuleEvaluator;
-import com.helios.ruleengine.core.TracingService;
+import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
+import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import com.helios.ruleengine.model.Event;
 import com.helios.ruleengine.model.MatchResult;
 
@@ -63,8 +63,8 @@ public class GranularCliffBenchmark {
 
     private static final Tracer TRACER = TracingService.getInstance().getTracer();
 
-    private RuleEvaluator evaluator;
-    private EngineModel model;
+    private DefaultRuleEvaluator evaluator;
+    private DefaultEngineModel model;
     private List<Event> eventPool;
     private final AtomicInteger eventIndex = new AtomicInteger(0);
 
@@ -78,11 +78,11 @@ public class GranularCliffBenchmark {
         Path rulesPath = createTestRules(ruleCount);
 
         // Compile
-        RuleCompiler compiler = new RuleCompiler(TRACER);
+        DefaultRuleCompiler compiler = new DefaultRuleCompiler(TRACER);
         model = compiler.compile(rulesPath);
 
         // Create evaluator
-        evaluator = new RuleEvaluator(model, TRACER, true);
+        evaluator = new DefaultRuleEvaluator(model, TRACER, true);
 
         // Generate diverse events
         eventPool = generateEvents(10_000);

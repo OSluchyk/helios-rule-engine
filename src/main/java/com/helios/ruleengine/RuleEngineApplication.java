@@ -1,8 +1,9 @@
 package com.helios.ruleengine;
 
-import com.helios.ruleengine.core.EngineModelManager;
-import com.helios.ruleengine.core.RuleCompiler;
-import com.helios.ruleengine.core.TracingService;
+import com.helios.ruleengine.core.compiler.CompilationException;
+import com.helios.ruleengine.core.management.EngineModelManager;
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import com.helios.ruleengine.server.HttpServer;
 
 import java.io.IOException;
@@ -29,7 +30,7 @@ public class RuleEngineApplication {
         }
     }
 
-    private void start(String[] args) throws IOException, RuleCompiler.CompilationException {
+    private void start(String[] args) throws IOException, CompilationException {
         logger.info("Starting High-Performance Rule Engine with OpenTelemetry");
         TracingService tracingService = TracingService.getInstance();
         String rulesFile = System.getProperty("rules.file", "rules.json");

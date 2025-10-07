@@ -1,5 +1,8 @@
-package com.helios.ruleengine.core;
+package com.helios.ruleengine.core.management;
 
+import com.helios.ruleengine.core.compiler.CompilationException;
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.model.DefaultEngineModel;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
@@ -18,17 +21,17 @@ public class EngineModelManager {
     private static final Logger logger = Logger.getLogger(EngineModelManager.class.getName());
 
     private final Path rulesPath;
-    private final RuleCompiler compiler;
-    private final AtomicReference<EngineModel> activeModel = new AtomicReference<>();
+    private final DefaultRuleCompiler compiler;
+    private final AtomicReference<DefaultEngineModel> activeModel = new AtomicReference<>();
     private final ScheduledExecutorService monitoringExecutor;
     private final Tracer tracer;
 
     private long lastModifiedTime = -1;
 
-    public EngineModelManager(Path rulesPath, Tracer tracer) throws RuleCompiler.CompilationException, IOException {
+    public EngineModelManager(Path rulesPath, Tracer tracer) throws CompilationException, IOException {
         this.rulesPath = rulesPath;
         this.tracer = tracer;
-        this.compiler = new RuleCompiler(tracer); // Pass tracer to compiler
+        this.compiler = new DefaultRuleCompiler(tracer); // Pass tracer to compiler
         this.monitoringExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "Rule-File-Monitor");
             t.setDaemon(true);
@@ -37,7 +40,7 @@ public class EngineModelManager {
         loadModel(); // Initial load
     }
 
-    public EngineModel getEngineModel() {
+    public DefaultEngineModel getEngineModel() {
         return activeModel.get();
     }
 
@@ -74,12 +77,12 @@ public class EngineModelManager {
         Span span = tracer.spanBuilder("load-new-model").startSpan();
         try (Scope scope = span.makeCurrent()) {
             long modifiedTime = Files.getLastModifiedTime(rulesPath).toMillis();
-            EngineModel newModel = compiler.compile(rulesPath);
+            DefaultEngineModel newModel = compiler.compile(rulesPath);
             activeModel.set(newModel);
             this.lastModifiedTime = modifiedTime;
             span.setAttribute("newModel.uniqueCombinations", newModel.getNumRules());
             logger.info("Successfully reloaded and swapped to new rule model.");
-        } catch (IOException | RuleCompiler.CompilationException e) {
+        } catch (IOException | CompilationException e) {
             span.recordException(e);
             logger.log(Level.SEVERE, "Failed to compile new rule model. Old model remains active.", e);
         } finally {

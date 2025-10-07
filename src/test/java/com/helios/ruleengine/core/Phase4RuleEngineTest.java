@@ -1,5 +1,9 @@
 package com.helios.ruleengine.core;
 
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
+import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import org.junit.jupiter.api.*;
 import com.helios.ruleengine.model.Event;
 import com.helios.ruleengine.model.MatchResult;
@@ -14,8 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class Phase4RuleEngineTest {
 
-    private EngineModel model;
-    private RuleEvaluator evaluator;
+    private DefaultEngineModel model;
+    private DefaultRuleEvaluator evaluator;
     private static Path tempDir;
 
     @BeforeAll
@@ -35,8 +39,8 @@ class Phase4RuleEngineTest {
     void setUp() throws Exception {
         Path rulesFile = tempDir.resolve("phase4_rules.json");
         Files.writeString(rulesFile, getPhase4TestRulesJson());
-        model = new RuleCompiler(TracingService.getInstance().getTracer()).compile(rulesFile);
-        evaluator = new RuleEvaluator(model);
+        model = new DefaultRuleCompiler(TracingService.getInstance().getTracer()).compile(rulesFile);
+        evaluator = new DefaultRuleEvaluator(model);
     }
 
     @Test

@@ -1,5 +1,7 @@
-package com.helios.ruleengine.core;
+package com.helios.ruleengine.core.evaluation;
 
+import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
@@ -8,7 +10,6 @@ import org.roaringbitmap.IntIterator;
 import org.roaringbitmap.RoaringBitmap;
 import com.helios.ruleengine.core.cache.BaseConditionCache;
 import com.helios.ruleengine.core.cache.CaffeineBaseConditionCache;
-import com.helios.ruleengine.core.evaluation.VectorizedPredicateEvaluator;
 import com.helios.ruleengine.model.Event;
 import com.helios.ruleengine.model.MatchResult;
 
@@ -17,8 +18,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class RuleEvaluator {
-    private final EngineModel model;
+public class DefaultRuleEvaluator {
+    private final DefaultEngineModel model;
     private final EvaluatorMetrics metrics;
     private final Tracer tracer;
 
@@ -33,15 +34,15 @@ public class RuleEvaluator {
 
     private static final int PREFETCH_DISTANCE = 64;
 
-    public RuleEvaluator(EngineModel model) {
+    public DefaultRuleEvaluator(DefaultEngineModel model) {
         this(model, TracingService.getInstance().getTracer(), true);
     }
 
-    public RuleEvaluator(EngineModel model, Tracer tracer) {
+    public DefaultRuleEvaluator(DefaultEngineModel model, Tracer tracer) {
         this(model, tracer, true);
     }
 
-    public RuleEvaluator(EngineModel model, Tracer tracer, boolean useBaseConditionCache) {
+    public DefaultRuleEvaluator(DefaultEngineModel model, Tracer tracer, boolean useBaseConditionCache) {
         this.model = Objects.requireNonNull(model);
         this.metrics = new EvaluatorMetrics();
         this.tracer = tracer;

@@ -1,5 +1,9 @@
 package com.helios.ruleengine.core;
 
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
+import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import io.opentelemetry.api.trace.Tracer;
 import org.junit.jupiter.api.*;
 import com.helios.ruleengine.model.Event;
@@ -23,8 +27,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class VectorizationOptimizationTest {
 
     private static final Tracer NOOP_TRACER = TracingService.getInstance().getTracer();
-    private EngineModel model;
-    private RuleEvaluator evaluator;
+    private DefaultEngineModel model;
+    private DefaultRuleEvaluator evaluator;
     private static Path tempDir;
 
     @BeforeAll
@@ -45,9 +49,9 @@ class VectorizationOptimizationTest {
         Path rulesFile = tempDir.resolve("vectorization_rules.json");
         Files.writeString(rulesFile, getVectorizationTestRules());
 
-        RuleCompiler compiler = new RuleCompiler(NOOP_TRACER);
+        DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
         model = compiler.compile(rulesFile);
-        evaluator = new RuleEvaluator(model, NOOP_TRACER, false); // Disable base cache for clearer testing
+        evaluator = new DefaultRuleEvaluator(model, NOOP_TRACER, false); // Disable base cache for clearer testing
     }
 
     @Test
@@ -137,7 +141,7 @@ class VectorizationOptimizationTest {
     @DisplayName("P1-B: Eligible predicate set cache should reduce overhead")
     void eligibleSetCacheShouldReduceOverhead() {
         // Create evaluator WITH base cache enabled (to trigger eligible set caching)
-        RuleEvaluator cachedEvaluator = new RuleEvaluator(model, NOOP_TRACER, true);
+        DefaultRuleEvaluator cachedEvaluator = new DefaultRuleEvaluator(model, NOOP_TRACER, true);
 
         // Warm up to populate cache
         for (int i = 0; i < 1000; i++) {

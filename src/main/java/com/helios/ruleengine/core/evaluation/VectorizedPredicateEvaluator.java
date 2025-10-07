@@ -1,9 +1,8 @@
 package com.helios.ruleengine.core.evaluation;
 
+import com.helios.ruleengine.core.model.DefaultEngineModel;
 import jdk.incubator.vector.*;
 import it.unimi.dsi.fastutil.ints.*;
-import com.helios.ruleengine.core.EngineModel;
-import com.helios.ruleengine.core.OptimizedEvaluationContext;
 import com.helios.ruleengine.model.Predicate;
 
 import java.lang.foreign.Arena;
@@ -16,7 +15,7 @@ import java.util.logging.Logger;
 public class VectorizedPredicateEvaluator {
     private static final Logger logger = Logger.getLogger(VectorizedPredicateEvaluator.class.getName());
 
-    private final EngineModel model;
+    private final DefaultEngineModel model;
     private final Map<Integer, NumericBatchEvaluator> numericEvaluators;
     private final Map<Integer, StringBatchEvaluator> stringEvaluators;
 
@@ -25,7 +24,7 @@ public class VectorizedPredicateEvaluator {
     private static final Arena ARENA = Arena.ofShared();
     private static final int CACHE_LINE_SIZE = 64;
 
-    public VectorizedPredicateEvaluator(EngineModel model) {
+    public VectorizedPredicateEvaluator(DefaultEngineModel model) {
         this.model = model;
         this.numericEvaluators = new ConcurrentHashMap<>();
         this.stringEvaluators = new ConcurrentHashMap<>();

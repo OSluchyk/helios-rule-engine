@@ -9,9 +9,9 @@ import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 import org.openjdk.jmh.runner.options.TimeValue;
-import com.helios.ruleengine.core.EngineModel;
-import com.helios.ruleengine.core.RuleCompiler;
-import com.helios.ruleengine.core.RuleEvaluator;
+import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
 import com.helios.ruleengine.core.cache.BaseConditionCache;
 import com.helios.ruleengine.core.cache.InMemoryBaseConditionCache;
 import com.helios.ruleengine.model.Event;
@@ -102,12 +102,12 @@ public class SimpleBenchmark {
 
     // State
     private static final Tracer NOOP_TRACER = OpenTelemetry.noop().getTracer("noop");
-    private RuleEvaluator evaluator;
+    private DefaultRuleEvaluator evaluator;
     private List<Event> eventPool;
     private final AtomicInteger eventIndex = new AtomicInteger(0);
 
     // Metrics tracking
-    private EngineModel model;
+    private DefaultEngineModel model;
     private final LongAdder totalEvaluations = new LongAdder();
     private final LongAdder totalMatches = new LongAdder();
     private final List<Long> latencyHistory = Collections.synchronizedList(new ArrayList<>());
@@ -137,7 +137,7 @@ public class SimpleBenchmark {
 
         // Compile and measure
         long compileStart = System.nanoTime();
-        RuleCompiler compiler = new RuleCompiler(NOOP_TRACER);
+        DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
         model = compiler.compile(rulesPath);
         compilationTime = System.nanoTime() - compileStart;
 
@@ -147,7 +147,7 @@ public class SimpleBenchmark {
                 .defaultTtl(5, TimeUnit.MINUTES)
                 .build();
 
-        evaluator = new RuleEvaluator(model, NOOP_TRACER, true);
+        evaluator = new DefaultRuleEvaluator(model, NOOP_TRACER, true);
 
         // Generate diverse event pool
         eventPool = generateProgressiveEvents(10_000);
@@ -167,7 +167,7 @@ public class SimpleBenchmark {
         switch (cacheScenario) {
             case "COLD":
                 // Clear cache, simulate cold start
-                evaluator = new RuleEvaluator(model, NOOP_TRACER, true);
+                evaluator = new DefaultRuleEvaluator(model, NOOP_TRACER, true);
                 break;
             case "WARM":
                 // Partial warmup (10% of events)

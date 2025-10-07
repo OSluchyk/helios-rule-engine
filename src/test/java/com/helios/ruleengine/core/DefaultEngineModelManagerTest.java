@@ -1,5 +1,8 @@
 package com.helios.ruleengine.core;
 
+import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
+import com.helios.ruleengine.core.management.EngineModelManager;
+import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import io.opentelemetry.api.trace.Tracer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -15,7 +18,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class EngineModelManagerTest {
+public class DefaultEngineModelManagerTest {
 
     private static Path tempDir;
 
@@ -47,7 +50,7 @@ public class EngineModelManagerTest {
         EngineModelManager manager = new EngineModelManager(rulesFile, tracer);
         manager.start();
 
-        RuleEvaluator evaluator1 = new RuleEvaluator(manager.getEngineModel());
+        DefaultRuleEvaluator evaluator1 = new DefaultRuleEvaluator(manager.getEngineModel());
         MatchResult result1 = evaluator1.evaluate(new Event("1", "T", Map.of("type", "A")));
         assertThat(result1.matchedRules()).hasSize(1);
         assertThat(result1.matchedRules().get(0).ruleCode()).isEqualTo("ALPHA");
@@ -64,7 +67,7 @@ public class EngineModelManagerTest {
         System.out.println("Waiting for rule reload...");
         TimeUnit.SECONDS.sleep(12);
 
-        RuleEvaluator evaluator2 = new RuleEvaluator(manager.getEngineModel());
+        DefaultRuleEvaluator evaluator2 = new DefaultRuleEvaluator(manager.getEngineModel());
         MatchResult result2 = evaluator2.evaluate(new Event("2", "T", Map.of("type", "A")));
         assertThat(result2.matchedRules()).hasSize(1);
         assertThat(result2.matchedRules().get(0).ruleCode()).isEqualTo("BETA");

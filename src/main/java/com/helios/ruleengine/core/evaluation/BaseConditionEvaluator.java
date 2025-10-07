@@ -1,5 +1,6 @@
-package com.helios.ruleengine.core;
+package com.helios.ruleengine.core.evaluation;
 
+import com.helios.ruleengine.core.model.DefaultEngineModel;
 import it.unimi.dsi.fastutil.ints.*;
 import org.roaringbitmap.RoaringBitmap;
 import com.helios.ruleengine.core.cache.BaseConditionCache;
@@ -37,7 +38,7 @@ public class BaseConditionEvaluator {
     private static final long FNV_OFFSET_BASIS = 0xcbf29ce484222325L;
     private static final long FNV_PRIME = 0x100000001b3L;
 
-    private final EngineModel model;
+    private final DefaultEngineModel model;
     private final BaseConditionCache cache;
     private final Map<Integer, BaseConditionSet> baseConditionSets;
     private final Int2ObjectMap<RoaringBitmap> setToRules;
@@ -118,7 +119,7 @@ public class BaseConditionEvaluator {
         }
     }
 
-    public BaseConditionEvaluator(EngineModel model, BaseConditionCache cache) {
+    public BaseConditionEvaluator(DefaultEngineModel model, BaseConditionCache cache) {
         this.model = model;
         this.cache = cache;
         this.baseConditionSets = new HashMap<>();

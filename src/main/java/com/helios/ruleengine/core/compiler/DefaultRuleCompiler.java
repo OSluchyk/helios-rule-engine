@@ -1,6 +1,8 @@
-package com.helios.ruleengine.core;
+package com.helios.ruleengine.core.compiler;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.core.model.Dictionary;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
@@ -20,16 +22,16 @@ import java.util.logging.Logger;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-public class RuleCompiler {
-    private static final Logger logger = Logger.getLogger(RuleCompiler.class.getName());
+public class DefaultRuleCompiler {
+    private static final Logger logger = Logger.getLogger(DefaultRuleCompiler.class.getName());
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Tracer tracer;
 
-    public RuleCompiler(Tracer tracer) {
+    public DefaultRuleCompiler(Tracer tracer) {
         this.tracer = tracer;
     }
 
-    public EngineModel compile(Path rulesPath) throws IOException, CompilationException {
+    public DefaultEngineModel compile(Path rulesPath) throws IOException, CompilationException {
         Span span = tracer.spanBuilder("compile-rules").startSpan();
         try (Scope scope = span.makeCurrent()) {
             span.setAttribute("ruleFilePath", rulesPath.toString());
@@ -50,7 +52,7 @@ public class RuleCompiler {
 
             SelectivityProfile profile = profileSelectivity(factoredRules, fieldDictionary, valueDictionary);
 
-            EngineModel.Builder builder = buildCoreModelWithDeduplication(factoredRules, profile, fieldDictionary, valueDictionary);
+            DefaultEngineModel.Builder builder = buildCoreModelWithDeduplication(factoredRules, profile, fieldDictionary, valueDictionary);
 
             long compilationTime = System.nanoTime() - startTime;
             span.setAttribute("compilationTimeMs", TimeUnit.NANOSECONDS.toMillis(compilationTime));
@@ -69,7 +71,7 @@ public class RuleCompiler {
             span.setAttribute("uniqueCombinationCount", uniqueCombinations);
             span.setAttribute("deduplicationRate", String.format("%.2f%%", deduplicationRate));
 
-            EngineModel.EngineStats stats = new EngineModel.EngineStats(
+            DefaultEngineModel.EngineStats stats = new DefaultEngineModel.EngineStats(
                     uniqueCombinations,
                     builder.getPredicateCount(),
                     compilationTime,
@@ -112,13 +114,13 @@ public class RuleCompiler {
         }
     }
 
-    private EngineModel.Builder buildCoreModelWithDeduplication(List<RuleDefinition> definitions,
-                                                                SelectivityProfile profile,
-                                                                Dictionary fieldDictionary,
-                                                                Dictionary valueDictionary) {
+    private DefaultEngineModel.Builder buildCoreModelWithDeduplication(List<RuleDefinition> definitions,
+                                                                       SelectivityProfile profile,
+                                                                       Dictionary fieldDictionary,
+                                                                       Dictionary valueDictionary) {
         Span span = tracer.spanBuilder("build-core-model").startSpan();
         try(Scope scope = span.makeCurrent()) {
-            EngineModel.Builder builder = new EngineModel.Builder();
+            DefaultEngineModel.Builder builder = new DefaultEngineModel.Builder();
             for (RuleDefinition def : definitions) {
                 List<List<Predicate>> combinations = generatePredicateCombinations(def, profile, fieldDictionary, valueDictionary);
                 if (combinations.isEmpty()) continue;
@@ -287,7 +289,5 @@ public class RuleCompiler {
         }
     }
 
-    public static class CompilationException extends Exception {
-        public CompilationException(String message) { super(message); }
-    }
+
 }

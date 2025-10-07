@@ -331,12 +331,12 @@ Event fraudEvent = new Event("txn-999", "TRANSACTION", Map.of(
 
 [source,java]
 ----
-import com.helios.ruleengine.core.RuleCompiler;
-import com.helios.ruleengine.core.EngineModel;
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.model.DefaultEngineModel;
 import java.nio.file.Paths;
 
-RuleCompiler compiler = new RuleCompiler(tracer);
-EngineModel model = compiler.compile(Paths.get("rules.json"));
+DefaultRuleCompiler compiler = new DefaultRuleCompiler(tracer);
+DefaultEngineModel model = compiler.compile(Paths.get("rules.json"));
 ----
 
 === Loading Rules from String
@@ -570,7 +570,7 @@ MatchResult result = evaluator.evaluate(event);
 
 === Cache Configuration
 
-The engine uses Caffeine cache for predicate evaluation results. Configure in `RuleEvaluator` initialization:
+The engine uses Caffeine cache for predicate evaluation results. Configure in `DefaultRuleEvaluator` initialization:
 
 [source,java]
 ----
@@ -810,8 +810,8 @@ record MatchResult(
 
 [source,java]
 ----
-import com.helios.ruleengine.core.*;
-import com.helios.ruleengine.model.*;
+
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;import com.helios.ruleengine.core.model.DefaultEngineModel;import com.helios.ruleengine.infrastructure.telemetry.TracingService;import com.helios.ruleengine.model.*;
 import java.nio.file.*;
 import java.util.*;
 
@@ -856,16 +856,16 @@ public class FraudDetectionExample {
         Files.writeString(rulesFile, rulesJson);
 
         // 2. Compile rules
-        RuleCompiler compiler = new RuleCompiler(
+        DefaultRuleCompiler compiler = new DefaultRuleCompiler(
             TracingService.getInstance().getTracer()
         );
-        EngineModel model = compiler.compile(rulesFile);
+        DefaultEngineModel model = compiler.compile(rulesFile);
 
         System.out.println("Compiled " + model.getStats().metadata()
             .get("logicalRules") + " rules");
 
         // 3. Create evaluator
-        RuleEvaluator evaluator = new RuleEvaluator(model);
+        DefaultRuleEvaluator evaluator = new DefaultRuleEvaluator(model);
 
         // 4. Evaluate suspicious transaction
         Event suspiciousTransaction = new Event(

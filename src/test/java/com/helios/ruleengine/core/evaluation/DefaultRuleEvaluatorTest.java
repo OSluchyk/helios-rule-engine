@@ -1,5 +1,8 @@
-package com.helios.ruleengine.core;
+package com.helios.ruleengine.core.evaluation;
 
+import com.helios.ruleengine.core.compiler.CompilationException;
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.model.DefaultEngineModel;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
@@ -9,7 +12,6 @@ import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import com.helios.ruleengine.core.RuleCompiler.CompilationException;
 import com.helios.ruleengine.model.Event;
 import com.helios.ruleengine.model.MatchResult;
 
@@ -25,10 +27,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class RuleEvaluatorTest {
+class DefaultRuleEvaluatorTest {
 
-    private EngineModel engineModel;
-    private RuleEvaluator ruleEvaluator;
+    private DefaultEngineModel engineModel;
+    private DefaultRuleEvaluator ruleEvaluator;
     private InMemorySpanExporter spanExporter;
     private Tracer tracer;
 
@@ -66,9 +68,9 @@ class RuleEvaluatorTest {
         Path rulesPath = Files.createTempFile("test-rules", ".json");
         Files.writeString(rulesPath, rulesJson);
 
-        RuleCompiler compiler = new RuleCompiler(tracer);
+        DefaultRuleCompiler compiler = new DefaultRuleCompiler(tracer);
         engineModel = compiler.compile(rulesPath);
-        ruleEvaluator = new RuleEvaluator(engineModel, tracer);
+        ruleEvaluator = new DefaultRuleEvaluator(engineModel, tracer);
     }
 
     @Test
@@ -156,9 +158,9 @@ class RuleEvaluatorTest {
         Path rulesPath = Files.createTempFile("priority-rules", ".json");
         Files.writeString(rulesPath, rulesJson);
 
-        RuleCompiler compiler = new RuleCompiler(tracer);
-        EngineModel priorityModel = compiler.compile(rulesPath);
-        RuleEvaluator priorityEvaluator = new RuleEvaluator(priorityModel, tracer);
+        DefaultRuleCompiler compiler = new DefaultRuleCompiler(tracer);
+        DefaultEngineModel priorityModel = compiler.compile(rulesPath);
+        DefaultRuleEvaluator priorityEvaluator = new DefaultRuleEvaluator(priorityModel, tracer);
 
         Event event = new Event("evt-4", "TRANSACTION", Map.of(
                 "transaction_amount", 6000,

@@ -1,4 +1,4 @@
-package com.helios.ruleengine.core;
+package com.helios.ruleengine.infrastructure.telemetry;
 
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;

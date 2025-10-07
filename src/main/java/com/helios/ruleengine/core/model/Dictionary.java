@@ -1,4 +1,4 @@
-package com.helios.ruleengine.core;
+package com.helios.ruleengine.core.model;
 
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;

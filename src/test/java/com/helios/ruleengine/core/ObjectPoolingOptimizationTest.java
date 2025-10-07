@@ -1,5 +1,9 @@
 package com.helios.ruleengine.core;
 
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
+import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import io.opentelemetry.api.trace.Tracer;
 import org.junit.jupiter.api.*;
 import com.helios.ruleengine.model.Event;
@@ -22,8 +26,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ObjectPoolingOptimizationTest {
 
     private static final Tracer NOOP_TRACER = TracingService.getInstance().getTracer();
-    private EngineModel model;
-    private RuleEvaluator evaluator;
+    private DefaultEngineModel model;
+    private DefaultRuleEvaluator evaluator;
     private static Path tempDir;
 
     @BeforeAll
@@ -44,9 +48,9 @@ class ObjectPoolingOptimizationTest {
         Path rulesFile = tempDir.resolve("pooling_rules.json");
         Files.writeString(rulesFile, getPoolingTestRules());
 
-        RuleCompiler compiler = new RuleCompiler(NOOP_TRACER);
+        DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
         model = compiler.compile(rulesFile);
-        evaluator = new RuleEvaluator(model, NOOP_TRACER, true);
+        evaluator = new DefaultRuleEvaluator(model, NOOP_TRACER, true);
     }
 
     @Test

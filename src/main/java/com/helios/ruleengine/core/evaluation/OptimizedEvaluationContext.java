@@ -1,4 +1,4 @@
-package com.helios.ruleengine.core;
+package com.helios.ruleengine.core.evaluation;
 
 import it.unimi.dsi.fastutil.ints.*;
 import com.helios.ruleengine.model.MatchResult;

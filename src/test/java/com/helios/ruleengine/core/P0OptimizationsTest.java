@@ -1,5 +1,9 @@
 package com.helios.ruleengine.core;
 
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
+import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import io.opentelemetry.api.trace.Tracer;
 import org.junit.jupiter.api.*;
 import com.helios.ruleengine.model.Event;
@@ -29,8 +33,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class P0OptimizationsTest {
 
     private static final Tracer NOOP_TRACER = TracingService.getInstance().getTracer();
-    private EngineModel model;
-    private RuleEvaluator evaluator;
+    private DefaultEngineModel model;
+    private DefaultRuleEvaluator evaluator;
     private static Path tempDir;
 
     @BeforeAll
@@ -51,9 +55,9 @@ class P0OptimizationsTest {
         Path rulesFile = tempDir.resolve("p0_test_rules.json");
         Files.writeString(rulesFile, getP0TestRules());
 
-        RuleCompiler compiler = new RuleCompiler(NOOP_TRACER);
+        DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
         model = compiler.compile(rulesFile);
-        evaluator = new RuleEvaluator(model, NOOP_TRACER, true);
+        evaluator = new DefaultRuleEvaluator(model, NOOP_TRACER, true);
     }
 
     @Test

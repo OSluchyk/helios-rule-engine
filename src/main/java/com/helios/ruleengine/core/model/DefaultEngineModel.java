@@ -1,4 +1,4 @@
-package com.helios.ruleengine.core;
+package com.helios.ruleengine.core.model;
 
 import it.unimi.dsi.fastutil.ints.*;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
@@ -14,7 +14,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
-public final class EngineModel {
+public final class DefaultEngineModel {
 
     private final Dictionary fieldDictionary;
     private final Dictionary valueDictionary;
@@ -33,7 +33,7 @@ public final class EngineModel {
     private final List<Predicate> sortedPredicates;
     private final Int2FloatMap fieldMinWeights;
 
-    private EngineModel(Builder builder) {
+    private DefaultEngineModel(Builder builder) {
         this.fieldDictionary = builder.fieldDictionary;
         this.valueDictionary = builder.valueDictionary;
         this.predicateRegistry = builder.predicateRegistry;
@@ -159,10 +159,10 @@ public final class EngineModel {
             }
         }
 
-        public EngineModel build() {
+        public DefaultEngineModel build() {
             predicateRegistry.defaultReturnValue(-1);
             finalizeOptimizedStructures();
-            return new EngineModel(this);
+            return new DefaultEngineModel(this);
         }
     }
 

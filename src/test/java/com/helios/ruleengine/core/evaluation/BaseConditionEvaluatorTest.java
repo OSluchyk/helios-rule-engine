@@ -1,5 +1,8 @@
-package com.helios.ruleengine.core;
+package com.helios.ruleengine.core.evaluation;
 
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class BaseConditionEvaluatorTest {
 
-    private EngineModel model;
+    private DefaultEngineModel model;
     private InMemoryBaseConditionCache cache;
     private BaseConditionEvaluator baseEvaluator;
     private static Path tempDir;
@@ -39,7 +42,7 @@ public class BaseConditionEvaluatorTest {
     void setUp() throws Exception {
         Path rulesFile = tempDir.resolve("base_eval_rules.json");
         Files.writeString(rulesFile, getTestRulesJson());
-        model = new RuleCompiler(TracingService.getInstance().getTracer()).compile(rulesFile);
+        model = new DefaultRuleCompiler(TracingService.getInstance().getTracer()).compile(rulesFile);
         cache = new InMemoryBaseConditionCache.Builder().maxSize(100).build();
         baseEvaluator = new BaseConditionEvaluator(model, cache);
     }
