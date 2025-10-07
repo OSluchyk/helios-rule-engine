@@ -1,6 +1,6 @@
 package com.helios.ruleengine.core.evaluation;
 
-import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.core.model.EngineModel;
 import it.unimi.dsi.fastutil.ints.*;
 import org.roaringbitmap.RoaringBitmap;
 import com.helios.ruleengine.core.cache.BaseConditionCache;
@@ -31,14 +31,14 @@ import java.util.logging.Logger;
  * - Cache hit rate: 60% → 95%+
  * - Memory footprint: -70% from better deduplication
  */
-public class BaseConditionEvaluator {
-    private static final Logger logger = Logger.getLogger(BaseConditionEvaluator.class.getName());
+public class CachedStaticPredicateEvaluator {
+    private static final Logger logger = Logger.getLogger(CachedStaticPredicateEvaluator.class.getName());
 
     // P2-A: FNV-1a hash constants for high-quality distribution
     private static final long FNV_OFFSET_BASIS = 0xcbf29ce484222325L;
     private static final long FNV_PRIME = 0x100000001b3L;
 
-    private final DefaultEngineModel model;
+    private final EngineModel model;
     private final BaseConditionCache cache;
     private final Map<Integer, BaseConditionSet> baseConditionSets;
     private final Int2ObjectMap<RoaringBitmap> setToRules;
@@ -119,7 +119,7 @@ public class BaseConditionEvaluator {
         }
     }
 
-    public BaseConditionEvaluator(DefaultEngineModel model, BaseConditionCache cache) {
+    public CachedStaticPredicateEvaluator(EngineModel model, BaseConditionCache cache) {
         this.model = model;
         this.cache = cache;
         this.baseConditionSets = new HashMap<>();

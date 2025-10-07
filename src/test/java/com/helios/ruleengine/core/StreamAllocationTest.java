@@ -2,7 +2,7 @@ package com.helios.ruleengine.core;
 
 import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
 import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
-import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.core.model.Dictionary;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import io.opentelemetry.api.trace.Tracer;
@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class StreamAllocationTest {
 
     private static final Tracer NOOP_TRACER = TracingService.getInstance().getTracer();
-    private DefaultEngineModel model;
+    private EngineModel model;
     private DefaultRuleEvaluator evaluator;
     private static Path tempDir;
     private static boolean threadAllocationsSupported = false;

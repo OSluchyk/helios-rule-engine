@@ -2,7 +2,7 @@ package com.helios.ruleengine.core.evaluation;
 
 import com.helios.ruleengine.core.compiler.CompilationException;
 import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
-import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.core.model.EngineModel;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
@@ -29,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class DefaultRuleEvaluatorTest {
 
-    private DefaultEngineModel engineModel;
+    private EngineModel engineModel;
     private DefaultRuleEvaluator ruleEvaluator;
     private InMemorySpanExporter spanExporter;
     private Tracer tracer;
@@ -159,7 +159,7 @@ class DefaultRuleEvaluatorTest {
         Files.writeString(rulesPath, rulesJson);
 
         DefaultRuleCompiler compiler = new DefaultRuleCompiler(tracer);
-        DefaultEngineModel priorityModel = compiler.compile(rulesPath);
+        EngineModel priorityModel = compiler.compile(rulesPath);
         DefaultRuleEvaluator priorityEvaluator = new DefaultRuleEvaluator(priorityModel, tracer);
 
         Event event = new Event("evt-4", "TRANSACTION", Map.of(

@@ -1,6 +1,6 @@
 package com.helios.ruleengine.core.compiler;
 
-import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
@@ -65,7 +65,7 @@ class DefaultRuleCompilerTest {
         ]
         """;
         Path rulesFile = writeRules(rulesJson);
-        DefaultEngineModel model = compiler.compile(rulesFile);
+        EngineModel model = compiler.compile(rulesFile);
 
         assertThat(model.getStats().metadata().get("uniqueCombinations")).isEqualTo(3);
         assertThat(model.getNumRules()).isEqualTo(3);
@@ -124,7 +124,7 @@ class DefaultRuleCompilerTest {
         Path rulesFile = writeRules(rulesJson);
 
         // When
-        DefaultEngineModel model = compiler.compile(rulesFile);
+        EngineModel model = compiler.compile(rulesFile);
         List<Predicate> sortedPredicates = model.getSortedPredicates();
 
         // Then

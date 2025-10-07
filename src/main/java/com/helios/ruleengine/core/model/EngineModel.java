@@ -14,7 +14,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
-public final class DefaultEngineModel {
+public final class EngineModel{
 
     private final Dictionary fieldDictionary;
     private final Dictionary valueDictionary;
@@ -33,7 +33,7 @@ public final class DefaultEngineModel {
     private final List<Predicate> sortedPredicates;
     private final Int2FloatMap fieldMinWeights;
 
-    private DefaultEngineModel(Builder builder) {
+    private EngineModel(Builder builder) {
         this.fieldDictionary = builder.fieldDictionary;
         this.valueDictionary = builder.valueDictionary;
         this.predicateRegistry = builder.predicateRegistry;
@@ -159,10 +159,10 @@ public final class DefaultEngineModel {
             }
         }
 
-        public DefaultEngineModel build() {
+        public EngineModel build() {
             predicateRegistry.defaultReturnValue(-1);
             finalizeOptimizedStructures();
-            return new DefaultEngineModel(this);
+            return new EngineModel(this);
         }
     }
 

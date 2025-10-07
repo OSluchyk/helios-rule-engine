@@ -94,7 +94,7 @@
 
 - *RuleCompiler.java*: 5-phase compilation orchestrator
 * Validates rules, builds dictionaries, performs deduplication
-* Outputs optimized `DefaultEngineModel`
+* Outputs optimized `EngineModel`
 * Compilation time: 5–30 s depending on rule complexity
 
 - *Dictionary.java*: Bidirectional string↔int encoding
@@ -180,7 +180,7 @@
 
 === 2.4 Deterministic Compilation
 
-*Guarantee*: Identical input rules → byte-for-byte identical `DefaultEngineModel`.
+*Guarantee*: Identical input rules → byte-for-byte identical `EngineModel`.
 
 *Benefits*: A/B confidence, safe rollbacks, reproducible builds.
 
@@ -260,7 +260,7 @@ mvn clean package -DskipTests  # faster
 [source,java]
 ----
 
-import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;import com.helios.ruleengine.core.model.DefaultEngineModel;import com.helios.ruleengine.infrastructure.telemetry.TracingService;import com.helios.ruleengine.model.*;
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;import com.helios.ruleengine.core.model.EngineModel;import com.helios.ruleengine.infrastructure.telemetry.TracingService;import com.helios.ruleengine.model.*;
 import java.nio.file.Path;
 import java.util.Map;
 
@@ -268,7 +268,7 @@ public class QuickStart {
     public static void main(String[] args) throws Exception {
         Path rulesFile = Path.of("rules.json");
         DefaultRuleCompiler compiler = new DefaultRuleCompiler(TracingService.getInstance().getTracer());
-        DefaultEngineModel model = compiler.compile(rulesFile);
+        EngineModel model = compiler.compile(rulesFile);
 
         DefaultRuleEvaluator evaluator = new DefaultRuleEvaluator(model);
 
@@ -1052,7 +1052,7 @@ GET /health
 
 === 12.1 Core Classes
 
-*DefaultRuleCompiler* — compiles JSON rules into optimized `DefaultEngineModel`.
+*DefaultRuleCompiler* — compiles JSON rules into optimized `EngineModel`.
 
 [source,java]
 ----
@@ -1131,7 +1131,7 @@ result.matchedRules().forEach(rule ->
 );
 ----
 
-*DefaultEngineModel* — immutable compiled rule model.
+*EngineModel* — immutable compiled rule model.
 
 [source,java]
 ----

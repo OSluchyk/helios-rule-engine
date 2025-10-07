@@ -1,8 +1,9 @@
 package com.helios.ruleengine.core.management;
 
+import com.helios.ruleengine.api.IEngineModelManager;
 import com.helios.ruleengine.core.compiler.CompilationException;
 import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
-import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.core.model.EngineModel;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
@@ -17,12 +18,12 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-public class EngineModelManager {
+public class EngineModelManager implements IEngineModelManager {
     private static final Logger logger = Logger.getLogger(EngineModelManager.class.getName());
 
     private final Path rulesPath;
     private final DefaultRuleCompiler compiler;
-    private final AtomicReference<DefaultEngineModel> activeModel = new AtomicReference<>();
+    private final AtomicReference<EngineModel> activeModel = new AtomicReference<>();
     private final ScheduledExecutorService monitoringExecutor;
     private final Tracer tracer;
 
@@ -40,7 +41,7 @@ public class EngineModelManager {
         loadModel(); // Initial load
     }
 
-    public DefaultEngineModel getEngineModel() {
+    public EngineModel getEngineModel() {
         return activeModel.get();
     }
 
@@ -77,7 +78,7 @@ public class EngineModelManager {
         Span span = tracer.spanBuilder("load-new-model").startSpan();
         try (Scope scope = span.makeCurrent()) {
             long modifiedTime = Files.getLastModifiedTime(rulesPath).toMillis();
-            DefaultEngineModel newModel = compiler.compile(rulesPath);
+            EngineModel newModel = compiler.compile(rulesPath);
             activeModel.set(newModel);
             this.lastModifiedTime = modifiedTime;
             span.setAttribute("newModel.uniqueCombinations", newModel.getNumRules());

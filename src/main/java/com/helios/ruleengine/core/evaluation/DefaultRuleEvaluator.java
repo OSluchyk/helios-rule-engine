@@ -1,6 +1,7 @@
 package com.helios.ruleengine.core.evaluation;
 
-import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.api.IRuleEvaluator;
+import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
@@ -16,39 +17,38 @@ import com.helios.ruleengine.model.MatchResult;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 
-public class DefaultRuleEvaluator {
-    private final DefaultEngineModel model;
+public class DefaultRuleEvaluator implements IRuleEvaluator {
+    private final EngineModel model;
     private final EvaluatorMetrics metrics;
     private final Tracer tracer;
 
-    private static final ScopedValue<OptimizedEvaluationContext> CONTEXT = ScopedValue.newInstance();
+    private static final ScopedValue<EvaluationContext> CONTEXT = ScopedValue.newInstance();
 
-    private final BaseConditionEvaluator baseConditionEvaluator;
+    private final CachedStaticPredicateEvaluator baseConditionEvaluator;
     private final boolean useBaseConditionCache;
-    private final VectorizedPredicateEvaluator vectorizedEvaluator;
+    private final NumericPredicateEvaluator vectorizedEvaluator;
 
     private final Map<BitSet, IntSet> eligiblePredicateSetCache;
     private static final int MAX_CACHE_SIZE = 10_000;
 
     private static final int PREFETCH_DISTANCE = 64;
 
-    public DefaultRuleEvaluator(DefaultEngineModel model) {
+    public DefaultRuleEvaluator(EngineModel model) {
         this(model, TracingService.getInstance().getTracer(), true);
     }
 
-    public DefaultRuleEvaluator(DefaultEngineModel model, Tracer tracer) {
+    public DefaultRuleEvaluator(EngineModel model, Tracer tracer) {
         this(model, tracer, true);
     }
 
-    public DefaultRuleEvaluator(DefaultEngineModel model, Tracer tracer, boolean useBaseConditionCache) {
+    public DefaultRuleEvaluator(EngineModel model, Tracer tracer, boolean useBaseConditionCache) {
         this.model = Objects.requireNonNull(model);
         this.metrics = new EvaluatorMetrics();
         this.tracer = tracer;
         this.useBaseConditionCache = useBaseConditionCache;
         this.eligiblePredicateSetCache = new ConcurrentHashMap<>(1024);
-        this.vectorizedEvaluator = new VectorizedPredicateEvaluator(model);
+        this.vectorizedEvaluator = new NumericPredicateEvaluator(model);
 
         if (useBaseConditionCache) {
             BaseConditionCache cache = CaffeineBaseConditionCache.builder()
@@ -57,7 +57,7 @@ public class DefaultRuleEvaluator {
                     .recordStats(true)  // Enable monitoring
                     .initialCapacity(10_000)  // Pre-allocate
                     .build();
-            this.baseConditionEvaluator = new BaseConditionEvaluator(model, cache);
+            this.baseConditionEvaluator = new CachedStaticPredicateEvaluator(model, cache);
         } else {
             this.baseConditionEvaluator = null;
         }
@@ -66,12 +66,12 @@ public class DefaultRuleEvaluator {
 
     public MatchResult evaluate(Event event) {
         int estimatedTouched = Math.min(model.getNumRules() / 10, 1000);
-        OptimizedEvaluationContext freshContext = new OptimizedEvaluationContext(estimatedTouched);
+        EvaluationContext freshContext = new EvaluationContext(estimatedTouched);
 
         return ScopedValue.where(CONTEXT, freshContext)
                 .call(() -> {
                     long startTime = System.nanoTime();
-                    final OptimizedEvaluationContext ctx = CONTEXT.get();
+                    final EvaluationContext ctx = CONTEXT.get();
 
                     Span evaluationSpan = tracer.spanBuilder("rule-evaluation").startSpan();
                     try (Scope scope = evaluationSpan.makeCurrent()) {
@@ -80,10 +80,10 @@ public class DefaultRuleEvaluator {
                         RoaringBitmap eligibleRulesRoaring = null;
 
                         if (useBaseConditionCache && baseConditionEvaluator != null) {
-                            CompletableFuture<BaseConditionEvaluator.EvaluationResult> baseFuture =
+                            CompletableFuture<CachedStaticPredicateEvaluator.EvaluationResult> baseFuture =
                                     baseConditionEvaluator.evaluateBaseConditions(event);
                             try {
-                                BaseConditionEvaluator.EvaluationResult baseResult = baseFuture.get();
+                                CachedStaticPredicateEvaluator.EvaluationResult baseResult = baseFuture.get();
                                 eligibleRules = baseResult.matchingRules;
                                 eligibleRulesRoaring = baseResult.matchingRulesRoaring;
                                 ctx.predicatesEvaluated += baseResult.predicatesEvaluated;
@@ -139,7 +139,7 @@ public class DefaultRuleEvaluator {
                 });
     }
 
-    private void evaluatePredicatesHybrid(Event event, OptimizedEvaluationContext ctx, BitSet eligibleRules) {
+    private void evaluatePredicatesHybrid(Event event, EvaluationContext ctx, BitSet eligibleRules) {
         Span span = tracer.spanBuilder("evaluate-predicates-hybrid").startSpan();
         try (Scope scope = span.makeCurrent()) {
             Int2ObjectMap<Object> attributes = event.getEncodedAttributes(model.getFieldDictionary(), model.getValueDictionary());
@@ -188,7 +188,7 @@ public class DefaultRuleEvaluator {
     }
 
 
-    private void updateCountersOptimized(OptimizedEvaluationContext ctx,
+    private void updateCountersOptimized(EvaluationContext ctx,
                                          RoaringBitmap eligibleRulesRoaring) {
         Span span = tracer.spanBuilder("update-counters-optimized").startSpan();
         try (Scope scope = span.makeCurrent()) {
@@ -231,7 +231,7 @@ public class DefaultRuleEvaluator {
         }
     }
 
-    private void detectMatchesOptimized(OptimizedEvaluationContext ctx, BitSet eligibleRules) {
+    private void detectMatchesOptimized(EvaluationContext ctx, BitSet eligibleRules) {
         Span span = tracer.spanBuilder("detect-matches-optimized").startSpan();
         try (Scope scope = span.makeCurrent()) {
 
@@ -262,7 +262,7 @@ public class DefaultRuleEvaluator {
 
                     if (ctx.getCounter(combinationId) ==
                             model.getCombinationPredicateCount(combinationId)) {
-                        OptimizedEvaluationContext.MutableMatchedRule rule =
+                        EvaluationContext.MutableMatchedRule rule =
                                 ctx.rentMatchedRule(
                                         combinationId,
                                         model.getCombinationRuleCode(combinationId),
@@ -281,28 +281,28 @@ public class DefaultRuleEvaluator {
         }
     }
 
-    private void selectMatches(OptimizedEvaluationContext ctx) {
-        List<OptimizedEvaluationContext.MutableMatchedRule> matches =
+    private void selectMatches(EvaluationContext ctx) {
+        List<EvaluationContext.MutableMatchedRule> matches =
                 ctx.getMutableMatchedRules();
 
         if (matches.size() <= 1) {
             return;
         }
 
-        Map<String, OptimizedEvaluationContext.MutableMatchedRule> maxPriorityMatches =
+        Map<String, EvaluationContext.MutableMatchedRule> maxPriorityMatches =
                 new HashMap<>();
 
-        for (OptimizedEvaluationContext.MutableMatchedRule match : matches) {
+        for (EvaluationContext.MutableMatchedRule match : matches) {
             maxPriorityMatches.merge(match.getRuleCode(), match,
                     (existing, replacement) ->
                             replacement.getPriority() > existing.getPriority() ?
                                     replacement : existing);
         }
 
-        OptimizedEvaluationContext.MutableMatchedRule overallWinner = null;
+        EvaluationContext.MutableMatchedRule overallWinner = null;
         int maxPriority = Integer.MIN_VALUE;
 
-        for (OptimizedEvaluationContext.MutableMatchedRule rule :
+        for (EvaluationContext.MutableMatchedRule rule :
                 maxPriorityMatches.values()) {
             if (rule.getPriority() > maxPriority) {
                 overallWinner = rule;
@@ -320,51 +320,4 @@ public class DefaultRuleEvaluator {
         return metrics;
     }
 
-    public static class EvaluatorMetrics {
-        private final AtomicLong totalEvaluations = new AtomicLong();
-        private final AtomicLong totalTimeNanos = new AtomicLong();
-        private final AtomicLong totalPredicatesEvaluated = new AtomicLong();
-        private final AtomicLong totalRulesEvaluated = new AtomicLong();
-        private final AtomicLong cacheHits = new AtomicLong();
-        private final AtomicLong cacheMisses = new AtomicLong();
-        final AtomicLong roaringConversionsSaved = new AtomicLong();
-        final AtomicLong eligibleSetCacheHits = new AtomicLong();
-
-        void recordEvaluation(long timeNanos, int predicatesEvaluated, int rulesEvaluated) {
-            totalEvaluations.incrementAndGet();
-            totalTimeNanos.addAndGet(timeNanos);
-            totalPredicatesEvaluated.addAndGet(predicatesEvaluated);
-            totalRulesEvaluated.addAndGet(rulesEvaluated);
-        }
-
-        public Map<String, Object> getSnapshot() {
-            Map<String, Object> snapshot = new LinkedHashMap<>();
-            long evals = totalEvaluations.get();
-
-            if (evals > 0) {
-                snapshot.put("totalEvaluations", evals);
-                snapshot.put("avgLatencyMicros", totalTimeNanos.get() / 1000 / evals);
-                snapshot.put("avgPredicatesPerEvent", (double) totalPredicatesEvaluated.get() / evals);
-                snapshot.put("avgRulesConsideredPerEvent", (double) totalRulesEvaluated.get() / evals);
-
-                long hits = cacheHits.get();
-                long misses = cacheMisses.get();
-                if (hits + misses > 0) {
-                    snapshot.put("cacheHitRate", (double) hits / (hits + misses));
-                }
-
-                long conversionsSaved = roaringConversionsSaved.get();
-                snapshot.put("roaringConversionsSaved", conversionsSaved);
-                snapshot.put("conversionSavingsRate",
-                        evals > 0 ? (double) conversionsSaved / evals * 100 : 0.0);
-
-                long eligibleHits = eligibleSetCacheHits.get();
-                snapshot.put("eligibleSetCacheHits", eligibleHits);
-                snapshot.put("eligibleSetCacheHitRate",
-                        evals > 0 ? (double) eligibleHits / evals * 100 : 0.0);
-            }
-
-            return snapshot;
-        }
-    }
 }

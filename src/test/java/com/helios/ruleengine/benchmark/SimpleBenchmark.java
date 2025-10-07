@@ -9,7 +9,7 @@ import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 import org.openjdk.jmh.runner.options.TimeValue;
-import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
 import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
 import com.helios.ruleengine.core.cache.BaseConditionCache;
@@ -107,7 +107,7 @@ public class SimpleBenchmark {
     private final AtomicInteger eventIndex = new AtomicInteger(0);
 
     // Metrics tracking
-    private DefaultEngineModel model;
+    private EngineModel model;
     private final LongAdder totalEvaluations = new LongAdder();
     private final LongAdder totalMatches = new LongAdder();
     private final List<Long> latencyHistory = Collections.synchronizedList(new ArrayList<>());

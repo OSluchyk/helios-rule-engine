@@ -1,6 +1,6 @@
 package com.helios.ruleengine.core.evaluation;
 
-import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.core.model.EngineModel;
 import jdk.incubator.vector.*;
 import it.unimi.dsi.fastutil.ints.*;
 import com.helios.ruleengine.model.Predicate;
@@ -12,10 +12,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.logging.Logger;
 
-public class VectorizedPredicateEvaluator {
-    private static final Logger logger = Logger.getLogger(VectorizedPredicateEvaluator.class.getName());
+public class NumericPredicateEvaluator {
+    private static final Logger logger = Logger.getLogger(NumericPredicateEvaluator.class.getName());
 
-    private final DefaultEngineModel model;
+    private final EngineModel model;
     private final Map<Integer, NumericBatchEvaluator> numericEvaluators;
     private final Map<Integer, StringBatchEvaluator> stringEvaluators;
 
@@ -24,7 +24,7 @@ public class VectorizedPredicateEvaluator {
     private static final Arena ARENA = Arena.ofShared();
     private static final int CACHE_LINE_SIZE = 64;
 
-    public VectorizedPredicateEvaluator(DefaultEngineModel model) {
+    public NumericPredicateEvaluator(EngineModel model) {
         this.model = model;
         this.numericEvaluators = new ConcurrentHashMap<>();
         this.stringEvaluators = new ConcurrentHashMap<>();
@@ -68,7 +68,7 @@ public class VectorizedPredicateEvaluator {
     }
 
     public void evaluateField(int fieldId, Int2ObjectMap<Object> attributes,
-                              OptimizedEvaluationContext ctx, IntSet eligiblePredicateIds) {
+                              EvaluationContext ctx, IntSet eligiblePredicateIds) {
         Object value = attributes.get(fieldId);
         if (value == null) {
             return;
@@ -106,7 +106,7 @@ public class VectorizedPredicateEvaluator {
 
 
     private void evaluateEqualityForField(int fieldId, Object value,
-                                          OptimizedEvaluationContext ctx,
+                                          EvaluationContext ctx,
                                           IntSet eligiblePredicateIds) {
         List<Predicate> predicates = model.getFieldToPredicates().get(fieldId);
         if (predicates != null) {

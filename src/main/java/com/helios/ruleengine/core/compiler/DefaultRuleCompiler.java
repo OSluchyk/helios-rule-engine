@@ -1,7 +1,8 @@
 package com.helios.ruleengine.core.compiler;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.api.IRuleCompiler;
+import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.core.model.Dictionary;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
@@ -22,7 +23,7 @@ import java.util.logging.Logger;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-public class DefaultRuleCompiler {
+public class DefaultRuleCompiler implements IRuleCompiler {
     private static final Logger logger = Logger.getLogger(DefaultRuleCompiler.class.getName());
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Tracer tracer;
@@ -31,7 +32,7 @@ public class DefaultRuleCompiler {
         this.tracer = tracer;
     }
 
-    public DefaultEngineModel compile(Path rulesPath) throws IOException, CompilationException {
+    public EngineModel compile(Path rulesPath) throws IOException, CompilationException {
         Span span = tracer.spanBuilder("compile-rules").startSpan();
         try (Scope scope = span.makeCurrent()) {
             span.setAttribute("ruleFilePath", rulesPath.toString());
@@ -52,7 +53,7 @@ public class DefaultRuleCompiler {
 
             SelectivityProfile profile = profileSelectivity(factoredRules, fieldDictionary, valueDictionary);
 
-            DefaultEngineModel.Builder builder = buildCoreModelWithDeduplication(factoredRules, profile, fieldDictionary, valueDictionary);
+            EngineModel.Builder builder = buildCoreModelWithDeduplication(factoredRules, profile, fieldDictionary, valueDictionary);
 
             long compilationTime = System.nanoTime() - startTime;
             span.setAttribute("compilationTimeMs", TimeUnit.NANOSECONDS.toMillis(compilationTime));
@@ -71,7 +72,7 @@ public class DefaultRuleCompiler {
             span.setAttribute("uniqueCombinationCount", uniqueCombinations);
             span.setAttribute("deduplicationRate", String.format("%.2f%%", deduplicationRate));
 
-            DefaultEngineModel.EngineStats stats = new DefaultEngineModel.EngineStats(
+            EngineModel.EngineStats stats = new EngineModel.EngineStats(
                     uniqueCombinations,
                     builder.getPredicateCount(),
                     compilationTime,
@@ -114,13 +115,13 @@ public class DefaultRuleCompiler {
         }
     }
 
-    private DefaultEngineModel.Builder buildCoreModelWithDeduplication(List<RuleDefinition> definitions,
-                                                                       SelectivityProfile profile,
-                                                                       Dictionary fieldDictionary,
-                                                                       Dictionary valueDictionary) {
+    private EngineModel.Builder buildCoreModelWithDeduplication(List<RuleDefinition> definitions,
+                                                                SelectivityProfile profile,
+                                                                Dictionary fieldDictionary,
+                                                                Dictionary valueDictionary) {
         Span span = tracer.spanBuilder("build-core-model").startSpan();
         try(Scope scope = span.makeCurrent()) {
-            DefaultEngineModel.Builder builder = new DefaultEngineModel.Builder();
+            EngineModel.Builder builder = new EngineModel.Builder();
             for (RuleDefinition def : definitions) {
                 List<List<Predicate>> combinations = generatePredicateCombinations(def, profile, fieldDictionary, valueDictionary);
                 if (combinations.isEmpty()) continue;

@@ -1,8 +1,8 @@
 package com.helios.ruleengine.core;
 
 import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
-import com.helios.ruleengine.core.evaluation.BaseConditionEvaluator;
-import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.core.evaluation.CachedStaticPredicateEvaluator;
+import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import io.opentelemetry.api.trace.Tracer;
 import org.junit.jupiter.api.*;
@@ -55,10 +55,10 @@ class P2AHashOptimizationTest {
 
         // When - Compile and extract base conditions
         DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
-        DefaultEngineModel model = compiler.compile(rulesFile);
+        EngineModel model = compiler.compile(rulesFile);
 
         InMemoryBaseConditionCache cache = new InMemoryBaseConditionCache.Builder().build();
-        BaseConditionEvaluator evaluator = new BaseConditionEvaluator(model, cache);
+        CachedStaticPredicateEvaluator evaluator = new CachedStaticPredicateEvaluator(model, cache);
 
         // Then - Verify deduplication occurred
         Map<String, Object> metrics = evaluator.getMetrics();
@@ -136,10 +136,10 @@ class P2AHashOptimizationTest {
 
         // When
         DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
-        DefaultEngineModel model = compiler.compile(rulesFile);
+        EngineModel model = compiler.compile(rulesFile);
 
         InMemoryBaseConditionCache cache = new InMemoryBaseConditionCache.Builder().build();
-        BaseConditionEvaluator evaluator = new BaseConditionEvaluator(model, cache);
+        CachedStaticPredicateEvaluator evaluator = new CachedStaticPredicateEvaluator(model, cache);
 
         // Then
         Map<String, Object> metrics = evaluator.getMetrics();
@@ -370,10 +370,10 @@ class P2AHashOptimizationTest {
 
         // When
         DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
-        DefaultEngineModel model = compiler.compile(rulesFile);
+        EngineModel model = compiler.compile(rulesFile);
 
         InMemoryBaseConditionCache cache = new InMemoryBaseConditionCache.Builder().build();
-        BaseConditionEvaluator evaluator = new BaseConditionEvaluator(model, cache);
+        CachedStaticPredicateEvaluator evaluator = new CachedStaticPredicateEvaluator(model, cache);
 
         // Then - All 3 rules share the SAME static condition {status=ACTIVE}
         Map<String, Object> metrics = evaluator.getMetrics();

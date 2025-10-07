@@ -6,7 +6,7 @@ import com.sun.net.httpserver.HttpHandler;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
-import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.core.management.EngineModelManager;
 import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
 import com.helios.ruleengine.model.Event;
@@ -46,7 +46,7 @@ public class HttpServer {
                     sendResponse(exchange, 405, Map.of("error", "Method not allowed"));
                     return;
                 }
-                DefaultEngineModel currentModel = modelManager.getEngineModel();
+                EngineModel currentModel = modelManager.getEngineModel();
                 DefaultRuleEvaluator evaluator = new DefaultRuleEvaluator(currentModel, tracer, true);
 
                 String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);

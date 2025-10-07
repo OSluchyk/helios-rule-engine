@@ -2,7 +2,7 @@ package com.helios.ruleengine.benchmark;
 
 import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
 import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
-import com.helios.ruleengine.core.model.DefaultEngineModel;
+import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
@@ -64,7 +64,7 @@ public class ProductionBenchmark {
     private DefaultRuleEvaluator evaluator;
     private List<Event> eventPool;
     private AtomicLong eventIndex;
-    private DefaultEngineModel model;
+    private EngineModel model;
 
     // Monitoring
     private static final boolean ENABLE_MONITORING = true;
@@ -366,14 +366,14 @@ public class ProductionBenchmark {
      * Performance monitor for detailed metrics
      */
     private static class PerformanceMonitor {
-        private final DefaultEngineModel model;
+        private final EngineModel model;
         private final Timer timer;
         private long startTime;
         private long totalEvents = 0;
         private long totalLatency = 0;
         private final List<Long> latencies = new ArrayList<>();
 
-        public PerformanceMonitor(DefaultEngineModel model) {
+        public PerformanceMonitor(EngineModel model) {
             this.model = model;
             this.timer = new Timer(true);
         }

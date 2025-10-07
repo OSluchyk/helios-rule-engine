@@ -14,7 +14,7 @@ import java.util.Map;
  *
  * P0-2 FIX: Completely redesigned pooling to reuse mutable objects
  */
-public class OptimizedEvaluationContext {
+public class EvaluationContext {
     private final Int2IntOpenHashMap sparseCounters;
     private final IntArrayList truePredicates;
     private final IntOpenHashSet touchedRules;
@@ -28,7 +28,7 @@ public class OptimizedEvaluationContext {
     int predicatesEvaluated;
     int rulesEvaluated;
 
-    public OptimizedEvaluationContext(int estimatedTouchedRules) {
+    public EvaluationContext(int estimatedTouchedRules) {
         this.sparseCounters = new Int2IntOpenHashMap(Math.min(estimatedTouchedRules, 1024));
         this.sparseCounters.defaultReturnValue(0);
         this.truePredicates = new IntArrayList(32);
