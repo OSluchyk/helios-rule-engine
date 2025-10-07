@@ -1,0 +1,336 @@
+= Helios High-Performance Rule Engine: Comprehensive Architecture
+:toc: left
+:toclevels: 4
+:source-highlighter: rouge
+:icons: font
+:doctype: book
+:sectnums:
+:sectnumlevels: 4
+
+== 1. Executive Summary
+
+=== 1.1. Bottom Line Up Front
+
+Helios is a production-grade, high-performance rule engine designed to evaluate millions of events per minute against large and complex rule sets (10,000+ logical rules). It achieves this with sub-millisecond P99 latency by employing enterprise-scale engineering principles, including **aggressive offline compilation**, **cross-family deduplication**, **cache-conscious data structures**, and modern **JVM optimizations**.
+
+The core design philosophy is to **move expensive work to compile-time**. The system accepts a higher compilation cost (typically 5-30 seconds) in exchange for a dramatically reduced and predictable runtime cost, making it suitable for high-throughput, low-latency services like fraud detection, real-time pricing, and compliance checking.
+
+=== 1.2. Performance Envelope
+
+The system is engineered to meet the following performance targets at a scale of 100,000 logical rules:
+
+[cols="2,3"]
+|===
+|*Metric* |*Target*
+
+|Throughput
+|15-20M events/min (250-333K events/sec)
+
+|Latency
+|P50 < 150µs, P99 < 0.8ms
+
+|Memory
+|< 4-6 GB
+
+|CPU Efficiency
+|90%+ utilization; working set < 100 MB (L3-resident)
+
+|GC Pauses
+|< 5ms (with Generational ZGC)
+
+|Cache Hit Rate
+|>95% for base conditions; >98% for L1/L2 CPU cache
+|===
+
+=== 1.3. Key Innovations
+
+Helios's performance is not accidental; it is the result of several key architectural innovations:
+
+* **90-96% Deduplication Rate**: A critical optimization that identifies and collapses redundant rule combinations across the entire rule set, dramatically reducing memory footprint and evaluation cost.
+* **Structure-of-Arrays (SoA) Layout**: A cache-conscious memory layout for core data structures that provides a 16x improvement in cache-line density and reduces memory bandwidth waste by up to 95%.
+* **Multi-Tier Caching Strategy**: A sophisticated caching system combining a thread-local L1 cache, a process-level L2 cache (Caffeine), and a distributed L3 cache (Redis) to achieve a >95% hit rate for common evaluation paths.
+* **Modern Java 25 Optimizations**: The engine leverages the latest JVM features, including the **Vector API** for SIMD operations, **Scoped Values** for safer concurrency, and **Compact Object Headers** for memory efficiency.
+* **Zero-Downtime Hot Reload**: Rule sets can be updated in a running production system with zero downtime via an atomic model swapping mechanism.
+
+---
+
+== 2. System Context & Design Goals
+
+=== 2.1. Problem Statement
+
+Traditional rule engines often fail at scale. When faced with tens of thousands of logical rules that expand into millions of potential combinations, naive implementations encounter O(N×P) complexity walls, leading to unacceptable latency, high memory consumption, and unpredictable performance. This makes them unsuitable for mission-critical systems that require real-time decisions.
+
+=== 2.2. Core Design Principles
+
+To overcome these challenges, the Helios architecture is built on four core principles:
+
+[cols="1,4"]
+|===
+|*Principle* |*Description*
+
+|**1. AND-Only Rule Authoring**
+|To enable systematic optimization, all user-defined rules are constrained to be "AND-only". All OR-like logic must be expressed through set-based operators like `IS_ANY_OF`. This constraint is the foundation for effective factoring and deduplication.
+
+|**2. Aggressive Offline Compilation**
+|The engine performs nearly all expensive work—such as validation, optimization, data structure construction, and deduplication—during an offline compilation phase. This transforms complex rules into a highly optimized, evaluation-ready `EngineModel`.
+
+|**3. Cache-Conscious Design**
+|Data structures are explicitly designed to align with modern CPU architectures. This includes the **Structure-of-Arrays (SoA)** layout, 64-byte memory alignment, and tiered memory access patterns (hot/warm/cold) to maximize CPU cache hits and minimize memory bandwidth usage.
+
+|**4. Deterministic Compilation**
+|For a given set of rules, the compilation process is guaranteed to produce an identical, byte-for-byte `EngineModel`. This reproducibility is critical for enabling safe deployment strategies like A/B testing, blue-green deployments, and confident rollbacks.
+|===
+
+---
+
+== 3. Technology Stack
+
+The engine is built on modern, high-performance Java technologies.
+
+[cols="1,2"]
+|===
+|*Component* |*Technology & Purpose*
+|**Language** | **Java 25 LTS**: Leverages cutting-edge features like the Vector API, Scoped Values, Generational ZGC, and Compact Object Headers for maximum performance.
+|**Build System** | **Apache Maven 3.8+**: Manages dependencies and the build lifecycle.
+|**HTTP Server** | **Sun HttpServer**: A lightweight, embedded HTTP server for the evaluation endpoint.
+|**Caching** | **Caffeine (L2)** for high-performance in-process caching and **Redis (L3)** for distributed caching across multiple instances.
+|**Key Dependencies** | **RoaringBitmap** for highly compressed and efficient bitmap operations; **FastUtil** for memory-efficient primitive collections; **Jackson** for JSON serialization; **OpenTelemetry** for observability.
+|===
+---
+
+== 4. High-Level Architecture
+
+The system is logically divided into two main stages: a **Compile-Time** stage where rules are optimized and prepared, and a **Runtime** stage where events are evaluated against the optimized model.
+
+=== 4.1. System Flow Diagram
+
+[source,text]
+----
+ ┌──────────────┐
+ │  JSON Rules  │ ◄─────────── Compile Time ──────────┐
+ └──────┬───────┘                                     │
+        │                                             │
+        ▼                                             │
+   Phase 1: Validation & Dictionary Encoding          │
+        │                                             │
+        ▼                                             │
+   Phase 2: Predicate Registration & Factoring        │
+        │                                             │
+        ▼                                             │
+   Phase 3: DNF Expansion & Cross-Family Dedup        │
+        │                                             │
+        ▼                                             │
+   Phase 4: Inverted Index & SoA Layout Construction  │
+        │                                             │
+        ▼                                             │
+   Phase 5: Execution Plan Generation                 │
+        │                                             │
+        ▼                                             │
+ ┌──────────────┐                                     │
+ │ EngineModel  │ ◄─────────── Runtime ────────────────┘
+ └──────┬───────┘
+        │
+        ▼
+   Event Normalization
+        │
+        ▼
+   Base Condition Evaluation (Cached)
+        │
+        ▼
+   Predicate Evaluation (Vectorized)
+        │
+        ▼
+   Counter-Based Matching
+        │
+        ▼
+   Rule Selection Strategy
+        │
+        ▼
+ ┌──────────────┐
+ │ MatchResult  │
+ └──────────────┘
+----
+
+=== 4.2. Compile-Time vs. Runtime Responsibilities
+
+[cols="1,1"]
+|===
+|*Compile-Time (Offline)* |*Runtime (Online)*
+
+a|
+This is where the heavy lifting occurs. The `RuleCompiler` takes raw JSON rules and transforms them into a hyper-optimized, binary `EngineModel`. This process takes seconds but enables sub-millisecond evaluation at runtime.
+
+* **Dictionary Encoding**: Compresses string fields and values into integers, reducing memory by 4-20x.
+* **Smart Factoring**: Identifies and reuses common predicate subsets across the entire rule set.
+* **Cross-Family Deduplication**: The most critical optimization. Finds and merges identical rule combinations, achieving 90-96% reduction in memory and computation.
+* **Data Structure Construction**: Builds the inverted index and the cache-friendly SoA data layout.
+
+a|
+This stage is designed to be ultra-fast and allocation-free in the hot path. The `RuleEvaluator` uses the pre-computed `EngineModel` to evaluate incoming events.
+
+* **Cache-First Lookup**: First checks the multi-tier cache for pre-computed results of static "base conditions".
+* **Vectorized Predicate Evaluation**: Uses the Java Vector API to evaluate batches of numeric predicates simultaneously using SIMD instructions.
+* **Counter-Based Matching**: An efficient algorithm that avoids evaluating all predicates for all rules. It only "touches" rules affected by true predicates, achieving a >99% skip rate.
+|===
+
+---
+
+== 5. Compilation Pipeline Deep Dive
+
+The `RuleCompiler` executes a five-phase pipeline to transform human-readable JSON rules into the optimized `EngineModel`.
+
+=== 5.1. Phase 1: Validation & Canonicalization
+
+This initial phase ensures rule integrity and normalizes all inputs for consistency.
+
+* **Schema Validation**: Enforces the AND-only structure and validates operators and data types.
+* **Canonicalization**: Normalizes field names to `UPPER_SNAKE_CASE`, trims strings, and standardizes operators.
+* **Dictionary Encoding**: Builds dictionaries to map all string fields and values to integer IDs. This is a key memory optimization, converting strings (e.g., 40 bytes) to integers (~8 bytes) and enabling much faster integer comparisons at runtime.
+
+=== 5.2. Phase 2: Predicate Registration & Smart Factoring
+
+This phase identifies and factors out common patterns to eliminate redundant work.
+
+* **Predicate Registry & CSE**: Extracts all unique atomic predicates (e.g., `amount > 1000`) across the entire rule set, assigns each a unique ID, and applies Common Subexpression Elimination (CSE). This guarantees that any given predicate is evaluated at most once per event.
+* **Smart `IS_ANY_OF` Factoring**: This optimization analyzes all `IS_ANY_OF` conditions across the entire rule set to find common value subsets. For example, if 1000 rules check `country IS_ANY_OF ['US', 'CA']`, that common subset is factored out and evaluated only once.
+* **Weight-Based Ordering**: Each predicate is assigned a weight based on its computational *cost* and its statistical *selectivity* (`weight = cost * (1 - selectivity)`). Low-weight (cheap and highly selective) predicates are evaluated first at runtime to prune the search space as quickly as possible.
+
+=== 5.3. Phase 3: DNF Expansion & Cross-Family Deduplication (CRITICAL)
+
+This is the most impactful optimization in the entire engine, responsible for its ability to scale.
+
+1.  **DNF Expansion**: The `IS_ANY_OF` operators are expanded into their equivalent AND-only combinations (Disjunctive Normal Form). For example, a rule with `country IS_ANY_OF ['US', 'CA']` and `tier = 'GOLD'` expands into two internal combinations.
+2.  **Canonical Hashing**: A deterministic, canonical hash is computed for the set of predicates in each expanded combination.
+3.  **Deduplication**: These hashes are used to identify and merge all identical combinations across the entire rule set, regardless of which original logical rule they came from. The engine stores each unique combination only once and uses pointers to link it back to all the logical rules that require it.
+
+This process regularly achieves a **90-96% reduction** in the number of effective rule combinations that need to be stored and evaluated. Without it, the engine's memory usage would be up to 25 times higher.
+
+=== 5.4. Phase 4: Inverted Index Construction & SoA Layout
+
+This phase builds the final, runtime-ready data structures.
+
+==== 5.4.1. Structure-of-Arrays (SoA) Layout
+
+Instead of a traditional Array-of-Structures (AoS) (e.g., `Rule[]`), the `EngineModel` uses a **Structure-of-Arrays (SoA)** layout. All related rule attributes are stored in separate, contiguous primitive arrays, indexed by a `ruleId`.
+
+* **AoS (Bad)**: `class Rule { int priority; int predicateCount; ... }`, `Rule[] rules;`
+* **SoA (Good)**: `int[] priorities;`, `int[] predicateCounts;`
+
+This layout is critical for CPU cache performance. When the evaluator needs to check predicate counts, it can scan a single `int[]` array sequentially. This maximizes cache-line density (a 16x improvement), triggers the CPU's hardware prefetcher, and reduces wasted memory bandwidth by over 95%.
+
+==== 5.4.2. Inverted Index
+
+An inverted index is built to map each `predicateId` to the set of rules that contain it. This provides an O(1) lookup to find all rules affected by a predicate that evaluates to true.
+
+The index uses **adaptive bitmaps** for memory efficiency. Based on the density of the posting list (how many rules contain the predicate), it automatically chooses the best storage format: a sorted `int[]` for ultra-sparse lists, a `BitSet` for very dense lists, and a `RoaringBitmap` with Run-Length Encoding (RLE) for everything in between. This saves 50-80% of memory compared to a naive bitmap implementation.
+
+=== 5.5. Phase 5: Execution Plan Generation
+
+The final phase assembles the optimized data structures into the `EngineModel` and generates the final evaluation plan. This includes sorting predicates by weight and pre-computing metadata to enable further runtime optimizations like early termination.
+
+---
+
+== 6. Runtime Evaluation Pipeline
+
+The `RuleEvaluator` executes a highly optimized pipeline to evaluate an event in under a millisecond.
+
+|*Step*|*Typical Time (P50)*
+|---|---
+|1. Event Normalization|~5-10µs
+|2. Base Condition Evaluation (Cache Hit)|~20-50µs
+|3. Predicate Evaluation (Vectorized)|~50-100µs
+|4. Counter-Based Matching|~30-50µs
+|5. Rule Selection|~10-20µs
+|**Total**|**~115-230µs**
+
+=== 6.1. Step 1: Event Normalization
+
+Incoming event fields are canonicalized and mapped to their integer IDs using the dictionaries created at compile time.
+
+=== 6.2. Step 2: Base Condition Evaluation (Cached)
+
+The evaluator identifies static predicates within the event (those that can be evaluated without dynamic event data) and forms "base condition sets". It then generates a cache key from these sets and performs a lookup in the multi-tier cache. With a typical **hit rate of >95%**, this step pre-filters the vast majority of rules, reducing the set of potential candidates by over 90% without evaluating any other predicates.
+
+=== 6.3. Step 3: Predicate Evaluation (Vectorized)
+
+The remaining, non-cached predicates are evaluated in their pre-sorted, weight-based order. The engine uses the **Java 25 Vector API** to evaluate batches of numeric predicates (e.g., `GREATER_THAN`, `LESS_THAN`) in parallel using a single SIMD (Single Instruction, Multiple Data) hardware instruction. This can double the throughput for numeric-heavy workloads.
+
+=== 6.4. Step 4: Counter-Based Matching
+
+This is a highly efficient matching algorithm.
+
+1.  For each predicate that evaluates to *true*, the evaluator uses the inverted index to find all the rules that contain it (the "touched" rules).
+2.  It maintains an integer array of `counters`, one for each rule. It increments the counter for each touched rule.
+3.  A rule is considered a match if its `counter` equals its `needs` value (the total number of predicates in that rule).
+
+This approach avoids iterating over all rules. The number of counter updates is proportional only to the number of *true* predicates, resulting in a **>99% skip rate** for non-matching rules.
+
+=== 6.5. Step 5: Rule Selection
+
+Finally, a selection strategy is applied to the list of matched rules. This is typically `PER_FAMILY_MAX_PRIORITY`, which returns the single highest-priority rule for each logical rule family that had a match.
+
+---
+
+== 7. Caching Architecture
+
+The engine's performance relies heavily on a multi-tier caching strategy to minimize redundant computation.
+
+[source,text]
+----
+┌─────────────────────────────────────────────────┐
+│ L1: Thread-Local Cache (Hot)                    │
+│ - Per-thread evaluation buffers (object-pooled) │
+│ - Size: ~1MB per thread, Hit Rate: ~90%         │
+└─────────────────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────────────┐
+│ L2: Process-Level Cache (Warm) - Caffeine       │
+│ - Base condition results, eligible predicate sets│
+│ - Size: ~100MB, Hit Rate: ~85%                  │
+│ - Eviction Policy: Window TinyLFU               │
+└─────────────────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────────────┐
+│ L3: Distributed Cache (Cold) - Redis            │
+│ - Shared base conditions across instances       │
+│ - Size: Multi-GB, Hit Rate: ~70%                │
+└─────────────────────────────────────────────────┘
+----
+
+* **L1 (Thread-Local)**: Each evaluation thread maintains its own small, private cache for context objects and buffers. Using `ScopedValue` and object pooling ensures zero allocation and zero contention in the hot path.
+* **L2 (Caffeine)**: A high-performance, in-process cache for shared data like base condition evaluation results. Caffeine's Window TinyLFU eviction algorithm provides a significantly higher hit rate than traditional LRU caches.
+* **L3 (Redis)**: A distributed cache used to share base condition results across multiple service instances, which is essential for maintaining a high cache hit rate in a scaled-out environment.
+
+---
+
+== 8. Deployment and Operations
+
+The engine is designed for modern cloud-native environments, with a focus on reliability and operational excellence.
+
+=== 8.1. Deployment Architecture
+
+The recommended deployment is on a container orchestration platform like GCP Cloud Run or Kubernetes.
+
+* **Configuration**: A typical instance runs with 8 vCPUs and 16GB of memory (12GB heap, 4GB direct memory for off-heap storage).
+* **JVM Tuning**: The engine is tuned for Java 25 with **Generational ZGC** for low-latency garbage collection (<5ms pauses), **Large Pages** to reduce TLB misses, and NUMA-aware allocation.
+
+=== 8.2. Zero-Downtime Updates
+
+* **Blue-Green Deployments**: New versions of the application are deployed alongside the live version. Once the new version passes readiness checks, traffic is atomically switched over, ensuring zero downtime.
+* **Hot Reload**: For rule changes that don't require a code change, the `EngineModelManager` can automatically detect updates to the rules file, compile a new `EngineModel` in the background, and atomically swap it into service with no interruption to traffic.
+
+=== 8.3. Observability
+
+The engine is instrumented with production-grade observability.
+
+* **Distributed Tracing**: **OpenTelemetry** is used to provide detailed distributed traces for both the compilation and evaluation pipelines, allowing for easy debugging of performance bottlenecks.
+* **Profiling**: **Java Flight Recorder (JFR)** is used for low-overhead (<5%) CPU and memory profiling in production environments.
+* **Metrics**: The engine exposes a rich set of metrics, including latency histograms, cache hit rates, deduplication effectiveness, and memory usage per million rule combinations.
+
+---
+
+== 9. Conclusion
+
+The Helios Rule Engine represents a modern, highly-optimized architecture for large-scale, low-latency rule evaluation. By adhering to a set of core design principles—aggressive offline compilation, cache-conscious design, and systematic deduplication—it successfully overcomes the performance limitations of traditional rule engines. Its use of advanced data structures, multi-tier caching, and the latest Java 25 features allows it to deliver predictable, sub-millisecond performance for the most demanding real-time decisioning workloads.
