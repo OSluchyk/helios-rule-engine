@@ -1,7 +1,7 @@
 package com.helios.ruleengine.core.evaluation;
 
-import it.unimi.dsi.fastutil.ints.*;
 import com.helios.ruleengine.model.MatchResult;
+import it.unimi.dsi.fastutil.ints.*;
 
 import java.util.ArrayList;
 import java.util.HashMap;

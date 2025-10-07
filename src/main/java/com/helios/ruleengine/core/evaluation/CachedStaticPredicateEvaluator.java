@@ -1,12 +1,12 @@
 package com.helios.ruleengine.core.evaluation;
 
-import com.helios.ruleengine.core.model.EngineModel;
-import it.unimi.dsi.fastutil.ints.*;
-import org.roaringbitmap.RoaringBitmap;
 import com.helios.ruleengine.core.cache.BaseConditionCache;
 import com.helios.ruleengine.core.cache.FastCacheKeyGenerator;
+import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.model.Event;
 import com.helios.ruleengine.model.Predicate;
+import it.unimi.dsi.fastutil.ints.*;
+import org.roaringbitmap.RoaringBitmap;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;

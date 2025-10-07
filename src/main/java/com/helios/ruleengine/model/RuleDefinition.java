@@ -2,8 +2,8 @@
 package com.helios.ruleengine.model;
 
 
-
 import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.util.List;
 
 /**

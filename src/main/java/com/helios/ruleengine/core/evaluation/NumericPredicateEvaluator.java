@@ -1,9 +1,12 @@
 package com.helios.ruleengine.core.evaluation;
 
 import com.helios.ruleengine.core.model.EngineModel;
-import jdk.incubator.vector.*;
-import it.unimi.dsi.fastutil.ints.*;
 import com.helios.ruleengine.model.Predicate;
+import it.unimi.dsi.fastutil.ints.*;
+import jdk.incubator.vector.FloatVector;
+import jdk.incubator.vector.VectorMask;
+import jdk.incubator.vector.VectorOperators;
+import jdk.incubator.vector.VectorSpecies;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;

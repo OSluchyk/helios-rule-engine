@@ -1,16 +1,16 @@
 package com.helios.ruleengine.server;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
+import com.helios.ruleengine.core.management.EngineModelManager;
+import com.helios.ruleengine.core.model.EngineModel;
+import com.helios.ruleengine.model.Event;
+import com.helios.ruleengine.model.MatchResult;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
-import com.helios.ruleengine.core.model.EngineModel;
-import com.helios.ruleengine.core.management.EngineModelManager;
-import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
-import com.helios.ruleengine.model.Event;
-import com.helios.ruleengine.model.MatchResult;
 
 import java.io.IOException;
 import java.io.OutputStream;

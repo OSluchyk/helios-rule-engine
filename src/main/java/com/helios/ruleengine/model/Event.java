@@ -1,8 +1,8 @@
 package com.helios.ruleengine.model;
 
+import com.helios.ruleengine.core.model.Dictionary;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
-import com.helios.ruleengine.core.model.Dictionary;
 
 import java.util.Collections;
 import java.util.HashMap;

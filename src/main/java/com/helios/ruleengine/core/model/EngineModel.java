@@ -1,13 +1,13 @@
 package com.helios.ruleengine.core.model;
 
+import com.helios.ruleengine.core.bitmap.AdaptiveBitmapManager;
+import com.helios.ruleengine.model.Predicate;
 import it.unimi.dsi.fastutil.ints.*;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import org.roaringbitmap.RoaringBitmap;
-import com.helios.ruleengine.core.bitmap.AdaptiveBitmapManager;
-import com.helios.ruleengine.model.Predicate;
 
 import java.util.ArrayList;
 import java.util.Comparator;

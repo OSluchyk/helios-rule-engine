@@ -2,6 +2,7 @@
 package com.helios.ruleengine.model;
 
 import it.unimi.dsi.fastutil.ints.IntList;
+
 import java.util.Objects;
 
 /**

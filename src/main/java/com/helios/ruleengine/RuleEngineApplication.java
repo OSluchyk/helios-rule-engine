@@ -2,14 +2,14 @@ package com.helios.ruleengine;
 
 import com.helios.ruleengine.core.compiler.CompilationException;
 import com.helios.ruleengine.core.management.EngineModelManager;
-import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import com.helios.ruleengine.server.HttpServer;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.logging.*;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class RuleEngineApplication {
     private static final Logger logger = Logger.getLogger(RuleEngineApplication.class.getName());

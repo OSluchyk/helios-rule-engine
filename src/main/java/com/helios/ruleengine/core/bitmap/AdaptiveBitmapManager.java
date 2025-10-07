@@ -1,7 +1,10 @@
 package com.helios.ruleengine.core.bitmap;
 
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntConsumer;
+import it.unimi.dsi.fastutil.ints.IntList;
 import org.roaringbitmap.RoaringBitmap;
-import it.unimi.dsi.fastutil.ints.*;
+
 import java.nio.ByteBuffer;
 import java.util.BitSet;
 import java.util.concurrent.atomic.AtomicLong;

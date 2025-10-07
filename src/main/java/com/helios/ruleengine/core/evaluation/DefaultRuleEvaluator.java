@@ -1,18 +1,21 @@
 package com.helios.ruleengine.core.evaluation;
 
 import com.helios.ruleengine.api.IRuleEvaluator;
+import com.helios.ruleengine.core.cache.BaseConditionCache;
+import com.helios.ruleengine.core.cache.CaffeineBaseConditionCache;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
+import com.helios.ruleengine.model.Event;
+import com.helios.ruleengine.model.MatchResult;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
-import it.unimi.dsi.fastutil.ints.*;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.IntList;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import org.roaringbitmap.IntIterator;
 import org.roaringbitmap.RoaringBitmap;
-import com.helios.ruleengine.core.cache.BaseConditionCache;
-import com.helios.ruleengine.core.cache.CaffeineBaseConditionCache;
-import com.helios.ruleengine.model.Event;
-import com.helios.ruleengine.model.MatchResult;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
