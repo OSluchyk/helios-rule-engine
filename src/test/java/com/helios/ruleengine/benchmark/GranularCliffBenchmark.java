@@ -1,5 +1,6 @@
 package com.helios.ruleengine.benchmark;
 
+import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import io.opentelemetry.api.trace.Tracer;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
@@ -10,7 +11,6 @@ import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
-import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import com.helios.ruleengine.model.Event;
 import com.helios.ruleengine.model.MatchResult;
@@ -63,7 +63,7 @@ public class GranularCliffBenchmark {
 
     private static final Tracer TRACER = TracingService.getInstance().getTracer();
 
-    private DefaultRuleEvaluator evaluator;
+    private RuleEvaluator evaluator;
     private EngineModel model;
     private List<Event> eventPool;
     private final AtomicInteger eventIndex = new AtomicInteger(0);
@@ -82,7 +82,7 @@ public class GranularCliffBenchmark {
         model = compiler.compile(rulesPath);
 
         // Create evaluator
-        evaluator = new DefaultRuleEvaluator(model, TRACER, true);
+        evaluator = new RuleEvaluator(model, TRACER, true);
 
         // Generate diverse events
         eventPool = generateEvents(10_000);

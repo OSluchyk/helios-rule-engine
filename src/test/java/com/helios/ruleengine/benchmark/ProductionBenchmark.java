@@ -1,7 +1,7 @@
 package com.helios.ruleengine.benchmark;
 
 import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
-import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
+import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import org.openjdk.jmh.annotations.*;
@@ -61,7 +61,7 @@ public class ProductionBenchmark {
     @Param({"SIMPLE", "MEDIUM", "COMPLEX", "MIXED"})
     private String workloadType;
 
-    private DefaultRuleEvaluator evaluator;
+    private RuleEvaluator evaluator;
     private List<Event> eventPool;
     private AtomicLong eventIndex;
     private EngineModel model;
@@ -87,7 +87,7 @@ public class ProductionBenchmark {
 
         // Initialize evaluator with production cache
         BaseConditionCache cache = createProductionCache();
-        evaluator = new DefaultRuleEvaluator(model, TracingService.getInstance().getTracer(), true);
+        evaluator = new RuleEvaluator(model, TracingService.getInstance().getTracer(), true);
 
         // Pre-generate event pool
         eventPool = generateEventPool(10000, workloadType);

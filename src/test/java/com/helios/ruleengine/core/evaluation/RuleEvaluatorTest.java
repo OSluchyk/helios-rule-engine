@@ -27,10 +27,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class DefaultRuleEvaluatorTest {
+class RuleEvaluatorTest {
 
     private EngineModel engineModel;
-    private DefaultRuleEvaluator ruleEvaluator;
+    private RuleEvaluator ruleEvaluator;
     private InMemorySpanExporter spanExporter;
     private Tracer tracer;
 
@@ -70,7 +70,7 @@ class DefaultRuleEvaluatorTest {
 
         DefaultRuleCompiler compiler = new DefaultRuleCompiler(tracer);
         engineModel = compiler.compile(rulesPath);
-        ruleEvaluator = new DefaultRuleEvaluator(engineModel, tracer);
+        ruleEvaluator = new RuleEvaluator(engineModel, tracer);
     }
 
     @Test
@@ -160,7 +160,7 @@ class DefaultRuleEvaluatorTest {
 
         DefaultRuleCompiler compiler = new DefaultRuleCompiler(tracer);
         EngineModel priorityModel = compiler.compile(rulesPath);
-        DefaultRuleEvaluator priorityEvaluator = new DefaultRuleEvaluator(priorityModel, tracer);
+        RuleEvaluator priorityEvaluator = new RuleEvaluator(priorityModel, tracer);
 
         Event event = new Event("evt-4", "TRANSACTION", Map.of(
                 "transaction_amount", 6000,

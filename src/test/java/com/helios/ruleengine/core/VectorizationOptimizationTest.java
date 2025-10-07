@@ -1,7 +1,7 @@
 package com.helios.ruleengine.core;
 
 import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
-import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
+import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import io.opentelemetry.api.trace.Tracer;
@@ -28,7 +28,7 @@ class VectorizationOptimizationTest {
 
     private static final Tracer NOOP_TRACER = TracingService.getInstance().getTracer();
     private EngineModel model;
-    private DefaultRuleEvaluator evaluator;
+    private RuleEvaluator evaluator;
     private static Path tempDir;
 
     @BeforeAll
@@ -51,7 +51,7 @@ class VectorizationOptimizationTest {
 
         DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
         model = compiler.compile(rulesFile);
-        evaluator = new DefaultRuleEvaluator(model, NOOP_TRACER, false); // Disable base cache for clearer testing
+        evaluator = new RuleEvaluator(model, NOOP_TRACER, false); // Disable base cache for clearer testing
     }
 
     @Test
@@ -141,7 +141,7 @@ class VectorizationOptimizationTest {
     @DisplayName("P1-B: Eligible predicate set cache should reduce overhead")
     void eligibleSetCacheShouldReduceOverhead() {
         // Create evaluator WITH base cache enabled (to trigger eligible set caching)
-        DefaultRuleEvaluator cachedEvaluator = new DefaultRuleEvaluator(model, NOOP_TRACER, true);
+        RuleEvaluator cachedEvaluator = new RuleEvaluator(model, NOOP_TRACER, true);
 
         // Warm up to populate cache
         for (int i = 0; i < 1000; i++) {

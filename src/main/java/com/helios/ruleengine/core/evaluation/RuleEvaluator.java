@@ -21,7 +21,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class DefaultRuleEvaluator implements IRuleEvaluator {
+public class RuleEvaluator implements IRuleEvaluator {
     private final EngineModel model;
     private final EvaluatorMetrics metrics;
     private final Tracer tracer;
@@ -37,15 +37,15 @@ public class DefaultRuleEvaluator implements IRuleEvaluator {
 
     private static final int PREFETCH_DISTANCE = 64;
 
-    public DefaultRuleEvaluator(EngineModel model) {
+    public RuleEvaluator(EngineModel model) {
         this(model, TracingService.getInstance().getTracer(), true);
     }
 
-    public DefaultRuleEvaluator(EngineModel model, Tracer tracer) {
+    public RuleEvaluator(EngineModel model, Tracer tracer) {
         this(model, tracer, true);
     }
 
-    public DefaultRuleEvaluator(EngineModel model, Tracer tracer, boolean useBaseConditionCache) {
+    public RuleEvaluator(EngineModel model, Tracer tracer, boolean useBaseConditionCache) {
         this.model = Objects.requireNonNull(model);
         this.metrics = new EvaluatorMetrics();
         this.tracer = tracer;

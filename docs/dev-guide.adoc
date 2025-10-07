@@ -260,7 +260,7 @@ mvn clean package -DskipTests  # faster
 [source,java]
 ----
 
-import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;import com.helios.ruleengine.core.model.EngineModel;import com.helios.ruleengine.infrastructure.telemetry.TracingService;import com.helios.ruleengine.model.*;
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;import com.helios.ruleengine.core.evaluation.RuleEvaluator;import com.helios.ruleengine.core.model.EngineModel;import com.helios.ruleengine.infrastructure.telemetry.TracingService;import com.helios.ruleengine.model.*;
 import java.nio.file.Path;
 import java.util.Map;
 
@@ -270,7 +270,7 @@ public class QuickStart {
         DefaultRuleCompiler compiler = new DefaultRuleCompiler(TracingService.getInstance().getTracer());
         EngineModel model = compiler.compile(rulesFile);
 
-        DefaultRuleEvaluator evaluator = new DefaultRuleEvaluator(model);
+        RuleEvaluator evaluator = new RuleEvaluator(model);
 
         Event event = new Event(
             "evt-001",
@@ -1068,7 +1068,7 @@ RuleCompiler compiler = new RuleCompiler(
 EngineModel model = compiler.compile(Path.of("rules.json"));
 ----
 
-*DefaultRuleEvaluator* — evaluates events against compiled rules.
+*RuleEvaluator* — evaluates events against compiled rules.
 
 [source,java]
 ----

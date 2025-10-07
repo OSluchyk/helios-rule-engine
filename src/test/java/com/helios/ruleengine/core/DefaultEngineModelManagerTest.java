@@ -1,6 +1,6 @@
 package com.helios.ruleengine.core;
 
-import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
+import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import com.helios.ruleengine.core.management.EngineModelManager;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import io.opentelemetry.api.trace.Tracer;
@@ -50,7 +50,7 @@ public class DefaultEngineModelManagerTest {
         EngineModelManager manager = new EngineModelManager(rulesFile, tracer);
         manager.start();
 
-        DefaultRuleEvaluator evaluator1 = new DefaultRuleEvaluator(manager.getEngineModel());
+        RuleEvaluator evaluator1 = new RuleEvaluator(manager.getEngineModel());
         MatchResult result1 = evaluator1.evaluate(new Event("1", "T", Map.of("type", "A")));
         assertThat(result1.matchedRules()).hasSize(1);
         assertThat(result1.matchedRules().get(0).ruleCode()).isEqualTo("ALPHA");
@@ -67,7 +67,7 @@ public class DefaultEngineModelManagerTest {
         System.out.println("Waiting for rule reload...");
         TimeUnit.SECONDS.sleep(12);
 
-        DefaultRuleEvaluator evaluator2 = new DefaultRuleEvaluator(manager.getEngineModel());
+        RuleEvaluator evaluator2 = new RuleEvaluator(manager.getEngineModel());
         MatchResult result2 = evaluator2.evaluate(new Event("2", "T", Map.of("type", "A")));
         assertThat(result2.matchedRules()).hasSize(1);
         assertThat(result2.matchedRules().get(0).ruleCode()).isEqualTo("BETA");

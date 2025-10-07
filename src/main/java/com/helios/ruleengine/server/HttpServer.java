@@ -1,7 +1,7 @@
 package com.helios.ruleengine.server;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
+import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import com.helios.ruleengine.core.management.EngineModelManager;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.model.Event;
@@ -47,7 +47,7 @@ public class HttpServer {
                     return;
                 }
                 EngineModel currentModel = modelManager.getEngineModel();
-                DefaultRuleEvaluator evaluator = new DefaultRuleEvaluator(currentModel, tracer, true);
+                RuleEvaluator evaluator = new RuleEvaluator(currentModel, tracer, true);
 
                 String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
                 Map<String, Object> request = objectMapper.readValue(body, Map.class);

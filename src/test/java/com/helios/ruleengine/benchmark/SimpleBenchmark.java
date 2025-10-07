@@ -1,5 +1,6 @@
 package com.helios.ruleengine.benchmark;
 
+import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Tracer;
 import org.openjdk.jmh.annotations.*;
@@ -11,7 +12,6 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 import org.openjdk.jmh.runner.options.TimeValue;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
-import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
 import com.helios.ruleengine.core.cache.BaseConditionCache;
 import com.helios.ruleengine.core.cache.InMemoryBaseConditionCache;
 import com.helios.ruleengine.model.Event;
@@ -102,7 +102,7 @@ public class SimpleBenchmark {
 
     // State
     private static final Tracer NOOP_TRACER = OpenTelemetry.noop().getTracer("noop");
-    private DefaultRuleEvaluator evaluator;
+    private RuleEvaluator evaluator;
     private List<Event> eventPool;
     private final AtomicInteger eventIndex = new AtomicInteger(0);
 
@@ -147,7 +147,7 @@ public class SimpleBenchmark {
                 .defaultTtl(5, TimeUnit.MINUTES)
                 .build();
 
-        evaluator = new DefaultRuleEvaluator(model, NOOP_TRACER, true);
+        evaluator = new RuleEvaluator(model, NOOP_TRACER, true);
 
         // Generate diverse event pool
         eventPool = generateProgressiveEvents(10_000);
@@ -167,7 +167,7 @@ public class SimpleBenchmark {
         switch (cacheScenario) {
             case "COLD":
                 // Clear cache, simulate cold start
-                evaluator = new DefaultRuleEvaluator(model, NOOP_TRACER, true);
+                evaluator = new RuleEvaluator(model, NOOP_TRACER, true);
                 break;
             case "WARM":
                 // Partial warmup (10% of events)

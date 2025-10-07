@@ -570,7 +570,7 @@ MatchResult result = evaluator.evaluate(event);
 
 === Cache Configuration
 
-The engine uses Caffeine cache for predicate evaluation results. Configure in `DefaultRuleEvaluator` initialization:
+The engine uses Caffeine cache for predicate evaluation results. Configure in `RuleEvaluator` initialization:
 
 [source,java]
 ----
@@ -811,7 +811,7 @@ record MatchResult(
 [source,java]
 ----
 
-import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;import com.helios.ruleengine.core.model.EngineModel;import com.helios.ruleengine.infrastructure.telemetry.TracingService;import com.helios.ruleengine.model.*;
+import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;import com.helios.ruleengine.core.evaluation.RuleEvaluator;import com.helios.ruleengine.core.model.EngineModel;import com.helios.ruleengine.infrastructure.telemetry.TracingService;import com.helios.ruleengine.model.*;
 import java.nio.file.*;
 import java.util.*;
 
@@ -865,7 +865,7 @@ public class FraudDetectionExample {
             .get("logicalRules") + " rules");
 
         // 3. Create evaluator
-        DefaultRuleEvaluator evaluator = new DefaultRuleEvaluator(model);
+        RuleEvaluator evaluator = new RuleEvaluator(model);
 
         // 4. Evaluate suspicious transaction
         Event suspiciousTransaction = new Event(

@@ -1,7 +1,7 @@
 package com.helios.ruleengine.core;
 
 import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
-import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
+import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.core.model.Dictionary;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
@@ -33,7 +33,7 @@ class StreamAllocationTest {
 
     private static final Tracer NOOP_TRACER = TracingService.getInstance().getTracer();
     private EngineModel model;
-    private DefaultRuleEvaluator evaluator;
+    private RuleEvaluator evaluator;
     private static Path tempDir;
     private static boolean threadAllocationsSupported = false;
 
@@ -73,7 +73,7 @@ class StreamAllocationTest {
 
         DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
         model = compiler.compile(rulesFile);
-        evaluator = new DefaultRuleEvaluator(model, NOOP_TRACER, true);
+        evaluator = new RuleEvaluator(model, NOOP_TRACER, true);
     }
 
     @Test

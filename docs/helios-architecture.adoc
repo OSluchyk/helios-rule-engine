@@ -166,7 +166,7 @@ This is where the heavy lifting occurs. The `DefaultRuleCompiler` takes raw JSON
 * **Data Structure Construction**: Builds the inverted index and the cache-friendly SoA data layout.
 
 a|
-This stage is designed to be ultra-fast and allocation-free in the hot path. The `DefaultRuleEvaluator` uses the pre-computed `EngineModel` to evaluate incoming events.
+This stage is designed to be ultra-fast and allocation-free in the hot path. The `RuleEvaluator` uses the pre-computed `EngineModel` to evaluate incoming events.
 
 * **Cache-First Lookup**: First checks the multi-tier cache for pre-computed results of static "base conditions".
 * **Vectorized Predicate Evaluation**: Uses the Java Vector API to evaluate batches of numeric predicates simultaneously using SIMD instructions.
@@ -232,7 +232,7 @@ The final phase assembles the optimized data structures into the `EngineModel` a
 
 == 6. Runtime Evaluation Pipeline
 
-The `DefaultRuleEvaluator` executes a highly optimized pipeline to evaluate an event in under a millisecond.
+The `RuleEvaluator` executes a highly optimized pipeline to evaluate an event in under a millisecond.
 
 [cols="1,2"]
 |===

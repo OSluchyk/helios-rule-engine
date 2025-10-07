@@ -1,7 +1,7 @@
 package com.helios.ruleengine.core;
 
 import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
-import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
+import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import org.junit.jupiter.api.*;
@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class Phase4RuleEngineTest {
 
     private EngineModel model;
-    private DefaultRuleEvaluator evaluator;
+    private RuleEvaluator evaluator;
     private static Path tempDir;
 
     @BeforeAll
@@ -40,7 +40,7 @@ class Phase4RuleEngineTest {
         Path rulesFile = tempDir.resolve("phase4_rules.json");
         Files.writeString(rulesFile, getPhase4TestRulesJson());
         model = new DefaultRuleCompiler(TracingService.getInstance().getTracer()).compile(rulesFile);
-        evaluator = new DefaultRuleEvaluator(model);
+        evaluator = new RuleEvaluator(model);
     }
 
     @Test

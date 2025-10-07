@@ -1,7 +1,7 @@
 package com.helios.ruleengine.core.cache;
 
 import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
-import com.helios.ruleengine.core.evaluation.DefaultRuleEvaluator;
+import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import org.junit.jupiter.api.*;
@@ -13,7 +13,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class BaseConditionCacheTest {
-    private DefaultRuleEvaluator evaluator;
+    private RuleEvaluator evaluator;
     private static Path tempDir;
 
     @BeforeAll
@@ -33,7 +33,7 @@ class BaseConditionCacheTest {
         Path rulesFile = tempDir.resolve("cache_test_rules.json");
         Files.writeString(rulesFile, "[{\"rule_code\": \"RULE_1\", \"conditions\": [{\"field\": \"country\", \"operator\": \"EQUAL_TO\", \"value\": \"US\"}]}]");
         EngineModel model = new DefaultRuleCompiler(TracingService.getInstance().getTracer()).compile(rulesFile);
-        evaluator = new DefaultRuleEvaluator(model);
+        evaluator = new RuleEvaluator(model);
     }
 
     @Test
