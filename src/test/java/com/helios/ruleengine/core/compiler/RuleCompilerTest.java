@@ -18,14 +18,14 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class DefaultRuleCompilerTest {
+class RuleCompilerTest {
 
-    private DefaultRuleCompiler compiler;
+    private RuleCompiler compiler;
     private Path tempDir;
 
     @BeforeEach
     void setUp() throws IOException {
-        compiler = new DefaultRuleCompiler(TracingService.getInstance().getTracer());
+        compiler = new RuleCompiler(TracingService.getInstance().getTracer());
         tempDir = Files.createTempDirectory("rule_engine_test");
     }
 

@@ -1,6 +1,6 @@
 package com.helios.ruleengine.core;
 
-import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.compiler.RuleCompiler;
 import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
@@ -55,7 +55,7 @@ class P0OptimizationsTest {
         Path rulesFile = tempDir.resolve("p0_test_rules.json");
         Files.writeString(rulesFile, getP0TestRules());
 
-        DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
+        RuleCompiler compiler = new RuleCompiler(NOOP_TRACER);
         model = compiler.compile(rulesFile);
         evaluator = new RuleEvaluator(model, NOOP_TRACER, true);
     }

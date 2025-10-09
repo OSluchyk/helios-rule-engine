@@ -2,7 +2,7 @@ package com.helios.ruleengine.core.management;
 
 import com.helios.ruleengine.api.IEngineModelManager;
 import com.helios.ruleengine.core.compiler.CompilationException;
-import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.compiler.RuleCompiler;
 import com.helios.ruleengine.core.model.EngineModel;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
@@ -22,7 +22,7 @@ public class EngineModelManager implements IEngineModelManager {
     private static final Logger logger = Logger.getLogger(EngineModelManager.class.getName());
 
     private final Path rulesPath;
-    private final DefaultRuleCompiler compiler;
+    private final RuleCompiler compiler;
     private final AtomicReference<EngineModel> activeModel = new AtomicReference<>();
     private final ScheduledExecutorService monitoringExecutor;
     private final Tracer tracer;
@@ -32,7 +32,7 @@ public class EngineModelManager implements IEngineModelManager {
     public EngineModelManager(Path rulesPath, Tracer tracer) throws CompilationException, IOException {
         this.rulesPath = rulesPath;
         this.tracer = tracer;
-        this.compiler = new DefaultRuleCompiler(tracer); // Pass tracer to compiler
+        this.compiler = new RuleCompiler(tracer); // Pass tracer to compiler
         this.monitoringExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "Rule-File-Monitor");
             t.setDaemon(true);
