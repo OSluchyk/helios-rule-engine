@@ -83,6 +83,7 @@ public class RuleEvaluator implements IRuleEvaluator {
         // Get the reusable context for the current thread from the ThreadLocal holder.
         // This avoids the expensive `new EvaluationContext(...)` call on the hot path.
         final EvaluationContext ctx = contextHolder.get();
+        ctx.reset();
         // --- MODIFICATION END ---
 
         long startTime = System.nanoTime();
