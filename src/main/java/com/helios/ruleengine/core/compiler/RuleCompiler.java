@@ -26,12 +26,12 @@ import java.util.logging.Logger;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-public class DefaultRuleCompiler implements IRuleCompiler {
-    private static final Logger logger = Logger.getLogger(DefaultRuleCompiler.class.getName());
+public class RuleCompiler implements IRuleCompiler {
+    private static final Logger logger = Logger.getLogger(RuleCompiler.class.getName());
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Tracer tracer;
 
-    public DefaultRuleCompiler(Tracer tracer) {
+    public RuleCompiler(Tracer tracer) {
         this.tracer = tracer;
     }
 

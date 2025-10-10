@@ -1,6 +1,6 @@
 package com.helios.ruleengine.core.cache;
 
-import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.compiler.RuleCompiler;
 import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
@@ -32,7 +32,7 @@ class BaseConditionCacheTest {
     void setUp() throws Exception {
         Path rulesFile = tempDir.resolve("cache_test_rules.json");
         Files.writeString(rulesFile, "[{\"rule_code\": \"RULE_1\", \"conditions\": [{\"field\": \"country\", \"operator\": \"EQUAL_TO\", \"value\": \"US\"}]}]");
-        EngineModel model = new DefaultRuleCompiler(TracingService.getInstance().getTracer()).compile(rulesFile);
+        EngineModel model = new RuleCompiler(TracingService.getInstance().getTracer()).compile(rulesFile);
         evaluator = new RuleEvaluator(model);
     }
 

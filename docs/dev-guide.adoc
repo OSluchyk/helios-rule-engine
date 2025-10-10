@@ -260,14 +260,14 @@ mvn clean package -DskipTests  # faster
 [source,java]
 ----
 
-import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;import com.helios.ruleengine.core.evaluation.RuleEvaluator;import com.helios.ruleengine.core.model.EngineModel;import com.helios.ruleengine.infrastructure.telemetry.TracingService;import com.helios.ruleengine.model.*;
+import com.helios.ruleengine.core.compiler.RuleCompiler;import com.helios.ruleengine.core.evaluation.RuleEvaluator;import com.helios.ruleengine.core.model.EngineModel;import com.helios.ruleengine.infrastructure.telemetry.TracingService;import com.helios.ruleengine.model.*;
 import java.nio.file.Path;
 import java.util.Map;
 
 public class QuickStart {
     public static void main(String[] args) throws Exception {
         Path rulesFile = Path.of("rules.json");
-        DefaultRuleCompiler compiler = new DefaultRuleCompiler(TracingService.getInstance().getTracer());
+        RuleCompiler compiler = new RuleCompiler(TracingService.getInstance().getTracer());
         EngineModel model = compiler.compile(rulesFile);
 
         RuleEvaluator evaluator = new RuleEvaluator(model);
@@ -1052,7 +1052,7 @@ GET /health
 
 === 12.1 Core Classes
 
-*DefaultRuleCompiler* — compiles JSON rules into optimized `EngineModel`.
+*RuleCompiler* — compiles JSON rules into optimized `EngineModel`.
 
 [source,java]
 ----

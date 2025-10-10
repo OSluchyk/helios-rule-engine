@@ -158,7 +158,7 @@ The system is logically divided into two main stages: a **Compile-Time** stage w
 |*Compile-Time (Offline)* |*Runtime (Online)*
 
 a|
-This is where the heavy lifting occurs. The `DefaultRuleCompiler` takes raw JSON rules and transforms them into a hyper-optimized, binary `EngineModel`. This process takes seconds but enables sub-millisecond evaluation at runtime.
+This is where the heavy lifting occurs. The `RuleCompiler` takes raw JSON rules and transforms them into a hyper-optimized, binary `EngineModel`. This process takes seconds but enables sub-millisecond evaluation at runtime.
 
 * **Dictionary Encoding**: Compresses string fields and values into integers, reducing memory by 4-20x.
 * **Smart Factoring**: Identifies and reuses common predicate subsets across the entire rule set.
@@ -177,7 +177,7 @@ This stage is designed to be ultra-fast and allocation-free in the hot path. The
 
 == 5. Compilation Pipeline Deep Dive
 
-The `DefaultRuleCompiler` executes a five-phase pipeline to transform human-readable JSON rules into the optimized `EngineModel`.
+The `RuleCompiler` executes a five-phase pipeline to transform human-readable JSON rules into the optimized `EngineModel`.
 
 === 5.1. Phase 1: Validation & Canonicalization
 

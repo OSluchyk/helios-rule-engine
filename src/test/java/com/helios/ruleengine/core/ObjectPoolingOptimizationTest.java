@@ -1,6 +1,6 @@
 package com.helios.ruleengine.core;
 
-import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.compiler.RuleCompiler;
 import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
@@ -48,7 +48,7 @@ class ObjectPoolingOptimizationTest {
         Path rulesFile = tempDir.resolve("pooling_rules.json");
         Files.writeString(rulesFile, getPoolingTestRules());
 
-        DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
+        RuleCompiler compiler = new RuleCompiler(NOOP_TRACER);
         model = compiler.compile(rulesFile);
         evaluator = new RuleEvaluator(model, NOOP_TRACER, true);
     }

@@ -1,6 +1,6 @@
 package com.helios.ruleengine.core;
 
-import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.compiler.RuleCompiler;
 import com.helios.ruleengine.core.evaluation.CachedStaticPredicateEvaluator;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
@@ -54,7 +54,7 @@ class P2AHashOptimizationTest {
         Files.writeString(rulesFile, createDiverseRules(1000));
 
         // When - Compile and extract base conditions
-        DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
+        RuleCompiler compiler = new RuleCompiler(NOOP_TRACER);
         EngineModel model = compiler.compile(rulesFile);
 
         InMemoryBaseConditionCache cache = new InMemoryBaseConditionCache.Builder().build();
@@ -135,7 +135,7 @@ class P2AHashOptimizationTest {
         Files.writeString(rulesFile, createHighDeduplicationRules(500));
 
         // When
-        DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
+        RuleCompiler compiler = new RuleCompiler(NOOP_TRACER);
         EngineModel model = compiler.compile(rulesFile);
 
         InMemoryBaseConditionCache cache = new InMemoryBaseConditionCache.Builder().build();
@@ -369,7 +369,7 @@ class P2AHashOptimizationTest {
         Files.writeString(rulesFile, rules);
 
         // When
-        DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
+        RuleCompiler compiler = new RuleCompiler(NOOP_TRACER);
         EngineModel model = compiler.compile(rulesFile);
 
         InMemoryBaseConditionCache cache = new InMemoryBaseConditionCache.Builder().build();

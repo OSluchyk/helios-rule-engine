@@ -27,6 +27,7 @@
         <xxhash.version>0.16</xxhash.version>
 
         <jmh.version>1.37</jmh.version>
+        <prometheus.version>0.16.0</prometheus.version>
 
     </properties>
 
@@ -67,6 +68,12 @@
         </dependency>
 
         <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>33.5.0-jre</version>
+        </dependency>
+
+        <dependency>
             <groupId>net.openhft</groupId>
             <artifactId>zero-allocation-hashing</artifactId>
             <version>${xxhash.version}</version>
@@ -102,6 +109,12 @@
         </dependency>
 
         <dependency>
+            <groupId>io.prometheus</groupId>
+            <artifactId>simpleclient</artifactId>
+            <version>0.16.0</version>
+        </dependency>
+
+        <dependency>
             <groupId>org.openjdk.jmh</groupId>
             <artifactId>jmh-core</artifactId>
             <version>${jmh.version}</version>
@@ -119,7 +132,6 @@
             <version>${opentelemetry.version}</version>
             <scope>test</scope>
         </dependency>
-
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

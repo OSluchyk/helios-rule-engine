@@ -1,6 +1,6 @@
 package com.helios.ruleengine.core.evaluation;
 
-import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.compiler.RuleCompiler;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import org.junit.jupiter.api.AfterAll;
@@ -42,7 +42,7 @@ public class CachedStaticPredicateEvaluatorTest {
     void setUp() throws Exception {
         Path rulesFile = tempDir.resolve("base_eval_rules.json");
         Files.writeString(rulesFile, getTestRulesJson());
-        model = new DefaultRuleCompiler(TracingService.getInstance().getTracer()).compile(rulesFile);
+        model = new RuleCompiler(TracingService.getInstance().getTracer()).compile(rulesFile);
         cache = new InMemoryBaseConditionCache.Builder().maxSize(100).build();
         baseEvaluator = new CachedStaticPredicateEvaluator(model, cache);
     }

@@ -1,6 +1,6 @@
 package com.helios.ruleengine.benchmark;
 
-import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.compiler.RuleCompiler;
 import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
@@ -79,7 +79,7 @@ public class ProductionBenchmark {
         Path rulesPath = createProductionRules(ruleCount, workloadType);
 
         // Compile with production optimizations
-        DefaultRuleCompiler compiler = new DefaultRuleCompiler(TracingService.getInstance().getTracer());
+        RuleCompiler compiler = new RuleCompiler(TracingService.getInstance().getTracer());
         model = compiler.compile(rulesPath);
 
         // Print model statistics

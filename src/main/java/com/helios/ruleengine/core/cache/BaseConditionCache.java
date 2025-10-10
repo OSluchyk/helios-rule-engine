@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit;
  * Abstraction for base condition caching to support both in-memory and distributed implementations.
  * This interface enables evaluation result caching for static predicate sets, reducing redundant
  * predicate evaluations by 90%+ for typical workloads.
- *
+ * <p>
  * Design principles:
  * - Async-first API for non-blocking operations with distributed caches
  * - Support for TTL-based expiration
@@ -19,6 +19,7 @@ import java.util.concurrent.TimeUnit;
  *
  */
 public interface BaseConditionCache {
+
 
     /**
      * Represents a cached evaluation result with metadata.
@@ -46,8 +47,8 @@ public interface BaseConditionCache {
      * Store evaluation result in cache with TTL.
      *
      * @param cacheKey Unique key for this evaluation
-     * @param result BitSet of evaluation results (true/false per rule)
-     * @param ttl Time-to-live value
+     * @param result   BitSet of evaluation results (true/false per rule)
+     * @param ttl      Time-to-live value
      * @param timeUnit Unit for TTL
      * @return Future that completes when the value is stored
      */
@@ -61,6 +62,11 @@ public interface BaseConditionCache {
      * @return Map of cache keys to their entries (missing keys won't be in map)
      */
     CompletableFuture<Map<String, CacheEntry>> getBatch(Iterable<String> cacheKeys);
+
+    default CompletableFuture<Void> warmUp(Map<String, BitSet> entries) {
+        return CompletableFuture.completedFuture(null);
+    }
+
 
     /**
      * Invalidate specific cache entry.
