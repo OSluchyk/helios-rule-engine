@@ -59,7 +59,7 @@ class AdaptiveCaffeineCacheIntegrationTest {
         // Simulate real usage
         Int2ObjectMap<Object> eventAttrs = new Int2ObjectOpenHashMap<>();
         eventAttrs.put(0, "premium");
-        eventAttrs.put(1, new Integer(1500));
+        eventAttrs.put(1, Integer.valueOf(1500));
         eventAttrs.put(2, "US");
 
         int[] predicateIds = {0, 1, 2};
@@ -224,7 +224,7 @@ class AdaptiveCaffeineCacheIntegrationTest {
                     try {
                         // Each thread uses different keys
                         Int2ObjectMap<Object> attrs = new Int2ObjectOpenHashMap<>();
-                        attrs.put(threadId, new Integer(i));
+                        attrs.put(threadId, Integer.valueOf(i));
 
                         String key = FastCacheKeyGenerator.generateKey(
                                 attrs,
@@ -264,7 +264,7 @@ class AdaptiveCaffeineCacheIntegrationTest {
         List<String> keys = new ArrayList<>();
         for (int i = 0; i < 10; i++) {
             Int2ObjectMap<Object> attrs = new Int2ObjectOpenHashMap<>();
-            attrs.put(0, new Integer(i));
+            attrs.put(0, Integer.valueOf(i));
 
             String key = FastCacheKeyGenerator.generateKey(attrs, new int[]{0}, 1);
             keys.add(key);

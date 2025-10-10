@@ -57,7 +57,7 @@ class PerformanceComparisonTest {
     private void runWorkload(BaseConditionCache cache, int operations) {
         for (int i = 0; i < operations; i++) {
             Int2ObjectMap<Object> attrs = new Int2ObjectOpenHashMap<>();
-            attrs.put(0, new Double(i % 1000));  // Gradually increasing unique keys
+            attrs.put(0,  Double.valueOf(i % 1000));  // Gradually increasing unique keys
 
             String key = FastCacheKeyGenerator.generateKey(attrs, new int[]{0}, 1);
 
