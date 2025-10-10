@@ -5,6 +5,7 @@ import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.core.model.Dictionary;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
+import com.helios.ruleengine.model.Rule;
 import io.opentelemetry.api.trace.Tracer;
 import org.junit.jupiter.api.*;
 import com.helios.ruleengine.model.Event;
@@ -16,7 +17,9 @@ import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryUsage;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -279,14 +282,12 @@ class StreamAllocationTest {
         assertThat(result.matchedRules()).isNotEmpty();
         assertThat(result.eventId()).isEqualTo("evt-correctness");
 
-        // Verify specific rule matched (LARGE_AMOUNT has highest priority: 100)
-        assertThat(result.matchedRules()).hasSize(1);
-        assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("LARGE_AMOUNT");
-        assertThat(result.matchedRules().get(0).priority()).isEqualTo(100);
+        // Verify that all expected rules are matched
+        assertThat(result.matchedRules()).hasSize(4);
+        List<String> matchedRuleCodes = result.matchedRules().stream().map(match -> match.ruleCode()).collect(Collectors.toList());
+        assertThat(matchedRuleCodes).containsExactlyInAnyOrder("LARGE_AMOUNT", "MEDIUM_AMOUNT", "ACTIVE_STATUS", "HIGH_PRIORITY");
 
-        System.out.printf("✓ Correctness maintained: matched %s (priority %d)%n",
-                result.matchedRules().get(0).ruleCode(),
-                result.matchedRules().get(0).priority());
+        System.out.printf("✓ Correctness maintained: matched %d rules%n", result.matchedRules().size());
     }
 
     @Test
@@ -393,35 +394,35 @@ class StreamAllocationTest {
             "rule_code": "SMALL_AMOUNT",
             "priority": 10,
             "conditions": [
-              {"field": "amount", "operator": "LESS_THAN", "value": 1000}
+              {"field": "AMOUNT", "operator": "LESS_THAN", "value": 1000}
             ]
           },
           {
             "rule_code": "MEDIUM_AMOUNT",
             "priority": 50,
             "conditions": [
-              {"field": "amount", "operator": "GREATER_THAN", "value": 1000}
+              {"field": "AMOUNT", "operator": "GREATER_THAN", "value": 1000}
             ]
           },
           {
             "rule_code": "LARGE_AMOUNT",
             "priority": 100,
             "conditions": [
-              {"field": "amount", "operator": "GREATER_THAN", "value": 5000}
+              {"field": "AMOUNT", "operator": "GREATER_THAN", "value": 5000}
             ]
           },
           {
             "rule_code": "ACTIVE_STATUS",
             "priority": 60,
             "conditions": [
-              {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"}
+              {"field": "STATUS", "operator": "EQUAL_TO", "value": "ACTIVE"}
             ]
           },
           {
             "rule_code": "HIGH_PRIORITY",
             "priority": 90,
             "conditions": [
-              {"field": "priority", "operator": "EQUAL_TO", "value": "HIGH"}
+              {"field": "PRIORITY", "operator": "EQUAL_TO", "value": "HIGH"}
             ]
           }
         ]

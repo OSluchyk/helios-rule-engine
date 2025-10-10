@@ -255,50 +255,50 @@ class VectorizationOptimizationTest {
             "rule_code": "MEDIUM_VALUE",
             "priority": 50,
             "conditions": [
-              {"field": "amount", "operator": "GREATER_THAN", "value": 1000}
+              {"field": "AMOUNT", "operator": "GREATER_THAN", "value": 1000}
             ]
           },
           {
             "rule_code": "HIGH_VALUE",
             "priority": 100,
             "conditions": [
-              {"field": "amount", "operator": "GREATER_THAN", "value": 10000}
+              {"field": "AMOUNT", "operator": "GREATER_THAN", "value": 10000}
             ]
           },
           {
             "rule_code": "LOW_SCORE",
             "priority": 30,
             "conditions": [
-              {"field": "score", "operator": "LESS_THAN", "value": 50}
+              {"field": "SCORE", "operator": "LESS_THAN", "value": 50}
             ]
           },
           {
             "rule_code": "HIGH_SCORE",
             "priority": 80,
             "conditions": [
-              {"field": "score", "operator": "GREATER_THAN", "value": 80}
+              {"field": "SCORE", "operator": "GREATER_THAN", "value": 80}
             ]
           },
           {
             "rule_code": "MID_RANGE",
             "priority": 60,
             "conditions": [
-              {"field": "amount", "operator": "BETWEEN", "value": [5000, 10000]}
+              {"field": "AMOUNT", "operator": "BETWEEN", "value": [5000, 10000]}
             ]
           },
           {
             "rule_code": "URGENT_ITEM",
             "priority": 90,
             "conditions": [
-              {"field": "description", "operator": "CONTAINS", "value": "URGENT"}
+              {"field": "DESCRIPTION", "operator": "CONTAINS", "value": "URGENT"}
             ]
           },
           {
             "rule_code": "ACTIVE_US",
             "priority": 70,
             "conditions": [
-              {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"},
-              {"field": "country", "operator": "EQUAL_TO", "value": "US"}
+              {"field": "STATUS", "operator": "EQUAL_TO", "value": "ACTIVE"},
+              {"field": "COUNTRY", "operator": "EQUAL_TO", "value": "US"}
             ]
           }
         ]

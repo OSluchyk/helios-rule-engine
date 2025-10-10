@@ -299,7 +299,7 @@ public class ProductionBenchmark {
         System.out.printf("Deduplication Rate: %s%%%n",
                 model.getStats().metadata().get("deduplicationRatePercent"));
         System.out.printf("Unique Predicates: %d%n",
-                model.getPredicateRegistry().size());
+                model.getUniquePredicates().length);
 
         // Memory estimate
         long memoryEstimate = estimateMemoryUsage();
@@ -311,7 +311,7 @@ public class ProductionBenchmark {
     private long estimateMemoryUsage() {
         // Rough memory estimation
         int numRules = model.getNumRules();
-        int numPredicates = model.getPredicateRegistry().size();
+        int numPredicates = model.getUniquePredicates().length;
 
         // SoA arrays
         long soaMemory = numRules * (4 + 4 + 4 + 8); // counts, priorities, etc.

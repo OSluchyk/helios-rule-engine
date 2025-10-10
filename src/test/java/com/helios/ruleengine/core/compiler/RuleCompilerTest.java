@@ -77,7 +77,7 @@ class RuleCompilerTest {
         int usValueId = model.getValueDictionary().getId("US");
 
         Predicate p1 = null, p2 = null;
-        for (Predicate p : model.getPredicateRegistry().keySet()) {
+        for (Predicate p : model.getUniquePredicates()) {
             if (p.fieldId() == statusFieldId && p.value().equals(activeValueId)) {
                 p1 = p;
             }
