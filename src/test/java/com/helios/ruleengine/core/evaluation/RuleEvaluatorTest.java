@@ -1,7 +1,7 @@
 package com.helios.ruleengine.core.evaluation;
 
 import com.helios.ruleengine.core.compiler.CompilationException;
-import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.compiler.RuleCompiler;
 import com.helios.ruleengine.core.model.EngineModel;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.Tracer;
@@ -68,7 +68,7 @@ class RuleEvaluatorTest {
         Path rulesPath = Files.createTempFile("test-rules", ".json");
         Files.writeString(rulesPath, rulesJson);
 
-        DefaultRuleCompiler compiler = new DefaultRuleCompiler(tracer);
+        RuleCompiler compiler = new RuleCompiler(tracer);
         engineModel = compiler.compile(rulesPath);
         ruleEvaluator = new RuleEvaluator(engineModel, tracer);
     }
@@ -158,7 +158,7 @@ class RuleEvaluatorTest {
         Path rulesPath = Files.createTempFile("priority-rules", ".json");
         Files.writeString(rulesPath, rulesJson);
 
-        DefaultRuleCompiler compiler = new DefaultRuleCompiler(tracer);
+        RuleCompiler compiler = new RuleCompiler(tracer);
         EngineModel priorityModel = compiler.compile(rulesPath);
         RuleEvaluator priorityEvaluator = new RuleEvaluator(priorityModel, tracer);
 

@@ -1,5 +1,6 @@
 package com.helios.ruleengine.benchmark;
 
+import com.helios.ruleengine.core.compiler.RuleCompiler;
 import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Tracer;
@@ -11,7 +12,6 @@ import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 import org.openjdk.jmh.runner.options.TimeValue;
 import com.helios.ruleengine.core.model.EngineModel;
-import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
 import com.helios.ruleengine.core.cache.BaseConditionCache;
 import com.helios.ruleengine.core.cache.InMemoryBaseConditionCache;
 import com.helios.ruleengine.model.Event;
@@ -137,7 +137,7 @@ public class SimpleBenchmark {
 
         // Compile and measure
         long compileStart = System.nanoTime();
-        DefaultRuleCompiler compiler = new DefaultRuleCompiler(NOOP_TRACER);
+        RuleCompiler compiler = new RuleCompiler(NOOP_TRACER);
         model = compiler.compile(rulesPath);
         compilationTime = System.nanoTime() - compileStart;
 

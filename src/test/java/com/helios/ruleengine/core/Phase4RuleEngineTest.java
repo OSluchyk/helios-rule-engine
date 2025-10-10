@@ -1,6 +1,6 @@
 package com.helios.ruleengine.core;
 
-import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.compiler.RuleCompiler;
 import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
@@ -39,7 +39,7 @@ class Phase4RuleEngineTest {
     void setUp() throws Exception {
         Path rulesFile = tempDir.resolve("phase4_rules.json");
         Files.writeString(rulesFile, getPhase4TestRulesJson());
-        model = new DefaultRuleCompiler(TracingService.getInstance().getTracer()).compile(rulesFile);
+        model = new RuleCompiler(TracingService.getInstance().getTracer()).compile(rulesFile);
         evaluator = new RuleEvaluator(model);
     }
 

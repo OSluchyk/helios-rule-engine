@@ -10,7 +10,7 @@ import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 import com.helios.ruleengine.core.model.EngineModel;
-import com.helios.ruleengine.core.compiler.DefaultRuleCompiler;
+import com.helios.ruleengine.core.compiler.RuleCompiler;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import com.helios.ruleengine.model.Event;
 import com.helios.ruleengine.model.MatchResult;
@@ -78,7 +78,7 @@ public class GranularCliffBenchmark {
         Path rulesPath = createTestRules(ruleCount);
 
         // Compile
-        DefaultRuleCompiler compiler = new DefaultRuleCompiler(TRACER);
+        RuleCompiler compiler = new RuleCompiler(TRACER);
         model = compiler.compile(rulesPath);
 
         // Create evaluator
