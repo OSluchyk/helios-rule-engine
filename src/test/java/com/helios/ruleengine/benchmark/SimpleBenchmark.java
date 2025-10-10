@@ -274,7 +274,7 @@ public class SimpleBenchmark {
         System.out.printf("Expanded Combinations: %,d\n", metadata.get("totalExpandedCombinations"));
         System.out.printf("Unique Combinations:   %,d\n", metadata.get("uniqueCombinations"));
         System.out.printf("Deduplication Rate:    %s%%\n", metadata.get("deduplicationRatePercent"));
-        System.out.printf("Unique Predicates:     %,d\n", model.getPredicateRegistry().size());
+        System.out.printf("Unique Predicates:     %,d\n", model.getUniquePredicates().length);
 
         long estimatedMemory = estimateMemoryUsage();
         System.out.printf("Estimated Memory:      %.2f MB\n", estimatedMemory / (1024.0 * 1024.0));
@@ -493,7 +493,7 @@ public class SimpleBenchmark {
 
     private long estimateMemoryUsage() {
         int numRules = model.getNumRules();
-        int numPredicates = model.getPredicateRegistry().size();
+        int numPredicates = model.getUniquePredicates().length;
 
         // SoA arrays: counters, needs, priorities, etc.
         long soaMemory = numRules * 20L;
