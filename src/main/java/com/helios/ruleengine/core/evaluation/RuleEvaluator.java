@@ -1,6 +1,7 @@
 package com.helios.ruleengine.core.evaluation;
 
 import com.helios.ruleengine.api.IRuleEvaluator;
+import com.helios.ruleengine.core.cache.AdaptiveCaffeineCache;
 import com.helios.ruleengine.core.cache.BaseConditionCache;
 import com.helios.ruleengine.core.cache.CaffeineBaseConditionCache;
 import com.helios.ruleengine.core.model.EngineModel;
@@ -26,7 +27,11 @@ public class RuleEvaluator implements IRuleEvaluator {
     private final EvaluatorMetrics metrics;
     private final Tracer tracer;
 
-    private static final ScopedValue<EvaluationContext> CONTEXT = ScopedValue.newInstance();
+    // --- MODIFICATION START ---
+    // Use a ThreadLocal to hold and reuse one EvaluationContext instance per thread.
+    // This is the core of the object pooling optimization.
+    private final ThreadLocal<EvaluationContext> contextHolder;
+    // --- MODIFICATION END ---
 
     private final CachedStaticPredicateEvaluator baseConditionEvaluator;
     private final boolean useBaseConditionCache;
@@ -54,92 +59,98 @@ public class RuleEvaluator implements IRuleEvaluator {
         this.vectorizedEvaluator = new NumericPredicateEvaluator(model);
 
         if (useBaseConditionCache) {
-            BaseConditionCache cache = CaffeineBaseConditionCache.builder()
-                    .maxSize(100_000)  // Increased from 10k to 100k
+            BaseConditionCache cache = AdaptiveCaffeineCache.builder()
+                    .initialMaxSize(100_000)
                     .expireAfterWrite(10, java.util.concurrent.TimeUnit.MINUTES)
-                    .recordStats(true)  // Enable monitoring
-                    .initialCapacity(10_000)  // Pre-allocate
+                    .recordStats(true)
+                    .enableAdaptiveSizing(true)
                     .build();
             this.baseConditionEvaluator = new CachedStaticPredicateEvaluator(model, cache);
         } else {
             this.baseConditionEvaluator = null;
         }
 
+        // --- MODIFICATION START ---
+        // Initialize the ThreadLocal. When a thread first accesses it, a new
+        // EvaluationContext will be created for it. Subsequent accesses will return the same instance.
+        int estimatedTouched = Math.min(model.getNumRules() / 10, 1000);
+        this.contextHolder = ThreadLocal.withInitial(() -> new EvaluationContext(estimatedTouched));
+        // --- MODIFICATION END ---
     }
 
     public MatchResult evaluate(Event event) {
-        int estimatedTouched = Math.min(model.getNumRules() / 10, 1000);
-        EvaluationContext freshContext = new EvaluationContext(estimatedTouched);
+        // --- MODIFICATION START ---
+        // Get the reusable context for the current thread from the ThreadLocal holder.
+        // This avoids the expensive `new EvaluationContext(...)` call on the hot path.
+        final EvaluationContext ctx = contextHolder.get();
+        // --- MODIFICATION END ---
 
-        return ScopedValue.where(CONTEXT, freshContext)
-                .call(() -> {
-                    long startTime = System.nanoTime();
-                    final EvaluationContext ctx = CONTEXT.get();
+        long startTime = System.nanoTime();
+        Span evaluationSpan = tracer.spanBuilder("rule-evaluation").startSpan();
+        try (Scope scope = evaluationSpan.makeCurrent()) {
 
-                    Span evaluationSpan = tracer.spanBuilder("rule-evaluation").startSpan();
-                    try (Scope scope = evaluationSpan.makeCurrent()) {
+            BitSet eligibleRules = null;
+            RoaringBitmap eligibleRulesRoaring = null;
 
-                        BitSet eligibleRules = null;
-                        RoaringBitmap eligibleRulesRoaring = null;
+            if (useBaseConditionCache && baseConditionEvaluator != null) {
+                CompletableFuture<CachedStaticPredicateEvaluator.EvaluationResult> baseFuture =
+                        baseConditionEvaluator.evaluateBaseConditions(event);
+                try {
+                    CachedStaticPredicateEvaluator.EvaluationResult baseResult = baseFuture.get();
+                    eligibleRules = baseResult.matchingRules;
+                    eligibleRulesRoaring = baseResult.matchingRulesRoaring;
+                    ctx.predicatesEvaluated += baseResult.predicatesEvaluated;
 
-                        if (useBaseConditionCache && baseConditionEvaluator != null) {
-                            CompletableFuture<CachedStaticPredicateEvaluator.EvaluationResult> baseFuture =
-                                    baseConditionEvaluator.evaluateBaseConditions(event);
-                            try {
-                                CachedStaticPredicateEvaluator.EvaluationResult baseResult = baseFuture.get();
-                                eligibleRules = baseResult.matchingRules;
-                                eligibleRulesRoaring = baseResult.matchingRulesRoaring;
-                                ctx.predicatesEvaluated += baseResult.predicatesEvaluated;
+                    evaluationSpan.setAttribute("baseConditionHit", baseResult.fromCache);
+                    evaluationSpan.setAttribute("eligibleRules", eligibleRules.cardinality());
 
-                                evaluationSpan.setAttribute("baseConditionHit", baseResult.fromCache);
-                                evaluationSpan.setAttribute("eligibleRules", eligibleRules.cardinality());
-
-                                if (baseResult.fromCache) {
-                                    metrics.roaringConversionsSaved.incrementAndGet();
-                                }
-
-                                if (eligibleRules.isEmpty()) {
-                                    long evaluationTime = System.nanoTime() - startTime;
-                                    metrics.recordEvaluation(evaluationTime, ctx.predicatesEvaluated, 0);
-                                    return new MatchResult(event.getEventId(), Collections.emptyList(),
-                                            evaluationTime, ctx.predicatesEvaluated, 0);
-                                }
-                            } catch (Exception e) {
-                                eligibleRules = null;
-                                eligibleRulesRoaring = null;
-                            }
-                        }
-
-                        evaluatePredicatesHybrid(event, ctx, eligibleRules);
-
-                        updateCountersOptimized(ctx, eligibleRulesRoaring);
-
-                        detectMatchesOptimized(ctx, eligibleRules);
-
-                        selectMatches(ctx);
-
-                        long evaluationTime = System.nanoTime() - startTime;
-                        metrics.recordEvaluation(evaluationTime, ctx.predicatesEvaluated, ctx.rulesEvaluated);
-
-                        evaluationSpan.setAttribute("predicatesEvaluated", ctx.predicatesEvaluated);
-                        evaluationSpan.setAttribute("rulesEvaluated", ctx.rulesEvaluated);
-                        evaluationSpan.setAttribute("matchCount", ctx.getMatchedRules().size());
-
-                        return new MatchResult(
-                                event.getEventId(),
-                                ctx.getMatchedRules(),
-                                evaluationTime,
-                                ctx.predicatesEvaluated,
-                                ctx.rulesEvaluated
-                        );
-
-                    } catch (Exception e) {
-                        evaluationSpan.recordException(e);
-                        throw new RuntimeException("Rule evaluation failed", e);
-                    } finally {
-                        evaluationSpan.end();
+                    if (baseResult.fromCache) {
+                        metrics.roaringConversionsSaved.incrementAndGet();
                     }
-                });
+
+                    if (eligibleRules.isEmpty()) {
+                        long evaluationTime = System.nanoTime() - startTime;
+                        metrics.recordEvaluation(evaluationTime, ctx.predicatesEvaluated, 0);
+                        return new MatchResult(event.getEventId(), Collections.emptyList(),
+                                evaluationTime, ctx.predicatesEvaluated, 0);
+                    }
+                } catch (Exception e) {
+                    eligibleRules = null;
+                    eligibleRulesRoaring = null;
+                }
+            }
+
+            evaluatePredicatesHybrid(event, ctx, eligibleRules);
+            updateCountersOptimized(ctx, eligibleRulesRoaring);
+            detectMatchesOptimized(ctx, eligibleRules);
+            selectMatches(ctx);
+
+            long evaluationTime = System.nanoTime() - startTime;
+            metrics.recordEvaluation(evaluationTime, ctx.predicatesEvaluated, ctx.rulesEvaluated);
+
+            evaluationSpan.setAttribute("predicatesEvaluated", ctx.predicatesEvaluated);
+            evaluationSpan.setAttribute("rulesEvaluated", ctx.rulesEvaluated);
+            evaluationSpan.setAttribute("matchCount", ctx.getMatchedRules().size());
+
+            return new MatchResult(
+                    event.getEventId(),
+                    ctx.getMatchedRules(),
+                    evaluationTime,
+                    ctx.predicatesEvaluated,
+                    ctx.rulesEvaluated
+            );
+
+        } catch (Exception e) {
+            evaluationSpan.recordException(e);
+            throw new RuntimeException("Rule evaluation failed", e);
+        } finally {
+            evaluationSpan.end();
+            // --- MODIFICATION START ---
+            // CRITICAL: Reset the context after the evaluation is complete. This clears its
+            // internal state, making it ready for the next call on the same thread.
+            ctx.reset();
+            // --- MODIFICATION END ---
+        }
     }
 
     private void evaluatePredicatesHybrid(Event event, EvaluationContext ctx, BitSet eligibleRules) {
@@ -161,7 +172,6 @@ public class RuleEvaluator implements IRuleEvaluator {
             span.end();
         }
     }
-
 
     private IntSet getEligiblePredicateSet(BitSet eligibleRules) {
         if (eligibleRules == null) {
@@ -189,7 +199,6 @@ public class RuleEvaluator implements IRuleEvaluator {
 
         return predicateIds;
     }
-
 
     private void updateCountersOptimized(EvaluationContext ctx,
                                          RoaringBitmap eligibleRulesRoaring) {
@@ -226,9 +235,7 @@ public class RuleEvaluator implements IRuleEvaluator {
                     }
                 }
             }
-
             span.setAttribute("countersUpdated", ctx.getTouchedRuleIds().size());
-
         } finally {
             span.end();
         }
@@ -276,9 +283,7 @@ public class RuleEvaluator implements IRuleEvaluator {
                     }
                 }
             }
-
             span.setAttribute("matchCount", ctx.getMutableMatchedRules().size());
-
         } finally {
             span.end();
         }
