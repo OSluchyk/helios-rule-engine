@@ -100,7 +100,7 @@ public final class EngineModel {
         EngineStats stats;
         List<Predicate> sortedPredicates;
         final Int2FloatMap fieldMinWeights = new Int2FloatOpenHashMap();
-        SelectionStrategy selectionStrategy = SelectionStrategy.ALL_MATCHES;
+        SelectionStrategy selectionStrategy = SelectionStrategy.FIRST_MATCH;
         RuleDefinition[] ruleDefinitions;
         Int2IntMap familyPriorities;
         final Int2ObjectMap<List<Predicate>> fieldToPredicates = new Int2ObjectOpenHashMap<>();
