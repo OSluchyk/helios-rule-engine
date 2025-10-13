@@ -35,7 +35,17 @@ public class RuleCompiler implements IRuleCompiler {
         this.tracer = tracer;
     }
 
-    public EngineModel compile(Path rulesPath) throws IOException, CompilationException {
+    /**
+     * Compile rules with a specific selection strategy.
+     *
+     * @param rulesPath Path to the JSON rules file
+     * @param strategy Selection strategy to use (ALL_MATCHES, FIRST_MATCH, MAX_PRIORITY_PER_FAMILY)
+     * @return Compiled EngineModel with specified strategy
+     * @throws IOException if rule file cannot be read
+     * @throws CompilationException if rules are invalid
+     */
+    public EngineModel compile(Path rulesPath, EngineModel.SelectionStrategy strategy)
+            throws IOException, CompilationException {
         Span span = tracer.spanBuilder("compile-rules").startSpan();
         try (Scope scope = span.makeCurrent()) {
             span.setAttribute("ruleFilePath", rulesPath.toString());
@@ -47,7 +57,7 @@ public class RuleCompiler implements IRuleCompiler {
             List<RuleDefinition> validRules = validateAndCanonize(definitions);
 
             // Apply Smart IS_ANY_OF Factoring
-            SmartIsAnyOfFactorizer factorizer = new SmartIsAnyOfFactorizer();
+            SmartIsAnyOfFactorizer factorizer = new SmartIsAnyOfFactorizer();  // ← Correct name
             List<RuleDefinition> factoredRules = factorizer.factorize(validRules);
 
             Dictionary fieldDictionary = new Dictionary();
@@ -65,7 +75,8 @@ public class RuleCompiler implements IRuleCompiler {
             int logicalRuleCount = validRules.size();
             int totalExpandedCombinations = builder.getTotalExpandedCombinations();
             int uniqueCombinations = builder.getUniqueCombinationCount();
-            double deduplicationRate = totalExpandedCombinations > 0 ? (1.0 - (double) uniqueCombinations / totalExpandedCombinations) * 100 : 0;
+            double deduplicationRate = totalExpandedCombinations > 0 ?
+                    (1.0 - (double) uniqueCombinations / totalExpandedCombinations) * 100 : 0;
 
             metadata.put("logicalRules", logicalRuleCount);
             metadata.put("totalExpandedCombinations", totalExpandedCombinations);
@@ -82,9 +93,11 @@ public class RuleCompiler implements IRuleCompiler {
                     metadata
             );
 
+            // ✅ Override selection strategy before build
             return builder.withStats(stats)
                     .withFieldDictionary(fieldDictionary)
                     .withValueDictionary(valueDictionary)
+                    .withSelectionStrategy(strategy)  // ← Add this line
                     .build();
 
         } catch (IOException | CompilationException e) {
@@ -93,6 +106,12 @@ public class RuleCompiler implements IRuleCompiler {
         } finally {
             span.end();
         }
+    }
+
+    // Update the original compile() method to delegate to the new one
+    public EngineModel compile(Path rulesPath) throws IOException, CompilationException {
+        // Default to FIRST_MATCH for backward compatibility
+        return compile(rulesPath, EngineModel.SelectionStrategy.FIRST_MATCH);
     }
 
     private void buildDictionaries(List<RuleDefinition> definitions, Dictionary fieldDictionary, Dictionary valueDictionary) {

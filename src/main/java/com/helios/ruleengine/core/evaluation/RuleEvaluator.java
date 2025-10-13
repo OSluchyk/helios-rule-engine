@@ -290,38 +290,63 @@ public class RuleEvaluator implements IRuleEvaluator {
         }
     }
 
+    /**
+     * Apply selection strategy to matched rules.
+     * <p>
+     * Strategies:
+     * - ALL_MATCHES: Return all (no filtering)
+     * - MAX_PRIORITY_PER_FAMILY: Max priority per rule family
+     * - FIRST_MATCH: Single highest priority overall (old behavior)
+     */
     private void selectMatches(EvaluationContext ctx) {
         List<EvaluationContext.MutableMatchedRule> matches =
                 ctx.getMutableMatchedRules();
 
         if (matches.size() <= 1) {
-            return;
+            return;  // Nothing to select
         }
 
-        Map<String, EvaluationContext.MutableMatchedRule> maxPriorityMatches =
-                new HashMap<>();
+        // Get strategy from model
+        EngineModel.SelectionStrategy strategy = model.getSelectionStrategy();
 
-        for (EvaluationContext.MutableMatchedRule match : matches) {
-            maxPriorityMatches.merge(match.getRuleCode(), match,
-                    (existing, replacement) ->
-                            replacement.getPriority() > existing.getPriority() ?
-                                    replacement : existing);
-        }
+        switch (strategy) {
+            case ALL_MATCHES:
+                // No filtering - return all matches
+                return;
 
-        EvaluationContext.MutableMatchedRule overallWinner = null;
-        int maxPriority = Integer.MIN_VALUE;
+            case MAX_PRIORITY_PER_FAMILY:
+                // Group by rule code, keep max priority per family
+                Map<String, EvaluationContext.MutableMatchedRule> familyWinners =
+                        new HashMap<>();
 
-        for (EvaluationContext.MutableMatchedRule rule :
-                maxPriorityMatches.values()) {
-            if (rule.getPriority() > maxPriority) {
-                overallWinner = rule;
-                maxPriority = rule.getPriority();
-            }
-        }
+                for (EvaluationContext.MutableMatchedRule match : matches) {
+                    familyWinners.merge(match.getRuleCode(), match,
+                            (existing, replacement) ->
+                                    replacement.getPriority() > existing.getPriority() ?
+                                            replacement : existing);
+                }
 
-        matches.clear();
-        if (overallWinner != null) {
-            matches.add(overallWinner);
+                matches.clear();
+                matches.addAll(familyWinners.values());
+                break;
+
+            case FIRST_MATCH:
+                // OLD BEHAVIOR: Select single highest priority match overall
+                EvaluationContext.MutableMatchedRule winner = null;
+                int maxPriority = Integer.MIN_VALUE;
+
+                for (EvaluationContext.MutableMatchedRule match : matches) {
+                    if (match.getPriority() > maxPriority) {
+                        winner = match;
+                        maxPriority = match.getPriority();
+                    }
+                }
+
+                matches.clear();
+                if (winner != null) {
+                    matches.add(winner);
+                }
+                break;
         }
     }
 

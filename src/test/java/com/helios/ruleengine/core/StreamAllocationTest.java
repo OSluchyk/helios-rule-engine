@@ -75,7 +75,8 @@ class StreamAllocationTest {
         Files.writeString(rulesFile, getStreamTestRules());
 
         RuleCompiler compiler = new RuleCompiler(NOOP_TRACER);
-        model = compiler.compile(rulesFile);
+//        model = compiler.compile(rulesFile);
+        model = compiler.compile(rulesFile, EngineModel.SelectionStrategy.ALL_MATCHES);
         evaluator = new RuleEvaluator(model, NOOP_TRACER, true);
     }
 
@@ -268,6 +269,7 @@ class StreamAllocationTest {
     @Test
     @DisplayName("Should maintain correctness after stream elimination")
     void shouldMaintainCorrectnessAfterStreamElimination() {
+
         // Given - event that matches specific rules
         Event event = new Event("evt-correctness", "TEST", Map.of(
                 "amount", 7500,
