@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.LongAdder;
  * - Rules matched per event
  * - Performance optimizations savings
  *
+ * @author Google L5 Engineering Standards
  */
 public final class EvaluatorMetrics {
 
@@ -69,9 +70,11 @@ public final class EvaluatorMetrics {
         long predsEvaluated = totalPredicatesEvaluated.sum();
         long rulesMatched = totalRulesMatched.sum();
 
-        // Core metrics
+        // Core metrics - provide both nanos and micros for compatibility
         snapshot.put("totalEvaluations", evals);
-        snapshot.put("avgEvaluationTimeNanos", evals > 0 ? totalTime / evals : 0);
+        long avgNanos = evals > 0 ? totalTime / evals : 0;
+        snapshot.put("avgEvaluationTimeNanos", avgNanos);
+        snapshot.put("avgLatencyMicros", avgNanos / 1000L);  // Convert to microseconds
         snapshot.put("avgPredicatesPerEval", evals > 0 ? (double) predsEvaluated / evals : 0.0);
         snapshot.put("avgRulesMatchedPerEval", evals > 0 ? (double) rulesMatched / evals : 0.0);
 
@@ -85,13 +88,27 @@ public final class EvaluatorMetrics {
         snapshot.put("eligibleSetCacheHitRate",
                 cacheTotal > 0 ? (double) cacheHits / cacheTotal * 100.0 : 0.0);
 
-        // Optimization savings
-        snapshot.put("roaringConversionsSaved", roaringConversionsSaved.get());
 
-        // Latency percentiles
-        snapshot.put("p50LatencyNanos", latencyHistogram.getPercentile(0.50));
-        snapshot.put("p95LatencyNanos", latencyHistogram.getPercentile(0.95));
-        snapshot.put("p99LatencyNanos", latencyHistogram.getPercentile(0.99));
+        // Optimization savings
+        long conversionsSaved = roaringConversionsSaved.get();
+        snapshot.put("roaringConversionsSaved", conversionsSaved);
+
+        // P0-A: Conversion savings rate (percentage of evaluations that saved conversions)
+        double conversionSavingsRate = evals > 0 ? (double) conversionsSaved / evals * 100.0 : 0.0;
+        snapshot.put("conversionSavingsRate", conversionSavingsRate);
+
+
+        // Latency percentiles (both nanos and micros for compatibility)
+        long p50Nanos = latencyHistogram.getPercentile(0.50);
+        long p95Nanos = latencyHistogram.getPercentile(0.95);
+        long p99Nanos = latencyHistogram.getPercentile(0.99);
+
+        snapshot.put("p50LatencyNanos", p50Nanos);
+        snapshot.put("p95LatencyNanos", p95Nanos);
+        snapshot.put("p99LatencyNanos", p99Nanos);
+        snapshot.put("p50LatencyMicros", p50Nanos / 1000L);
+        snapshot.put("p95LatencyMicros", p95Nanos / 1000L);
+        snapshot.put("p99LatencyMicros", p99Nanos / 1000L);
 
         return snapshot;
     }

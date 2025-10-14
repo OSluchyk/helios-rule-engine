@@ -5,8 +5,6 @@ import com.helios.ruleengine.model.RuleDefinition;
 import it.unimi.dsi.fastutil.ints.*;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
-import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
-import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import org.roaringbitmap.RoaringBitmap;
 
 import java.util.ArrayList;
