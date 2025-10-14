@@ -1,4 +1,4 @@
-package com.helios.ruleengine.core.evaluation;
+package com.helios.ruleengine.core.evaluation.cache;
 
 import com.helios.ruleengine.core.cache.BaseConditionCache;
 import com.helios.ruleengine.core.cache.FastCacheKeyGenerator;
@@ -31,8 +31,8 @@ import java.util.logging.Logger;
  * - Cache hit rate: 60% → 95%+
  * - Memory footprint: -70% from better deduplication
  */
-public class CachedStaticPredicateEvaluator {
-    private static final Logger logger = Logger.getLogger(CachedStaticPredicateEvaluator.class.getName());
+public class BaseConditionEvaluator {
+    private static final Logger logger = Logger.getLogger(BaseConditionEvaluator.class.getName());
 
     // P2-A: FNV-1a hash constants for high-quality distribution
     private static final long FNV_OFFSET_BASIS = 0xcbf29ce484222325L;
@@ -97,9 +97,9 @@ public class CachedStaticPredicateEvaluator {
      * P0-A FIX: Enhanced EvaluationResult with pre-converted RoaringBitmap
      */
     public static class EvaluationResult {
-        final BitSet matchingRules;
+        public final BitSet matchingRules;
         final RoaringBitmap matchingRulesRoaring;
-        final int predicatesEvaluated;
+        public final int predicatesEvaluated;
         final boolean fromCache;
         final long evaluationNanos;
 
@@ -119,7 +119,7 @@ public class CachedStaticPredicateEvaluator {
         }
     }
 
-    public CachedStaticPredicateEvaluator(EngineModel model, BaseConditionCache cache) {
+    public BaseConditionEvaluator(EngineModel model, BaseConditionCache cache) {
         this.model = model;
         this.cache = cache;
         this.baseConditionSets = new HashMap<>();

@@ -2,6 +2,7 @@ package com.helios.ruleengine.core.evaluation;
 
 import com.helios.ruleengine.core.compiler.CompilationException;
 import com.helios.ruleengine.core.compiler.RuleCompiler;
+import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import com.helios.ruleengine.core.model.EngineModel;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.Tracer;
