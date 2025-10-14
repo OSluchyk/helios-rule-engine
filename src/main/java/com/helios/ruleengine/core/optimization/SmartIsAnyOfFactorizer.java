@@ -12,8 +12,17 @@ import java.util.stream.Collectors;
 public class SmartIsAnyOfFactorizer {
 
     public List<RuleDefinition> factorize(List<RuleDefinition> definitions) {
+        // Filter out rules with null or empty conditions
+        List<RuleDefinition> validRules = definitions.stream()
+                .filter(def -> def.conditions() != null && !def.conditions().isEmpty())
+                .collect(Collectors.toList());
+
+        if (validRules.isEmpty()) {
+            return new ArrayList<>(definitions);
+        }
+
         // Group rules by their structure (all conditions except the IS_ANY_OF field)
-        Map<RuleSignature, List<RuleDefinition>> ruleGroups = definitions.stream()
+        Map<RuleSignature, List<RuleDefinition>> ruleGroups = validRules.stream()
                 .collect(Collectors.groupingBy(this::getRuleSignature));
 
         List<RuleDefinition> optimizedRules = new ArrayList<>();
@@ -38,10 +47,11 @@ public class SmartIsAnyOfFactorizer {
             Set<Object> combinedValues = new HashSet<>();
             for (RuleDefinition rule : group) {
                 for (RuleDefinition.Condition cond : rule.conditions()) {
-                    if (cond.field().equals(fieldToFactor) && "IS_ANY_OF".equalsIgnoreCase(cond.operator())) {
+                    if (cond.field() != null && cond.field().equals(fieldToFactor) &&
+                            cond.operator() != null && "IS_ANY_OF".equalsIgnoreCase(cond.operator())) {
                         if (cond.value() instanceof List) {
                             combinedValues.addAll((List<?>) cond.value());
-                        } else {
+                        } else if (cond.value() != null) {
                             combinedValues.add(cond.value());
                         }
                     }
@@ -52,7 +62,7 @@ public class SmartIsAnyOfFactorizer {
             List<RuleDefinition.Condition> newConditions = new ArrayList<>();
             // Add all non-factored conditions from the first rule (they are the same for all in the group).
             group.get(0).conditions().stream()
-                    .filter(c -> !c.field().equals(fieldToFactor))
+                    .filter(c -> c.field() == null || !c.field().equals(fieldToFactor))
                     .forEach(newConditions::add);
 
             // Add the new combined IS_ANY_OF condition.
@@ -62,7 +72,7 @@ public class SmartIsAnyOfFactorizer {
                     new ArrayList<>(combinedValues)
             ));
 
-            // **FIXED LOGIC**: Create a new RuleDefinition for each original rule,
+            // Create a new RuleDefinition for each original rule,
             // using the newly factored conditions. This preserves the original
             // rule metadata (code, priority, etc.) while allowing the compiler
             // to deduplicate the identical predicate combinations later.
@@ -85,8 +95,12 @@ public class SmartIsAnyOfFactorizer {
      * Rules with the same signature can be factored together.
      */
     private RuleSignature getRuleSignature(RuleDefinition rule) {
+        if (rule.conditions() == null) {
+            return new RuleSignature(new HashSet<>());
+        }
+
         Set<RuleDefinition.Condition> signatureConditions = rule.conditions().stream()
-                .filter(c -> !"IS_ANY_OF".equalsIgnoreCase(c.operator()))
+                .filter(c -> c.operator() != null && !"IS_ANY_OF".equalsIgnoreCase(c.operator()))
                 .collect(Collectors.toSet());
         return new RuleSignature(signatureConditions);
     }
@@ -98,8 +112,10 @@ public class SmartIsAnyOfFactorizer {
         if (group.isEmpty()) return null;
 
         Map<String, Long> fieldCounts = group.stream()
+                .filter(r -> r.conditions() != null)
                 .flatMap(r -> r.conditions().stream())
-                .filter(c -> "IS_ANY_OF".equalsIgnoreCase(c.operator()))
+                .filter(c -> c.operator() != null && "IS_ANY_OF".equalsIgnoreCase(c.operator()))
+                .filter(c -> c.field() != null)
                 .map(RuleDefinition.Condition::field)
                 .collect(Collectors.groupingBy(f -> f, Collectors.counting()));
 
