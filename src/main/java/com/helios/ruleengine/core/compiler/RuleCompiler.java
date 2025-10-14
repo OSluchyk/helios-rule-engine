@@ -72,7 +72,7 @@ public class RuleCompiler implements IRuleCompiler {
             metadata.put("deduplicationRatePercent", String.format("%.2f", deduplicationRate));
 
             span.setAttribute("uniqueCombinationCount", uniqueCombinations);
-            span.setAttribute("deduplicationRate", String.format("%.2f%%", deduplicationRate));
+            metadata.put("deduplicationRatePercent", deduplicationRate);
 
             EngineModel.EngineStats stats = new EngineModel.EngineStats(
                     uniqueCombinations,
