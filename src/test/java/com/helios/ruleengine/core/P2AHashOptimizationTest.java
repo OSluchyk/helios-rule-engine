@@ -1,7 +1,7 @@
 package com.helios.ruleengine.core;
 
 import com.helios.ruleengine.core.compiler.RuleCompiler;
-import com.helios.ruleengine.core.evaluation.CachedStaticPredicateEvaluator;
+import com.helios.ruleengine.core.evaluation.cache.BaseConditionEvaluator;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import io.opentelemetry.api.trace.Tracer;
@@ -58,7 +58,7 @@ class P2AHashOptimizationTest {
         EngineModel model = compiler.compile(rulesFile);
 
         InMemoryBaseConditionCache cache = new InMemoryBaseConditionCache.Builder().build();
-        CachedStaticPredicateEvaluator evaluator = new CachedStaticPredicateEvaluator(model, cache);
+        BaseConditionEvaluator evaluator = new BaseConditionEvaluator(model, cache);
 
         // Then - Verify deduplication occurred
         Map<String, Object> metrics = evaluator.getMetrics();
@@ -139,7 +139,7 @@ class P2AHashOptimizationTest {
         EngineModel model = compiler.compile(rulesFile);
 
         InMemoryBaseConditionCache cache = new InMemoryBaseConditionCache.Builder().build();
-        CachedStaticPredicateEvaluator evaluator = new CachedStaticPredicateEvaluator(model, cache);
+        BaseConditionEvaluator evaluator = new BaseConditionEvaluator(model, cache);
 
         // Then
         Map<String, Object> metrics = evaluator.getMetrics();
@@ -373,7 +373,7 @@ class P2AHashOptimizationTest {
         EngineModel model = compiler.compile(rulesFile);
 
         InMemoryBaseConditionCache cache = new InMemoryBaseConditionCache.Builder().build();
-        CachedStaticPredicateEvaluator evaluator = new CachedStaticPredicateEvaluator(model, cache);
+        BaseConditionEvaluator evaluator = new BaseConditionEvaluator(model, cache);
 
         // Then - All 3 rules share the SAME static condition {status=ACTIVE}
         Map<String, Object> metrics = evaluator.getMetrics();

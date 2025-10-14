@@ -5,7 +5,6 @@ import com.helios.ruleengine.core.evaluation.RuleEvaluator;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.core.model.Dictionary;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
-import com.helios.ruleengine.model.Rule;
 import io.opentelemetry.api.trace.Tracer;
 import org.junit.jupiter.api.*;
 import com.helios.ruleengine.model.Event;

@@ -1,6 +1,7 @@
 package com.helios.ruleengine.core.evaluation;
 
 import com.helios.ruleengine.core.compiler.RuleCompiler;
+import com.helios.ruleengine.core.evaluation.cache.BaseConditionEvaluator;
 import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import org.junit.jupiter.api.AfterAll;
@@ -18,11 +19,11 @@ import java.util.concurrent.ExecutionException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class CachedStaticPredicateEvaluatorTest {
+public class BaseConditionEvaluatorTest {
 
     private EngineModel model;
     private InMemoryBaseConditionCache cache;
-    private CachedStaticPredicateEvaluator baseEvaluator;
+    private BaseConditionEvaluator baseEvaluator;
     private static Path tempDir;
 
     @BeforeAll
@@ -44,7 +45,7 @@ public class CachedStaticPredicateEvaluatorTest {
         Files.writeString(rulesFile, getTestRulesJson());
         model = new RuleCompiler(TracingService.getInstance().getTracer()).compile(rulesFile);
         cache = new InMemoryBaseConditionCache.Builder().maxSize(100).build();
-        baseEvaluator = new CachedStaticPredicateEvaluator(model, cache);
+        baseEvaluator = new BaseConditionEvaluator(model, cache);
     }
 
     @Test
@@ -59,13 +60,13 @@ public class CachedStaticPredicateEvaluatorTest {
         Event event = new Event("evt1", "TEST", Map.of("status", "ACTIVE", "amount", 100));
 
         // First call - should be a cache miss
-        CachedStaticPredicateEvaluator.EvaluationResult result1 = baseEvaluator.evaluateBaseConditions(event).get();
+        BaseConditionEvaluator.EvaluationResult result1 = baseEvaluator.evaluateBaseConditions(event).get();
         assertThat(result1.fromCache).isFalse();
         assertThat(result1.predicatesEvaluated).isGreaterThan(0);
         assertThat(cache.getMetrics().misses()).isEqualTo(1);
 
         // Second call - should be a cache hit
-        CachedStaticPredicateEvaluator.EvaluationResult result2 = baseEvaluator.evaluateBaseConditions(event).get();
+        BaseConditionEvaluator.EvaluationResult result2 = baseEvaluator.evaluateBaseConditions(event).get();
         assertThat(result2.fromCache).isTrue();
         assertThat(result2.predicatesEvaluated).isEqualTo(0); // No predicates evaluated on cache hit
         assertThat(cache.getMetrics().hits()).isEqualTo(1);
@@ -76,7 +77,7 @@ public class CachedStaticPredicateEvaluatorTest {
         // This event matches the {status=ACTIVE} base condition, but not the {country=US, type=RENEWAL} one.
         Event event = new Event("evt1", "TEST", Map.of("status", "ACTIVE", "country", "CA"));
 
-        CachedStaticPredicateEvaluator.EvaluationResult result = baseEvaluator.evaluateBaseConditions(event).get();
+        BaseConditionEvaluator.EvaluationResult result = baseEvaluator.evaluateBaseConditions(event).get();
 
         // Model has 3 combinations total.
         // Combo 0: {status=ACTIVE, amount>1000} -> Base condition matches

@@ -260,7 +260,7 @@ mvn clean package -DskipTests  # faster
 [source,java]
 ----
 
-import com.helios.ruleengine.core.compiler.RuleCompiler;import com.helios.ruleengine.core.evaluation.RuleEvaluator;import com.helios.ruleengine.core.model.EngineModel;import com.helios.ruleengine.infrastructure.telemetry.TracingService;import com.helios.ruleengine.model.*;
+import com.helios.ruleengine.core.compiler.RuleCompiler;import com.helios.ruleengine.core.evaluation_old.RuleEvaluator;import com.helios.ruleengine.core.model.EngineModel;import com.helios.ruleengine.infrastructure.telemetry.TracingService;import com.helios.ruleengine.model.*;
 import java.nio.file.Path;
 import java.util.Map;
 

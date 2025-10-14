@@ -7,7 +7,6 @@ import com.helios.ruleengine.core.model.EngineModel;
 import com.helios.ruleengine.infrastructure.telemetry.TracingService;
 import com.helios.ruleengine.model.Event;
 import com.helios.ruleengine.model.MatchResult;
-import com.helios.ruleengine.model.Predicate;
 import io.opentelemetry.api.trace.Tracer;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
