@@ -18,8 +18,12 @@ public record Predicate(
 ) {
 
     public enum Operator {
-        EQUAL_TO, IS_ANY_OF,
-        GREATER_THAN, LESS_THAN, BETWEEN, CONTAINS, REGEX;
+        EQUAL_TO, IS_ANY_OF,IS_NONE_OF,
+        GREATER_THAN, LESS_THAN, BETWEEN, CONTAINS, REGEX,
+        GREATER_THAN_OR_EQUAL, LESS_THAN_OR_EQUAL,
+        IS_NULL, IS_NOT_NULL,
+        STARTS_WITH, ENDS_WITH
+        ;
 
         public static Operator fromString(String text) {
             if (text == null) return null;
@@ -28,7 +32,11 @@ public record Predicate(
         }
 
         public boolean isNumeric() {
-            return this == GREATER_THAN || this == LESS_THAN || this == BETWEEN;
+            return this == GREATER_THAN
+                    || this == GREATER_THAN_OR_EQUAL
+                    || this == LESS_THAN_OR_EQUAL
+                    || this == LESS_THAN
+                    || this == BETWEEN;
         }
     }
 
