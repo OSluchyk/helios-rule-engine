@@ -98,10 +98,10 @@ public class BaseConditionEvaluator {
      */
     public static class EvaluationResult {
         public final BitSet matchingRules;
-        final RoaringBitmap matchingRulesRoaring;
+        public final RoaringBitmap matchingRulesRoaring;
         public final int predicatesEvaluated;
-        final boolean fromCache;
-        final long evaluationNanos;
+        public final boolean fromCache;
+        public final long evaluationNanos;
 
         public EvaluationResult(BitSet matchingRules, int predicatesEvaluated,
                                 boolean fromCache, long evaluationNanos) {
