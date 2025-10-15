@@ -1,7 +1,5 @@
 package com.helios.ruleengine.core.evaluation;
 
-import com.helios.ruleengine.api.IRuleEvaluator;
-import com.helios.ruleengine.core.cache.AdaptiveCaffeineCache;
 import com.helios.ruleengine.core.cache.BaseConditionCache;
 import com.helios.ruleengine.core.evaluation.cache.BaseConditionEvaluator;
 import com.helios.ruleengine.core.evaluation.context.EvaluationContext;
@@ -14,98 +12,82 @@ import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
 import it.unimi.dsi.fastutil.ints.*;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import org.roaringbitmap.RoaringBitmap;
 
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * L5-LEVEL RULE EVALUATOR - REFACTORED WITH PERFORMANCE OPTIMIZATIONS
+ * FIX: Rule evaluator with proper deduplication handling.
  *
- * CHANGES FROM PREVIOUS VERSION:
- * - Uses PredicateEvaluator facade (unified predicate evaluation)
- * - Fixed class naming: BaseConditionEvaluator (not CachedStaticPredicateEvaluator)
- * - Restored EvaluatorMetrics tracking
- * - Fixed EvaluationContext API usage
- *
- * PERFORMANCE OPTIMIZATIONS PRESERVED:
- * - P0-A: RoaringBitmap pre-conversion (eliminates allocations)
- * - P0-B: Pre-computed cache keys (reduces overhead)
- * - P1-A: Vectorized predicate evaluation (2× numeric throughput)
- * - P1-B: Eligible predicate set caching (70-90% hit rate)
- * - Prefetching with 64-byte distance (20-40% cache miss reduction)
- *
+ * CRITICAL FIXES:
+ * - Deduplicate touched rules to prevent duplicate matches
+ * - Handle multiple rule codes per combination (1:N mapping)
+ * - Preserve all logical rule associations after IS_ANY_OF expansion
  */
-public class RuleEvaluator implements IRuleEvaluator {
-    private final EngineModel model;
-    private final EvaluatorMetrics metrics;
-    private final Tracer tracer;
-    private final ThreadLocal<EvaluationContext> contextHolder;
+public final class RuleEvaluator {
 
-    private final BaseConditionEvaluator baseConditionEvaluator;
-    private final boolean useBaseConditionCache;
-    private final PredicateEvaluator predicateEvaluator;
-
-    private final Map<BitSet, IntSet> eligiblePredicateSetCache;
-    private static final int MAX_CACHE_SIZE = 10_000;
     private static final int PREFETCH_DISTANCE = 64;
+    private static final int MAX_CACHE_SIZE = 10_000;
 
-    public RuleEvaluator(EngineModel model) {
-        this(model, TracingService.getInstance().getTracer(), true);
-    }
+    private final EngineModel model;
+    private final Tracer tracer;
+    private final EvaluatorMetrics metrics;
+    private final PredicateEvaluator predicateEvaluator;
+    private final BaseConditionEvaluator baseConditionEvaluator;
+    private final Map<BitSet, IntSet> eligiblePredicateSetCache;
 
-    public RuleEvaluator(EngineModel model, Tracer tracer) {
-        this(model, tracer, true);
-    }
-
-    public RuleEvaluator(EngineModel model, Tracer tracer, boolean useBaseConditionCache) {
-        this.model = Objects.requireNonNull(model);
-        this.metrics = new EvaluatorMetrics();
+    public RuleEvaluator(EngineModel model, Tracer tracer, boolean enableBaseConditionCache) {
+        this.model = model;
         this.tracer = tracer;
-        this.useBaseConditionCache = useBaseConditionCache;
-        this.eligiblePredicateSetCache = new ConcurrentHashMap<>(1024);
+        this.metrics = new EvaluatorMetrics();
         this.predicateEvaluator = new PredicateEvaluator(model);
 
-        if (useBaseConditionCache) {
-            BaseConditionCache cache = AdaptiveCaffeineCache.builder()
-                    .initialMaxSize(100_000)
-                    .expireAfterWrite(10, java.util.concurrent.TimeUnit.MINUTES)
-                    .recordStats(true)
-                    .enableAdaptiveSizing(true)
+        // Create cache and BaseConditionEvaluator if enabled
+        if (enableBaseConditionCache) {
+            BaseConditionCache cache = new com.helios.ruleengine.core.cache.InMemoryBaseConditionCache.Builder()
+                    .maxSize(10_000)
+                    .defaultTtl(5, java.util.concurrent.TimeUnit.MINUTES)
                     .build();
-            this.baseConditionEvaluator = new BaseConditionEvaluator(model, cache);
+            this.baseConditionEvaluator = new com.helios.ruleengine.core.evaluation.cache.BaseConditionEvaluator(model, cache);
         } else {
             this.baseConditionEvaluator = null;
         }
 
-        int estimatedTouched = Math.min(model.getNumRules() / 10, 1000);
-        this.contextHolder = ThreadLocal.withInitial(() -> new EvaluationContext(estimatedTouched));
+        this.eligiblePredicateSetCache = new HashMap<>();
     }
 
-    @Override
+    public RuleEvaluator(EngineModel model, Tracer tracer) {
+        this(model, tracer, false);
+    }
+
+    public RuleEvaluator(EngineModel model) {
+        this(model, TracingService.getInstance().getTracer(), false);
+    }
+
     public MatchResult evaluate(Event event) {
-        final EvaluationContext ctx = contextHolder.get();
-        ctx.reset();
-
-        long startTime = System.nanoTime();
-        Span evaluationSpan = tracer.spanBuilder("rule-evaluation").startSpan();
-
+        Span evaluationSpan = tracer.spanBuilder("evaluate-event").startSpan();
         try (Scope scope = evaluationSpan.makeCurrent()) {
+            long startTime = System.nanoTime();
 
+            evaluationSpan.setAttribute("eventId", event.getEventId());
+            evaluationSpan.setAttribute("eventType", event.getEventType());
+
+            EvaluationContext ctx = new EvaluationContext(256);
+            ctx.reset();
+
+            // Step 1: Base condition evaluation (if enabled)
             BitSet eligibleRules = null;
             RoaringBitmap eligibleRulesRoaring = null;
 
-            // Step 1: Base condition evaluation (cached)
-            if (useBaseConditionCache && baseConditionEvaluator != null) {
-                CompletableFuture<BaseConditionEvaluator.EvaluationResult> baseFuture =
+            if (baseConditionEvaluator != null) {
+                java.util.concurrent.CompletableFuture<com.helios.ruleengine.core.evaluation.cache.BaseConditionEvaluator.EvaluationResult> baseFuture =
                         baseConditionEvaluator.evaluateBaseConditions(event);
                 try {
-                    BaseConditionEvaluator.EvaluationResult baseResult = baseFuture.get();
+                    com.helios.ruleengine.core.evaluation.cache.BaseConditionEvaluator.EvaluationResult baseResult = baseFuture.get();
                     eligibleRules = baseResult.matchingRules;
                     eligibleRulesRoaring = baseResult.matchingRulesRoaring;
 
-                    // FIX: Use proper accessor method
                     ctx.addPredicatesEvaluated(baseResult.predicatesEvaluated);
 
                     evaluationSpan.setAttribute("baseConditionHit", baseResult.fromCache);
@@ -233,7 +215,6 @@ public class RuleEvaluator implements IRuleEvaluator {
      * Update rule counters based on true predicates (optimized with RoaringBitmap).
      */
     private void updateCountersOptimized(EvaluationContext ctx, RoaringBitmap eligibleRulesRoaring) {
-        // FIX: Use proper accessor
         IntSet truePredicates = ctx.getTruePredicates();
 
         for (int predId : truePredicates) {
@@ -258,26 +239,42 @@ public class RuleEvaluator implements IRuleEvaluator {
 
     /**
      * Detect matched rules with prefetching optimization (P1 enhancement).
+     *
+     * FIX: Deduplicate touched rules and handle multiple rule codes per combination.
      */
     private void detectMatchesOptimized(EvaluationContext ctx, RoaringBitmap eligibleRulesRoaring) {
-        IntList touchedRules = ctx.touchedRules;
+        IntSet touchedRules = ctx.getTouchedRules();
         int[] counters = ctx.counters;
         int[] needs = model.getPredicateCounts();
 
-        for (int i = 0; i < touchedRules.size(); i++) {
+        // FIX: Deduplicate touched rules by converting to set
+        IntList uniqueTouchedRules = new IntArrayList(touchedRules);
+
+        for (int i = 0; i < uniqueTouchedRules.size(); i++) {
             // Prefetch next cache line (64-byte distance)
-            if (i + PREFETCH_DISTANCE < touchedRules.size()) {
-                int prefetchRuleId = touchedRules.getInt(i + PREFETCH_DISTANCE);
+            if (i + PREFETCH_DISTANCE < uniqueTouchedRules.size()) {
+                int prefetchRuleId = uniqueTouchedRules.getInt(i + PREFETCH_DISTANCE);
                 int prefetchNeed = needs[prefetchRuleId];  // Trigger prefetch
             }
 
-            int ruleId = touchedRules.getInt(i);
+            int ruleId = uniqueTouchedRules.getInt(i);
             if (counters[ruleId] >= needs[ruleId]) {
-                String ruleCode = model.getCombinationRuleCode(ruleId);
-                int priority = model.getCombinationPriority(ruleId);
-                String description = "";
+                // Debug: log what's matching
+                System.err.printf("[RuleEvaluator] Match detected: ruleId=%d, counter=%d, needs=%d, predicates=%s%n",
+                        ruleId, counters[ruleId], needs[ruleId], model.getCombinationPredicateIds(ruleId));
 
-                ctx.addMatchedRule(ruleId, ruleCode, priority, description);
+                // FIX: Get ALL rule codes associated with this combination
+                List<String> ruleCodes = model.getCombinationRuleCodes(ruleId);
+                List<Integer> priorities = model.getCombinationPrioritiesAll(ruleId);
+
+                // Add all associated rules
+                for (int j = 0; j < ruleCodes.size(); j++) {
+                    String ruleCode = ruleCodes.get(j);
+                    int priority = priorities.get(j);
+                    String description = "";
+
+                    ctx.addMatchedRule(ruleId, ruleCode, priority, description);
+                }
             }
         }
     }

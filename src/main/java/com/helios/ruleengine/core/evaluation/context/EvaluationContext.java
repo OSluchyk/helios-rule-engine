@@ -1,7 +1,5 @@
 package com.helios.ruleengine.core.evaluation.context;
 
-import it.unimi.dsi.fastutil.ints.IntArrayList;
-import it.unimi.dsi.fastutil.ints.IntList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
 
@@ -20,6 +18,7 @@ import java.util.List;
  * - Pre-sized collections to minimize resizing
  * - Direct field access for hot paths (counters, touchedRules)
  *
+ * FIX: touchedRules is now IntSet for automatic deduplication
  */
 public final class EvaluationContext {
 
@@ -27,7 +26,8 @@ public final class EvaluationContext {
     private final IntSet truePredicates;
 
     // Rule matching state
-    public final IntList touchedRules;  // Public for hot-path access
+    // FIX: Changed from IntList to IntSet to automatically deduplicate
+    private final IntSet touchedRules;
     public final int[] counters;         // Public for hot-path access
 
     // Matched rules tracking (mutable during evaluation)
@@ -38,7 +38,7 @@ public final class EvaluationContext {
 
     public EvaluationContext(int estimatedTouchedRules) {
         this.truePredicates = new IntOpenHashSet(256);
-        this.touchedRules = new IntArrayList(estimatedTouchedRules);
+        this.touchedRules = new IntOpenHashSet(estimatedTouchedRules); // FIX: Now a Set
         this.counters = new int[10000]; // Adjust based on max rules
         this.matchedRules = new ArrayList<>(32); // Pre-size for typical match count
         this.predicatesEvaluatedCount = 0;
@@ -72,17 +72,19 @@ public final class EvaluationContext {
 
     /**
      * Record that a rule was touched (had at least one predicate evaluated).
+     *
+     * FIX: Now automatically deduplicates using IntSet.
      */
     public void addTouchedRule(int ruleId) {
-        // Note: touchedRules is IntArrayList, so we can just add
-        // Duplicates are acceptable here as they'll be filtered during matching
         touchedRules.add(ruleId);
     }
 
     /**
      * Get all rules that were touched.
+     *
+     * FIX: Returns IntSet instead of IntList for proper deduplication.
      */
-    public IntList getTouchedRules() {
+    public IntSet getTouchedRules() {
         return touchedRules;
     }
 
