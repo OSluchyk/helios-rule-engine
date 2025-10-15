@@ -47,23 +47,23 @@ class RuleCompilerTest {
     @DisplayName("Should expand and deduplicate rules correctly")
     void testDeduplication() throws Exception {
         String rulesJson = """
-        [
-            {
-                "rule_code": "RULE_A",
-                "conditions": [
-                    {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"},
-                    {"field": "country", "operator": "IS_ANY_OF", "value": ["US", "CA"]}
+                [
+                    {
+                        "rule_code": "RULE_A",
+                        "conditions": [
+                            {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"},
+                            {"field": "country", "operator": "IS_ANY_OF", "value": ["US", "CA"]}
+                        ]
+                    },
+                    {
+                        "rule_code": "RULE_B",
+                        "conditions": [
+                            {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"},
+                            {"field": "country", "operator": "IS_ANY_OF", "value": ["US", "UK"]}
+                        ]
+                    }
                 ]
-            },
-            {
-                "rule_code": "RULE_B",
-                "conditions": [
-                    {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"},
-                    {"field": "country", "operator": "IS_ANY_OF", "value": ["US", "UK"]}
-                ]
-            }
-        ]
-        """;
+                """;
         Path rulesFile = writeRules(rulesJson);
         EngineModel model = compiler.compile(rulesFile);
 
@@ -111,16 +111,16 @@ class RuleCompilerTest {
     void shouldSortPredicatesByWeight() throws Exception {
         // Given rules with varying selectivity
         String rulesJson = """
-        [
-          {"rule_code": "R1", "conditions": [{"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"}]},
-          {"rule_code": "R2", "conditions": [{"field": "status", "operator": "EQUAL_TO", "value": "INACTIVE"}]},
-          {"rule_code": "R3", "conditions": [
-            {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"},
-            {"field": "amount", "operator": "GREATER_THAN", "value": 1000},
-            {"field": "notes", "operator": "REGEX", "value": ".*urgent.*"}
-          ]}
-        ]
-        """;
+                [
+                  {"rule_code": "R1", "conditions": [{"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"}]},
+                  {"rule_code": "R2", "conditions": [{"field": "status", "operator": "EQUAL_TO", "value": "INACTIVE"}]},
+                  {"rule_code": "R3", "conditions": [
+                    {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"},
+                    {"field": "amount", "operator": "GREATER_THAN", "value": 1000},
+                    {"field": "notes", "operator": "REGEX", "value": ".*urgent.*"}
+                  ]}
+                ]
+                """;
         Path rulesFile = writeRules(rulesJson);
 
         // When
@@ -135,15 +135,25 @@ class RuleCompilerTest {
                 p.weight(), p.selectivity(), model.getFieldDictionary().decode(p.fieldId()), p.operator(), p.value()
         ));
 
-        // The REGEX predicate should be first (lowest weight because lowest selectivity)
-        assertThat(sortedPredicates.get(0).operator()).isEqualTo(Predicate.Operator.REGEX);
-        // The GREATER_THAN predicate should be next
-        assertThat(sortedPredicates.get(1).operator()).isEqualTo(Predicate.Operator.GREATER_THAN);
-        // The EQUAL_TO predicates are last
-        assertThat(sortedPredicates.get(2).operator()).isEqualTo(Predicate.Operator.EQUAL_TO);
-        assertThat(sortedPredicates.get(3).operator()).isEqualTo(Predicate.Operator.EQUAL_TO);
+        // FIX: Predicates are sorted by ASCENDING weight (cheapest first)
+        // Lower weight = cheaper to evaluate = should be evaluated first
 
-        // Verify weights are in ascending order
+        // The EQUAL_TO predicates should be first (lowest weight ~0.90)
+        assertThat(sortedPredicates.get(0).operator()).isEqualTo(Predicate.Operator.EQUAL_TO);
+        assertThat(sortedPredicates.get(1).operator()).isEqualTo(Predicate.Operator.EQUAL_TO);
+
+        // The GREATER_THAN predicate should be in the middle (moderate weight ~1.35)
+        assertThat(sortedPredicates.get(2).operator()).isEqualTo(Predicate.Operator.GREATER_THAN);
+
+        // The REGEX predicate should be last (highest weight ~8.33)
+        assertThat(sortedPredicates.get(3).operator()).isEqualTo(Predicate.Operator.REGEX);
+
+        // Verify weights are in ascending order (cheapest to most expensive)
         assertThat(sortedPredicates).isSortedAccordingTo(Comparator.comparing(Predicate::weight));
+
+        // Additional validation: confirm weight ordering makes sense
+        float firstWeight = sortedPredicates.get(0).weight();
+        float lastWeight = sortedPredicates.get(sortedPredicates.size() - 1).weight();
+        assertThat(firstWeight).isLessThan(lastWeight);
     }
 }
