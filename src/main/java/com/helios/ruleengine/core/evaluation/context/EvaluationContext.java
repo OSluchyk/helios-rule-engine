@@ -19,6 +19,7 @@ import java.util.List;
  * - Direct field access for hot paths (counters, touchedRules)
  *
  * FIX: touchedRules is now IntSet for automatic deduplication
+ * FIX: predicatesEvaluated public field now synchronized with internal counter
  */
 public final class EvaluationContext {
 
@@ -47,6 +48,8 @@ public final class EvaluationContext {
     /**
      * Reset context for reuse (object pooling).
      * Called at the start of each evaluation.
+     *
+     * FIX: Now also resets the public predicatesEvaluated field
      */
     public void reset() {
         truePredicates.clear();
@@ -54,6 +57,7 @@ public final class EvaluationContext {
         Arrays.fill(counters, 0);
         matchedRules.clear();
         predicatesEvaluatedCount = 0;
+        predicatesEvaluated = 0;  // FIX: Synchronize public field
     }
 
     /**
@@ -111,16 +115,22 @@ public final class EvaluationContext {
 
     /**
      * Increment predicates evaluated count.
+     *
+     * FIX: Now also increments the public predicatesEvaluated field
      */
     public void incrementPredicatesEvaluatedCount() {
         predicatesEvaluatedCount++;
+        predicatesEvaluated++;  // FIX: Synchronize public field
     }
 
     /**
      * Add to predicates evaluated count (for batch operations).
+     *
+     * FIX: Now also updates the public predicatesEvaluated field
      */
     public void addPredicatesEvaluated(int count) {
         predicatesEvaluatedCount += count;
+        predicatesEvaluated += count;  // FIX: Synchronize public field
     }
 
     /**
@@ -136,8 +146,11 @@ public final class EvaluationContext {
     /**
      * Direct field access for performance-critical code.
      * Use this when avoiding method call overhead matters.
+     *
+     * FIX: This field is now properly synchronized with predicatesEvaluatedCount
+     * in all increment and reset operations.
      */
-    public int predicatesEvaluated = 0;  // Compatibility field that shadows the method
+    public int predicatesEvaluated = 0;  // Now synchronized with internal counter
 
     /**
      * Add a matched rule to the results.

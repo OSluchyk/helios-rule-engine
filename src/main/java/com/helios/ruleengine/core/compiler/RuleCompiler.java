@@ -159,7 +159,17 @@ public class RuleCompiler implements IRuleCompiler {
         }
     }
 
-    // Helper method to check for contradictions
+    /**
+     * Check for contradictory conditions in a rule.
+     *
+     * FIX: Now includes numeric range contradiction detection
+     *
+     * Detects:
+     * 1. Multiple different EQUAL_TO values on same field
+     * 2. IS_ANY_OF operators with no overlap on same field
+     * 3. BETWEEN with inverted range [max, min]
+     * 4. Numeric range contradictions (e.g., x > 1000 AND x < 500)
+     */
     private boolean hasContradictoryConditions(List<RuleDefinition.Condition> conditions) {
         Map<String, List<RuleDefinition.Condition>> byField = conditions.stream()
                 .collect(Collectors.groupingBy(RuleDefinition.Condition::field));
@@ -207,11 +217,59 @@ public class RuleCompiler implements IRuleCompiler {
                     }
                 }
             }
+
+            // FIX: Check numeric range contradictions
+            // Track the tightest bounds for each direction
+            Double minGT = null;   // Minimum value from GREATER_THAN (>)
+            Double minGTE = null;  // Minimum value from GREATER_THAN_OR_EQUAL (≥)
+            Double maxLT = null;   // Maximum value from LESS_THAN (<)
+            Double maxLTE = null;  // Maximum value from LESS_THAN_OR_EQUAL (≤)
+
+            for (RuleDefinition.Condition cond : fieldConds) {
+                if (!(cond.value() instanceof Number)) continue;
+                double val = ((Number) cond.value()).doubleValue();
+
+                String operator = cond.operator().toUpperCase();
+                switch (operator) {
+                    case "GREATER_THAN":
+                        minGT = (minGT == null) ? val : Math.max(minGT, val);
+                        break;
+                    case "GREATER_THAN_OR_EQUAL":
+                        minGTE = (minGTE == null) ? val : Math.max(minGTE, val);
+                        break;
+                    case "LESS_THAN":
+                        maxLT = (maxLT == null) ? val : Math.min(maxLT, val);
+                        break;
+                    case "LESS_THAN_OR_EQUAL":
+                        maxLTE = (maxLTE == null) ? val : Math.min(maxLTE, val);
+                        break;
+                }
+            }
+
+            // Detect impossible ranges
+            // x > a AND x < b is impossible if a >= b
+            if (minGT != null && maxLT != null && minGT >= maxLT) {
+                return true;
+            }
+
+            // x > a AND x <= b is impossible if a >= b
+            if (minGT != null && maxLTE != null && minGT >= maxLTE) {
+                return true;
+            }
+
+            // x >= a AND x < b is impossible if a >= b
+            if (minGTE != null && maxLT != null && minGTE >= maxLT) {
+                return true;
+            }
+
+            // x >= a AND x <= b is impossible if a > b
+            if (minGTE != null && maxLTE != null && minGTE > maxLTE) {
+                return true;
+            }
         }
 
         return false;
     }
-
 
     private List<List<Predicate>> generatePredicateCombinations(RuleDefinition def,
                                                                 SelectivityProfile profile,
