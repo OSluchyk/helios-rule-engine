@@ -2,6 +2,8 @@ package com.helios.ruleengine.core.model;
 
 import com.helios.ruleengine.model.Predicate;
 import com.helios.ruleengine.model.RuleDefinition;
+import it.unimi.dsi.fastutil.floats.Float2FloatMap;
+import it.unimi.dsi.fastutil.floats.Float2FloatOpenHashMap;
 import it.unimi.dsi.fastutil.ints.*;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
@@ -13,9 +15,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * P4-A FIX: The core data model for the rule engine, now optimized with a
- * Structure of Arrays (SoA) layout. This version has been corrected to resolve
- * all compilation errors and ensure full compatibility with the existing codebase.
+ * P4-A FIX + DEDUPLICATION FIX: The core data model for the rule engine.
+ *
+ * CRITICAL FIXES:
+ * - Support multiple rule codes per combination (1:N mapping)
+ * - Preserve all logical rule associations after IS_ANY_OF expansion
+ * - Enable proper deduplication without losing rule metadata
  */
 public final class EngineModel {
 
@@ -40,6 +45,10 @@ public final class EngineModel {
     private final String[] ruleCodes;
     private final IntList[] combinationToPredicateIds;
 
+    // --- NEW: Multiple rule codes per combination ---
+    private final List<String>[] combinationRuleCodes;
+    private final List<Integer>[] combinationPriorities;
+
     private EngineModel(Builder builder) {
         this.fieldDictionary = builder.fieldDictionary;
         this.valueDictionary = builder.valueDictionary;
@@ -58,6 +67,8 @@ public final class EngineModel {
         this.priorities = builder.priorities;
         this.ruleCodes = builder.ruleCodes;
         this.combinationToPredicateIds = builder.combinationToPredicateIds;
+        this.combinationRuleCodes = builder.combinationRuleCodes;
+        this.combinationPriorities = builder.combinationPriorities;
     }
 
     // --- Public Accessors (Preserved for Compatibility) ---
@@ -73,7 +84,8 @@ public final class EngineModel {
     public SelectionStrategy getSelectionStrategy() { return selectionStrategy; }
     public RuleDefinition[] getRuleDefinitions() { return ruleDefinitions; }
     public Int2IntMap getFamilyPriorities() { return familyPriorities; }
-    public Predicate getPredicate(int id) { return (id >= 0 && id < uniquePredicates.length) ? uniquePredicates[id] : null; }
+    public Predicate getPredicate(int id) { return (id >= 0 && id < uniquePredicates.length) ?
+            uniquePredicates[id] : null; }
     public int getPredicateId(Predicate p) { return predicateRegistry.getInt(p); }
     public Int2ObjectMap<List<Predicate>> getFieldToPredicates() { return fieldToPredicates; }
 
@@ -83,13 +95,34 @@ public final class EngineModel {
     public int[] getPredicateCounts() { return predicateCounts; }
     public int[] getPriorities() { return priorities; }
     public IntList getCombinationPredicateIds(int combinationId) { return combinationToPredicateIds[combinationId]; }
+
+    // Backward compatible - returns first rule code
     public String getCombinationRuleCode(int combinationId) { return ruleCodes[combinationId]; }
     public int getCombinationPriority(int combinationId) { return priorities[combinationId]; }
     public int getCombinationPredicateCount(int combinationId) { return predicateCounts[combinationId]; }
 
+    // NEW: Get all rule codes for a combination (for proper deduplication handling)
+    public List<String> getCombinationRuleCodes(int combinationId) {
+        if (combinationRuleCodes != null && combinationId < combinationRuleCodes.length
+                && combinationRuleCodes[combinationId] != null) {
+            return combinationRuleCodes[combinationId];
+        }
+        return List.of(ruleCodes[combinationId]);
+    }
 
-// Location: src/main/java/com/helios/ruleengine/core/model/EngineModel.java
-// CRITICAL FIX: Call buildInvertedIndex() before building the model
+    public List<Integer> getCombinationPrioritiesAll(int combinationId) {
+        if (combinationPriorities != null && combinationId < combinationPriorities.length
+                && combinationPriorities[combinationId] != null) {
+            return combinationPriorities[combinationId];
+        }
+        return List.of(priorities[combinationId]);
+    }
+
+    // NEW: Get the predicate IDs for this combination (for validation)
+    public IntList getCombinationPredicateIdsForValidation(int combinationId) {
+        return combinationToPredicateIds[combinationId];
+    }
+
     public static class Builder {
         Dictionary fieldDictionary;
         Dictionary valueDictionary;
@@ -113,6 +146,13 @@ public final class EngineModel {
         String[] ruleCodes;
         IntList[] combinationToPredicateIds;
 
+        // NEW: Store ALL rule codes and their predicates per combination
+        List<String>[] combinationRuleCodes;
+        List<Integer>[] combinationPriorities;
+        // NEW: Track which predicates each rule-combination pair has
+        Map<String, IntSet>[] combinationRulePredicates;
+
+        @SuppressWarnings("unchecked")
         public Builder() {
             combinationToIdMap.defaultReturnValue(-1);
         }
@@ -136,38 +176,49 @@ public final class EngineModel {
             return combinationId;
         }
 
-        /**
-         * Maps a logical rule's metadata to a specific combination ID.
-         *
-         * This is called during compilation to associate each expanded rule combination
-         * with its source rule's metadata (code, priority, description). This metadata
-         * is later used to populate the SoA arrays during finalization.
-         *
-         * CRITICAL: The ruleDefinitions array is lazily initialized on first call to
-         * accommodate the dynamic nature of combination registration.
-         *
-         * @param ruleCode The unique identifier for the logical rule
-         * @param priority The execution priority of the rule
-         * @param description Human-readable description
-         * @param combinationId The ID of the expanded combination
-         */
+        @SuppressWarnings("unchecked")
         public void addLogicalRuleMapping(String ruleCode, Integer priority, String description, int combinationId) {
-            // Lazy initialization: allocate array based on current size
-            // This MUST happen before we try to populate entries
+            // Restore multi-rule tracking
+            if (combinationRuleCodes == null) {
+                int initialSize = Math.max(100, combinationToIdMap.size() + 50);
+                combinationRuleCodes = (List<String>[]) new List<?>[initialSize];
+                combinationPriorities = (List<Integer>[]) new List<?>[initialSize];
+            }
+
+            if (combinationId >= combinationRuleCodes.length) {
+                int newSize = combinationId + 50;
+                List<String>[] expandedCodes = (List<String>[]) new List<?>[newSize];
+                List<Integer>[] expandedPriorities = (List<Integer>[]) new List<?>[newSize];
+                System.arraycopy(combinationRuleCodes, 0, expandedCodes, 0, combinationRuleCodes.length);
+                System.arraycopy(combinationPriorities, 0, expandedPriorities, 0, combinationPriorities.length);
+                combinationRuleCodes = expandedCodes;
+                combinationPriorities = expandedPriorities;
+            }
+
+            if (combinationRuleCodes[combinationId] == null) {
+                combinationRuleCodes[combinationId] = new ArrayList<>();
+                combinationPriorities[combinationId] = new ArrayList<>();
+            }
+
+            // Add if not already present
+            List<String> codes = combinationRuleCodes[combinationId];
+            if (!codes.contains(ruleCode)) {
+                codes.add(ruleCode);
+                combinationPriorities[combinationId].add(priority != null ? priority : 0);
+            }
+
+            // Backward compatibility
             if (ruleDefinitions == null) {
-                // Allocate with some headroom for additional combinations
                 int initialSize = Math.max(100, combinationToIdMap.size() + 50);
                 ruleDefinitions = new RuleDefinition[initialSize];
             }
 
-            // Expand array if necessary (rare, but handles edge cases)
             if (combinationId >= ruleDefinitions.length) {
                 RuleDefinition[] expanded = new RuleDefinition[combinationId + 50];
                 System.arraycopy(ruleDefinitions, 0, expanded, 0, ruleDefinitions.length);
                 ruleDefinitions = expanded;
             }
 
-            // Only set if not already populated (avoid overwriting)
             if (ruleDefinitions[combinationId] == null) {
                 ruleDefinitions[combinationId] = new RuleDefinition(
                         ruleCode,
@@ -181,21 +232,6 @@ public final class EngineModel {
 
         /**
          * Builds the inverted index: predicateId → RoaringBitmap of rule combination IDs.
-         *
-         * This is CRITICAL for runtime performance. The inverted index enables O(1) lookup
-         * of all rules affected by a predicate evaluating to true, which is the foundation
-         * of the counter-based evaluation algorithm.
-         *
-         * Without this index:
-         * - updateCountersOptimized() cannot find affected rules
-         * - Counters never get incremented
-         * - No rules ever match
-         * - All evaluations return empty results
-         *
-         * Performance characteristics:
-         * - Build time: O(C × P) where C = combinations, P = avg predicates per combination
-         * - Space: O(P × R) where P = unique predicates, R = avg rules per predicate
-         * - Lookup time: O(1) per predicate during evaluation
          */
         public void buildInvertedIndex() {
             for (Object2IntMap.Entry<IntList> entry : combinationToIdMap.object2IntEntrySet()) {
@@ -221,19 +257,8 @@ public final class EngineModel {
 
         /**
          * Finalizes the Structure-of-Arrays (SoA) layout for cache-optimal runtime performance.
-         *
-         * SoA Layout Benefits:
-         * - 16× cache line density vs Array-of-Structures (AoS)
-         * - ~95% reduction in memory bandwidth waste
-         * - Triggers CPU hardware prefetcher
-         * - L1/L2 hit rate: ~60% → ~98%
-         *
-         * The hot data (predicateCounts, priorities) is stored in contiguous arrays,
-         * maximizing spatial locality and enabling vectorized operations.
-         *
-         * CRITICAL FIX: Ensures ruleDefinitions array is properly sized and populated
-         * before extracting metadata into SoA arrays.
          */
+        @SuppressWarnings("unchecked")
         private void finalizeSoAStructures() {
             int numUniqueCombinations = getUniqueCombinationCount();
 
@@ -243,36 +268,27 @@ public final class EngineModel {
             ruleCodes = new String[numUniqueCombinations];
             combinationToPredicateIds = new IntList[numUniqueCombinations];
 
-            // Ensure ruleDefinitions is properly sized
-            // This handles cases where it was lazily initialized with a larger size
-            if (ruleDefinitions != null && ruleDefinitions.length != numUniqueCombinations) {
-                RuleDefinition[] resized = new RuleDefinition[numUniqueCombinations];
-                System.arraycopy(ruleDefinitions, 0, resized, 0,
-                        Math.min(ruleDefinitions.length, numUniqueCombinations));
-                ruleDefinitions = resized;
-            }
-
-            // Populate SoA arrays from combination mappings and rule definitions
+            // Populate SoA arrays from combination mappings
             for (int i = 0; i < numUniqueCombinations; i++) {
-                // Populate predicate data (always present)
+                // Populate predicate data
                 IntList pIds = idToCombinationMap.get(i);
                 if (pIds != null) {
                     predicateCounts[i] = pIds.size();
                     combinationToPredicateIds[i] = pIds;
                 } else {
-                    // Defensive: should never happen, but handle gracefully
                     predicateCounts[i] = 0;
                     combinationToPredicateIds[i] = new IntArrayList();
                 }
 
-                // Populate rule metadata (code, priority)
-                // FIXED: Now properly handles null checks and provides defaults
-                if (ruleDefinitions != null && i < ruleDefinitions.length && ruleDefinitions[i] != null) {
+                // Populate rule metadata - use first rule for backward compatibility
+                if (combinationRuleCodes != null && i < combinationRuleCodes.length &&
+                        combinationRuleCodes[i] != null && !combinationRuleCodes[i].isEmpty()) {
+                    ruleCodes[i] = combinationRuleCodes[i].get(0);
+                    priorities[i] = combinationPriorities[i].get(0);
+                } else if (ruleDefinitions != null && i < ruleDefinitions.length && ruleDefinitions[i] != null) {
                     priorities[i] = ruleDefinitions[i].priority();
                     ruleCodes[i] = ruleDefinitions[i].ruleCode();
                 } else {
-                    // Defensive defaults if metadata is missing
-                    // This shouldn't happen in normal operation, but prevents NPEs
                     priorities[i] = 0;
                     ruleCodes[i] = "UNKNOWN_RULE_" + i;
                 }
@@ -305,29 +321,12 @@ public final class EngineModel {
 
         /**
          * Builds the final EngineModel with all optimizations applied.
-         *
-         * Build pipeline:
-         * 1. Finalize SoA structures (cache-optimal layout)
-         * 2. Build inverted index (predicate → rules mapping) ← CRITICAL FIX
-         * 3. Validate model integrity
-         * 4. Construct immutable EngineModel
-         *
-         * The order matters! The inverted index MUST be built after all combinations
-         * are registered but BEFORE the model is constructed, as it's passed to the
-         * EngineModel constructor and must be complete.
-         *
-         * @return Fully initialized, ready-to-use EngineModel
-         * @throws IllegalStateException if model is in an invalid state
          */
         public EngineModel build() {
             // Phase 1: Finalize Structure-of-Arrays layout
             finalizeSoAStructures();
 
             // Phase 2: Build inverted index (CRITICAL - was missing!)
-            // This MUST happen before construction because:
-            // 1. All combinations must be registered first (done in finalizeSoAStructures)
-            // 2. The invertedIndex is passed to EngineModel constructor
-            // 3. Without this, no rules ever match during evaluation
             buildInvertedIndex();
 
             // Phase 3: Validate model integrity
@@ -339,16 +338,6 @@ public final class EngineModel {
 
         /**
          * Validates the model for common integrity issues.
-         *
-         * This defensive check catches configuration errors early with clear error
-         * messages, preventing silent failures at runtime.
-         *
-         * Validation checks:
-         * - Inverted index is populated for non-empty models
-         * - Rule metadata (codes, priorities) is present
-         * - SoA arrays are properly sized
-         *
-         * @throws IllegalStateException if validation fails
          */
         private void validate() {
             int numCombinations = getUniqueCombinationCount();
@@ -375,18 +364,9 @@ public final class EngineModel {
                                 ", got " + priorities.length
                 );
             }
-
-            // Check 3: Warn if rule metadata is missing (non-fatal)
-            if (numCombinations > 0 && ruleDefinitions == null) {
-                // This is a warning, not an error, as we provide defaults
-                // But it indicates something went wrong in the compilation process
-                System.err.println(
-                        "WARNING: ruleDefinitions is null for model with " + numCombinations +
-                                " combinations. Rule codes will default to 'UNKNOWN_RULE_X'."
-                );
-            }
         }
     }
+
     public record EngineStats(
             int totalRules,
             int totalPredicates,
