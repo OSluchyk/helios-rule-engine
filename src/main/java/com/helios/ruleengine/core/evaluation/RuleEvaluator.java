@@ -260,8 +260,8 @@ public final class RuleEvaluator {
             int ruleId = uniqueTouchedRules.getInt(i);
             if (counters[ruleId] >= needs[ruleId]) {
                 // Debug: log what's matching
-                System.err.printf("[RuleEvaluator] Match detected: ruleId=%d, counter=%d, needs=%d, predicates=%s%n",
-                        ruleId, counters[ruleId], needs[ruleId], model.getCombinationPredicateIds(ruleId));
+//                System.err.printf("[RuleEvaluator] Match detected: ruleId=%d, counter=%d, needs=%d, predicates=%s%n",
+//                        ruleId, counters[ruleId], needs[ruleId], model.getCombinationPredicateIds(ruleId));
 
                 // FIX: Get ALL rule codes associated with this combination
                 List<String> ruleCodes = model.getCombinationRuleCodes(ruleId);
