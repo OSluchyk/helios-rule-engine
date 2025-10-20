@@ -189,11 +189,12 @@ class RuleEvaluatorTest {
         List<SpanData> spans = spanExporter.getFinishedSpanItems();
         assertFalse(spans.isEmpty());
 
-        // Check for the parent evaluation span
-        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("rule-evaluation")),
-                "Should have 'rule-evaluation' span");
+        // FIX: Updated span name to match the actual implementation
+        // The RuleEvaluator creates "evaluate-event" span, not "rule-evaluation"
+        assertTrue(spans.stream().anyMatch(s -> s.getName().equals("evaluate-event")),
+                "Should have 'evaluate-event' span");
 
-        // FIX: Update span name to match the new hybrid evaluation method
+        // Check for child spans created during evaluation
         assertTrue(spans.stream().anyMatch(s -> s.getName().equals("evaluate-predicates-hybrid")),
                 "Should have 'evaluate-predicates-hybrid' span");
         assertTrue(spans.stream().anyMatch(s -> s.getName().equals("update-counters-optimized")),
@@ -203,14 +204,19 @@ class RuleEvaluatorTest {
 
         // Check for attributes in the main span
         SpanData mainSpan = spans.stream()
-                .filter(s -> s.getName().equals("rule-evaluation"))
+                .filter(s -> s.getName().equals("evaluate-event"))  // FIX: Updated from "rule-evaluation"
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("No rule-evaluation span found"));
+                .orElseThrow(() -> new AssertionError("No evaluate-event span found"));
 
+        // Verify span attributes
         assertTrue((Long) mainSpan.getAttributes().asMap().get(AttributeKey.longKey("predicatesEvaluated")) > 0,
                 "Should have evaluated some predicates");
         assertTrue((Long) mainSpan.getAttributes().asMap().get(AttributeKey.longKey("rulesEvaluated")) > 0,
                 "Should have evaluated some rules");
+
+        // Verify event attributes are present
+        assertEquals("evt-5", mainSpan.getAttributes().asMap().get(AttributeKey.stringKey("eventId")));
+        assertEquals("TRANSACTION", mainSpan.getAttributes().asMap().get(AttributeKey.stringKey("eventType")));
     }
 
     @Test
