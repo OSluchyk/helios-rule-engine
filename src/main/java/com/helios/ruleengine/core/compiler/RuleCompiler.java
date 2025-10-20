@@ -114,14 +114,17 @@ public class RuleCompiler implements IRuleCompiler {
                     Predicate.Operator op = Predicate.Operator.fromString(cond.operator());
                     if (op == null) continue;
 
-                    if (op == Predicate.Operator.EQUAL_TO || op == Predicate.Operator.IS_ANY_OF) {
-                        if (cond.value() instanceof List) {
-                            ((List<?>) cond.value()).forEach(v -> {
-                                if (v != null) valueDictionary.encode(String.valueOf(v));
-                            });
-                        } else if (cond.value() != null) {
-                            valueDictionary.encode(String.valueOf(cond.value()));
-                        }
+                    // FIX P3: Encode ALL string values, not just EQUAL_TO/IS_ANY_OF
+                    if (cond.value() instanceof List) {
+                        // Handle list values (IS_ANY_OF, BETWEEN, etc.)
+                        ((List<?>) cond.value()).forEach(v -> {
+                            if (v instanceof String) {
+                                valueDictionary.encode((String) v);
+                            }
+                        });
+                    } else if (cond.value() instanceof String) {
+                        // Encode ALL string values
+                        valueDictionary.encode((String) cond.value());
                     }
                 }
             }
