@@ -293,7 +293,16 @@ public final class RuleEvaluator {
 
         switch (strategy) {
             case ALL_MATCHES:
-                return;
+                // FIX P1: Deduplicate by rule code to avoid duplicates
+                // when same rule appears in multiple combinations
+                Map<String, EvaluationContext.MutableMatchedRule> uniqueMatches = new LinkedHashMap<>();
+                for (EvaluationContext.MutableMatchedRule match : matches) {
+                    // Keep first occurrence of each rule code
+                    uniqueMatches.putIfAbsent(match.getRuleCode(), match);
+                }
+                matches.clear();
+                matches.addAll(uniqueMatches.values());
+                break;
 
             case MAX_PRIORITY_PER_FAMILY:
                 Map<String, EvaluationContext.MutableMatchedRule> familyWinners = new HashMap<>();

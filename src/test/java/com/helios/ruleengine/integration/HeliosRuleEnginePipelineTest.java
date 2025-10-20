@@ -588,8 +588,8 @@ class HeliosRuleEnginePipelineTest {
     ]}]
     """;
         Files.writeString(rulesFile, newRules);
-        System.out.println("Waiting for rule reload...");
-        Thread.sleep(12000);  // Wait for file watcher
+//        System.out.println("Waiting for rule reload...");
+//        Thread.sleep(12000);  // Wait for file watcher
 
         // CRITICAL FIX: Create NEW evaluator with NEW model
         EngineModel model2 = ruleCompiler.compile(rulesFile);
@@ -599,7 +599,12 @@ class HeliosRuleEnginePipelineTest {
         MatchResult result2 = evaluator2.evaluate(event);
         assertThat(result2.matchedRules())
                 .as("After reload, old rules should not match")
-                .hasSize(0);
+                .isEmpty();
+        // Verify the new rule works correctly
+        Event newEvent = new Event("evt-test-2", "TEST", Map.of("status", "INACTIVE"));
+        MatchResult result3 = evaluator2.evaluate(newEvent);
+        assertThat(result3.matchedRules()).hasSize(1);
+        assertThat(result3.matchedRules().get(0).ruleCode()).isEqualTo("R2");
     }
 
 
