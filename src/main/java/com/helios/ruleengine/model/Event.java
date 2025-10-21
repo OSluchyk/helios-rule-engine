@@ -13,8 +13,8 @@ import java.util.*;
 /**
  * Represents an event to be evaluated against rules.
  *
- * FIX: Removed encoded attributes caching to prevent stale cache issues
- * when the same Event object is reused with different EngineModel instances.
+ * FIX: Removed encoded attributes caching to prevent stale cache issues.
+ * FIX: Kept flattened attributes caching for performance (it's safe since it doesn't depend on external state).
  * FIX: String values are uppercased for case-insensitive matching.
  */
 public record Event(
@@ -23,6 +23,10 @@ public record Event(
         Map<String, Object> attributes
 ) {
     private static final Map<String, Object> EMPTY_MAP = Collections.emptyMap();
+
+    // FIX: Cache flattened attributes (safe - no external dependencies)
+    private static final ThreadLocal<Map<Event, Map<String, Object>>> FLATTENED_CACHE =
+            ThreadLocal.withInitial(() -> new WeakHashMap<>());
 
     public Event {
         if (eventId == null || eventId.isBlank()) {
@@ -56,16 +60,26 @@ public record Event(
      * Returns a flattened view of nested attributes with normalized keys.
      * Keys are UPPER_SNAKE_CASE with nested keys joined by dots.
      *
-     * FIX: No longer cached to prevent issues when used with different models.
+     * FIX: Now cached per-event for performance, but safe since it doesn't depend on external state.
      */
     public Map<String, Object> getFlattenedAttributes() {
-        return flattenMap(attributes);
+        Map<Event, Map<String, Object>> cache = FLATTENED_CACHE.get();
+        Map<String, Object> cached = cache.get(this);
+        if (cached != null) {
+            return cached;
+        }
+
+        Map<String, Object> flattened = flattenMap(attributes);
+        cache.put(this, flattened);
+        return flattened;
     }
 
     /**
      * Encodes event attributes using provided dictionaries.
      *
-     * FIX: No longer cached. String values are uppercased for case-insensitive matching.
+     * FIX: NO caching - always recomputes to ensure correct behavior
+     * when used with different EngineModel instances (different dictionaries).
+     * String values are uppercased for case-insensitive matching.
      */
     public Int2ObjectMap<Object> getEncodedAttributes(Dictionary fieldDictionary, Dictionary valueDictionary) {
         Map<String, Object> flattened = getFlattenedAttributes();
