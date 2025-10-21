@@ -298,8 +298,10 @@ public class RuleCompiler implements IRuleCompiler {
             Predicate.Operator operator = Predicate.Operator.fromString(cond.operator());
             if (operator == null) continue;
 
-            float selectivity = profile.calculateSelectivity(fieldId, operator, cond.value());
-            float weight = (1.0f - selectivity) * profile.getCost(operator);
+            // FIX: Use canonical weight/selectivity (0) for predicate registration
+            // Weight is only metadata and shouldn't affect predicate identity
+            float weight = 0.0f;
+            float selectivity = 0.5f;
 
             if (operator == Predicate.Operator.IS_ANY_OF && cond.value() instanceof List) {
                 List<?> values = (List<?>) cond.value();
@@ -308,6 +310,7 @@ public class RuleCompiler implements IRuleCompiler {
                     // FIX: Uppercase string value before lookup
                     String stringValue = String.valueOf(v).toUpperCase();
                     int valueId = valueDictionary.getId(stringValue);
+                    // FIX: Use canonical weight/selectivity for proper deduplication
                     expanded.add(new Predicate(fieldId, Predicate.Operator.EQUAL_TO, valueId, null, weight, selectivity));
                 }
                 expandablePredicates.add(expanded);
@@ -323,6 +326,7 @@ public class RuleCompiler implements IRuleCompiler {
 
                 Pattern pattern = (operator == Predicate.Operator.REGEX && cond.value() instanceof String)
                         ? Pattern.compile((String) cond.value()) : null;
+                // FIX: Use canonical weight/selectivity for proper deduplication
                 staticPredicates.add(new Predicate(fieldId, operator, predicateValue, pattern, weight, selectivity));
             }
         }
