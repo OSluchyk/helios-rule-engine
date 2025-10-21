@@ -8,6 +8,9 @@ import java.util.stream.Collectors;
 /**
  * Optimizes rules by factoring out common IS_ANY_OF conditions.
  * This is the #1 optimization for reducing memory usage by 70-90%.
+ *
+ * FIX: Only factors when IS_ANY_OF values are IDENTICAL across rules.
+ * Does NOT merge different IS_ANY_OF values as that changes rule semantics.
  */
 public class SmartIsAnyOfFactorizer {
 
@@ -43,20 +46,15 @@ public class SmartIsAnyOfFactorizer {
                 continue;
             }
 
-            // Combine the values from the IS_ANY_OF conditions into a single list.
-            Set<Object> combinedValues = new HashSet<>();
-            for (RuleDefinition rule : group) {
-                for (RuleDefinition.Condition cond : rule.conditions()) {
-                    if (cond.field() != null && cond.field().equals(fieldToFactor) &&
-                            cond.operator() != null && "IS_ANY_OF".equalsIgnoreCase(cond.operator())) {
-                        if (cond.value() instanceof List) {
-                            combinedValues.addAll((List<?>) cond.value());
-                        } else if (cond.value() != null) {
-                            combinedValues.add(cond.value());
-                        }
-                    }
-                }
+            // FIX: Check if all rules have IDENTICAL IS_ANY_OF values for this field
+            // If not, skip factoring for this group
+            if (!hasIdenticalIsAnyOfValues(group, fieldToFactor)) {
+                optimizedRules.addAll(group);
+                continue;
             }
+
+            // All rules have identical IS_ANY_OF values - safe to factor
+            Set<Object> sharedValues = getIsAnyOfValues(group.get(0), fieldToFactor);
 
             // Create the new, shared set of conditions for this group.
             List<RuleDefinition.Condition> newConditions = new ArrayList<>();
@@ -65,11 +63,11 @@ public class SmartIsAnyOfFactorizer {
                     .filter(c -> c.field() == null || !c.field().equals(fieldToFactor))
                     .forEach(newConditions::add);
 
-            // Add the new combined IS_ANY_OF condition.
+            // Add the shared IS_ANY_OF condition.
             newConditions.add(new RuleDefinition.Condition(
                     fieldToFactor,
                     "IS_ANY_OF",
-                    new ArrayList<>(combinedValues)
+                    new ArrayList<>(sharedValues)
             ));
 
             // Create a new RuleDefinition for each original rule,
@@ -88,6 +86,56 @@ public class SmartIsAnyOfFactorizer {
         }
 
         return optimizedRules;
+    }
+
+    /**
+     * FIX: Check if all rules in the group have IDENTICAL IS_ANY_OF values for the given field.
+     * Returns true only if all rules have the exact same set of values.
+     */
+    private boolean hasIdenticalIsAnyOfValues(List<RuleDefinition> group, String field) {
+        if (group.isEmpty()) {
+            return false;
+        }
+
+        // Get the IS_ANY_OF values from the first rule as reference
+        Set<Object> referenceValues = getIsAnyOfValues(group.get(0), field);
+        if (referenceValues.isEmpty()) {
+            return false;
+        }
+
+        // Check if all other rules have the exact same set of values
+        for (int i = 1; i < group.size(); i++) {
+            Set<Object> currentValues = getIsAnyOfValues(group.get(i), field);
+            if (!referenceValues.equals(currentValues)) {
+                return false; // Found a difference - cannot factor
+            }
+        }
+
+        return true; // All rules have identical IS_ANY_OF values
+    }
+
+    /**
+     * FIX: Extract the IS_ANY_OF values for a specific field from a rule.
+     */
+    private Set<Object> getIsAnyOfValues(RuleDefinition rule, String field) {
+        Set<Object> values = new HashSet<>();
+
+        if (rule.conditions() == null) {
+            return values;
+        }
+
+        for (RuleDefinition.Condition cond : rule.conditions()) {
+            if (cond.field() != null && cond.field().equals(field) &&
+                    cond.operator() != null && "IS_ANY_OF".equalsIgnoreCase(cond.operator())) {
+                if (cond.value() instanceof List) {
+                    values.addAll((List<?>) cond.value());
+                } else if (cond.value() != null) {
+                    values.add(cond.value());
+                }
+            }
+        }
+
+        return values;
     }
 
     /**
