@@ -1,30 +1,23 @@
+/*
+ * Copyright (c) 2025 Helios Rule Engine
+ * Licensed under the Apache License, Version 2.0
+ */
 package com.helios.ruleengine.core.model;
 
 import com.helios.ruleengine.model.Predicate;
 import com.helios.ruleengine.model.RuleDefinition;
-import it.unimi.dsi.fastutil.floats.Float2FloatMap;
-import it.unimi.dsi.fastutil.floats.Float2FloatOpenHashMap;
 import it.unimi.dsi.fastutil.ints.*;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import org.roaringbitmap.RoaringBitmap;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
+import java.io.Serializable;
+import java.util.*;
+import java.util.regex.Pattern;
 
-/**
- * P4-A FIX + DEDUPLICATION FIX: The core data model for the rule engine.
- *
- * CRITICAL FIXES:
- * - Support multiple rule codes per combination (1:N mapping)
- * - Preserve all logical rule associations after IS_ANY_OF expansion
- * - Enable proper deduplication without losing rule metadata
- */
-public final class EngineModel {
+public final class EngineModel implements Serializable {
+    private static final long serialVersionUID = 1L;
 
-    // --- Core Data Structures (Common) ---
     private final Dictionary fieldDictionary;
     private final Dictionary valueDictionary;
     private final Predicate[] uniquePredicates;
@@ -36,18 +29,47 @@ public final class EngineModel {
     private final RuleDefinition[] ruleDefinitions;
     private final Int2IntMap familyPriorities;
     private final Int2ObjectMap<List<Predicate>> fieldToPredicates;
-    private final Object2IntMap<Predicate> predicateRegistry;
 
-
-    // --- SoA Layout for Hot Data ---
     private final int[] predicateCounts;
     private final int[] priorities;
     private final String[] ruleCodes;
     private final IntList[] combinationToPredicateIds;
 
-    // --- NEW: Multiple rule codes per combination ---
     private final List<String>[] combinationRuleCodes;
     private final List<Integer>[] combinationPriorities;
+
+    // Cache for predicate ID lookups
+    private final Object2IntMap<PredicateKey> predicateKeyToId;
+
+    public enum SelectionStrategy {
+        ALL_MATCHES,
+        MAX_PRIORITY_PER_FAMILY,
+        FIRST_MATCH
+    }
+
+    public record EngineStats(
+            int uniqueCombinations,
+            int totalPredicates,
+            long compilationTimeNanos,
+            Map<String, Object> metadata
+    ) implements Serializable {
+    }
+
+    /**
+     * Canonical key for predicate deduplication that ignores weight/selectivity.
+     * This allows predicates with the same field/operator/value but different weights
+     * to be identified as the same predicate.
+     */
+    static record PredicateKey(
+            int fieldId,
+            Predicate.Operator operator,
+            Object value,
+            Pattern pattern
+    ) implements Serializable {
+        static PredicateKey from(Predicate p) {
+            return new PredicateKey(p.fieldId(), p.operator(), p.value(), p.pattern());
+        }
+    }
 
     private EngineModel(Builder builder) {
         this.fieldDictionary = builder.fieldDictionary;
@@ -61,16 +83,25 @@ public final class EngineModel {
         this.ruleDefinitions = builder.ruleDefinitions;
         this.familyPriorities = builder.familyPriorities;
         this.fieldToPredicates = builder.fieldToPredicates;
-        this.predicateRegistry = builder.predicateRegistry;
 
         this.predicateCounts = builder.predicateCounts;
         this.priorities = builder.priorities;
         this.ruleCodes = builder.ruleCodes;
         this.combinationToPredicateIds = builder.combinationToPredicateIds;
+
         this.combinationRuleCodes = builder.combinationRuleCodes;
         this.combinationPriorities = builder.combinationPriorities;
-    }
 
+        // Build predicate key lookup map (handle null uniquePredicates)
+        this.predicateKeyToId = new Object2IntOpenHashMap<>();
+        this.predicateKeyToId.defaultReturnValue(-1);
+        if (uniquePredicates != null) {
+            for (int i = 0; i < uniquePredicates.length; i++) {
+                PredicateKey key = PredicateKey.from(uniquePredicates[i]);
+                this.predicateKeyToId.put(key, i);
+            }
+        }
+    }
     // --- Public Accessors (Preserved for Compatibility) ---
 
     public int getNumRules() { return predicateCounts.length; }
@@ -86,9 +117,17 @@ public final class EngineModel {
     public Int2IntMap getFamilyPriorities() { return familyPriorities; }
     public Predicate getPredicate(int id) { return (id >= 0 && id < uniquePredicates.length) ?
             uniquePredicates[id] : null; }
-    public int getPredicateId(Predicate p) { return predicateRegistry.getInt(p); }
-    public Int2ObjectMap<List<Predicate>> getFieldToPredicates() { return fieldToPredicates; }
 
+    /**
+     * Get the ID of a predicate.
+     * Uses canonical key (without weight/selectivity) for lookup.
+     */
+    public int getPredicateId(Predicate p) {
+        PredicateKey key = PredicateKey.from(p);
+        return predicateKeyToId.getInt(key);
+    }
+
+    public Int2ObjectMap<List<Predicate>> getFieldToPredicates() { return fieldToPredicates; }
 
     // --- SoA Data Accessors ---
 
@@ -135,7 +174,10 @@ public final class EngineModel {
         RuleDefinition[] ruleDefinitions;
         Int2IntMap familyPriorities;
         final Int2ObjectMap<List<Predicate>> fieldToPredicates = new Int2ObjectOpenHashMap<>();
-        final Object2IntMap<Predicate> predicateRegistry = new Object2IntOpenHashMap<>();
+
+        // FIX: Changed to use PredicateKey for deduplication
+        private final Object2IntMap<PredicateKey> predicateIdMap = new Object2IntOpenHashMap<>();
+        private final List<Predicate> predicateList = new ArrayList<>();
 
         private final Object2IntMap<IntList> combinationToIdMap = new Object2IntOpenHashMap<>();
         private final Int2ObjectMap<IntList> idToCombinationMap = new Int2ObjectOpenHashMap<>();
@@ -149,20 +191,35 @@ public final class EngineModel {
         // NEW: Store ALL rule codes and their predicates per combination
         List<String>[] combinationRuleCodes;
         List<Integer>[] combinationPriorities;
-        // NEW: Track which predicates each rule-combination pair has
-        Map<String, IntSet>[] combinationRulePredicates;
 
         @SuppressWarnings("unchecked")
         public Builder() {
             combinationToIdMap.defaultReturnValue(-1);
+            predicateIdMap.defaultReturnValue(-1);
         }
 
+        /**
+         * Register a predicate and return its ID.
+         * FIX: Uses PredicateKey (without weight/selectivity) for deduplication,
+         * but preserves the actual Predicate with its weight/selectivity.
+         */
         public int registerPredicate(Predicate predicate) {
-            return predicateRegistry.computeIfAbsent(predicate, (Predicate p) -> {
-                int id = predicateRegistry.size();
-                fieldToPredicates.computeIfAbsent(p.fieldId(), k -> new ArrayList<>()).add(p);
-                return id;
-            });
+            PredicateKey key = PredicateKey.from(predicate);
+            int existingId = predicateIdMap.getInt(key);
+            if (existingId != predicateIdMap.defaultReturnValue()) {
+                // Already registered - return existing ID
+                return existingId;
+            }
+
+            // New predicate - register it
+            int id = predicateList.size();
+            predicateIdMap.put(key, id);
+            predicateList.add(predicate);
+
+            // Also add to field mapping
+            fieldToPredicates.computeIfAbsent(predicate.fieldId(), k -> new ArrayList<>()).add(predicate);
+
+            return id;
         }
 
         public int registerCombination(IntList predicateIds) {
@@ -230,54 +287,54 @@ public final class EngineModel {
             }
         }
 
-        /**
-         * Builds the inverted index: predicateId → RoaringBitmap of rule combination IDs.
-         */
-        public void buildInvertedIndex() {
-            for (Object2IntMap.Entry<IntList> entry : combinationToIdMap.object2IntEntrySet()) {
-                IntList predicateIds = entry.getKey();
-                int combinationId = entry.getIntValue();
-                for (int predId : predicateIds) {
-                    invertedIndex.computeIfAbsent(predId, k -> new RoaringBitmap()).add(combinationId);
-                }
-            }
+        public int getTotalExpandedCombinations() {
+            return totalExpandedCombinations;
         }
 
-        public int getUniqueCombinationCount() { return combinationToIdMap.size(); }
-        public int getTotalExpandedCombinations() { return totalExpandedCombinations; }
-        public int getPredicateCount() { return predicateRegistry.size(); }
+        public int getUniqueCombinationCount() {
+            return combinationToIdMap.size();
+        }
 
-        public Builder withStats(EngineStats stats) { this.stats = stats; return this; }
-        public Builder withFieldDictionary(Dictionary d) { this.fieldDictionary = d; return this; }
-        public Builder withValueDictionary(Dictionary d) { this.valueDictionary = d; return this; }
-        public Builder withUniquePredicates(Predicate[] p) { this.uniquePredicates = p; return this; }
-        public Builder withSelectionStrategy(SelectionStrategy s) { this.selectionStrategy = s; return this; }
-        public Builder withRuleDefinitions(RuleDefinition[] defs) { this.ruleDefinitions = defs; return this; }
-        public Builder withFamilyPriorities(Int2IntMap priorities) { this.familyPriorities = priorities; return this; }
+        public int getPredicateCount() {
+            return predicateList.size();
+        }
 
-        /**
-         * Finalizes the Structure-of-Arrays (SoA) layout for cache-optimal runtime performance.
-         */
-        @SuppressWarnings("unchecked")
+        public Builder withFieldDictionary(Dictionary dictionary) {
+            this.fieldDictionary = dictionary;
+            return this;
+        }
+
+        public Builder withValueDictionary(Dictionary dictionary) {
+            this.valueDictionary = dictionary;
+            return this;
+        }
+
+        public Builder withStats(EngineStats stats) {
+            this.stats = stats;
+            return this;
+        }
+
+        public Builder withSelectionStrategy(SelectionStrategy strategy) {
+            this.selectionStrategy = strategy;
+            return this;
+        }
+
         private void finalizeSoAStructures() {
-            int numUniqueCombinations = getUniqueCombinationCount();
+            int numCombinations = getUniqueCombinationCount();
 
-            // Allocate SoA arrays with exact size needed
-            predicateCounts = new int[numUniqueCombinations];
-            priorities = new int[numUniqueCombinations];
-            ruleCodes = new String[numUniqueCombinations];
-            combinationToPredicateIds = new IntList[numUniqueCombinations];
+            predicateCounts = new int[numCombinations];
+            priorities = new int[numCombinations];
+            ruleCodes = new String[numCombinations];
+            combinationToPredicateIds = new IntList[numCombinations];
 
-            // Populate SoA arrays from combination mappings
-            for (int i = 0; i < numUniqueCombinations; i++) {
-                // Populate predicate data
-                IntList pIds = idToCombinationMap.get(i);
-                if (pIds != null) {
-                    predicateCounts[i] = pIds.size();
-                    combinationToPredicateIds[i] = pIds;
+            for (int i = 0; i < numCombinations; i++) {
+                IntList predicateIds = idToCombinationMap.get(i);
+                if (predicateIds != null) {
+                    combinationToPredicateIds[i] = new IntArrayList(predicateIds);
+                    predicateCounts[i] = predicateIds.size();
                 } else {
-                    predicateCounts[i] = 0;
                     combinationToPredicateIds[i] = new IntArrayList();
+                    predicateCounts[i] = 0;
                 }
 
                 // Populate rule metadata - use first rule for backward compatibility
@@ -294,16 +351,18 @@ public final class EngineModel {
                 }
             }
 
-            // Build unique predicates array if not already set
-            if (this.uniquePredicates == null && predicateRegistry != null) {
-                this.uniquePredicates = new Predicate[predicateRegistry.size()];
-                for (Object2IntMap.Entry<Predicate> entry : predicateRegistry.object2IntEntrySet()) {
-                    this.uniquePredicates[entry.getIntValue()] = entry.getKey();
+            // FIX: Always initialize uniquePredicates array (even if empty)
+            if (this.uniquePredicates == null) {
+                if (!predicateList.isEmpty()) {
+                    this.uniquePredicates = predicateList.toArray(new Predicate[0]);
+                } else {
+                    // Empty array instead of null
+                    this.uniquePredicates = new Predicate[0];
                 }
             }
 
             // Sort predicates by weight for optimal evaluation order
-            if (uniquePredicates != null) {
+            if (uniquePredicates != null && uniquePredicates.length > 0) {
                 sortedPredicates = new ArrayList<>(List.of(uniquePredicates));
                 sortedPredicates.sort(Comparator.comparing(Predicate::weight));
             } else {
@@ -315,6 +374,19 @@ public final class EngineModel {
             for (Predicate p : sortedPredicates) {
                 if (!fieldMinWeights.containsKey(p.fieldId())) {
                     fieldMinWeights.put(p.fieldId(), p.weight());
+                }
+            }
+        }
+
+        private void buildInvertedIndex() {
+            int numCombinations = getUniqueCombinationCount();
+
+            for (int combinationId = 0; combinationId < numCombinations; combinationId++) {
+                IntList predicateIds = idToCombinationMap.get(combinationId);
+                if (predicateIds == null) continue;
+
+                for (int predId : predicateIds) {
+                    invertedIndex.computeIfAbsent(predId, k -> new RoaringBitmap()).add(combinationId);
                 }
             }
         }
@@ -346,37 +418,29 @@ public final class EngineModel {
             if (numCombinations > 0 && invertedIndex.isEmpty()) {
                 throw new IllegalStateException(
                         "Inverted index is empty but model has " + numCombinations +
-                                " combinations. buildInvertedIndex() was not called."
+                                " combinations. This indicates a build error."
                 );
             }
 
-            // Check 2: SoA arrays must be properly sized
-            if (ruleCodes != null && ruleCodes.length != numCombinations) {
-                throw new IllegalStateException(
-                        "ruleCodes array size mismatch: expected " + numCombinations +
-                                ", got " + ruleCodes.length
-                );
+            // Check 2: All combinations must have at least one predicate
+            for (int i = 0; i < numCombinations; i++) {
+                if (predicateCounts[i] == 0) {
+                    throw new IllegalStateException(
+                            "Combination " + i + " has zero predicates. " +
+                                    "This should never happen after compilation."
+                    );
+                }
             }
 
-            if (priorities != null && priorities.length != numCombinations) {
-                throw new IllegalStateException(
-                        "priorities array size mismatch: expected " + numCombinations +
-                                ", got " + priorities.length
-                );
+            // Check 3: Rule codes must be non-null
+            for (int i = 0; i < numCombinations; i++) {
+                if (ruleCodes[i] == null) {
+                    throw new IllegalStateException(
+                            "Combination " + i + " has null rule code. " +
+                                    "This indicates a registration error."
+                    );
+                }
             }
         }
-    }
-
-    public record EngineStats(
-            int totalRules,
-            int totalPredicates,
-            long compilationTimeNanos,
-            Map<String, Object> metadata
-    ) {}
-
-    public enum SelectionStrategy {
-        ALL_MATCHES,
-        FIRST_MATCH,
-        MAX_PRIORITY_PER_FAMILY
     }
 }
