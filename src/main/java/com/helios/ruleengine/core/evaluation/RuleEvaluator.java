@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2025 Helios Rule Engine
+ * Licensed under the Apache License, Version 2.0
+ */
 package com.helios.ruleengine.core.evaluation;
 
 import com.helios.ruleengine.core.cache.BaseConditionCache;
@@ -16,6 +20,7 @@ import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import org.roaringbitmap.RoaringBitmap;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * FIX: Rule evaluator with proper deduplication handling.
@@ -73,18 +78,19 @@ public final class RuleEvaluator {
             evaluationSpan.setAttribute("eventId", event.getEventId());
             evaluationSpan.setAttribute("eventType", event.getEventType());
 
-            EvaluationContext ctx = new EvaluationContext(256);
-            ctx.reset();
+            // Step 1: Initialize evaluation context
+            EvaluationContext ctx = new EvaluationContext(model.getNumRules());
 
-            // Step 1: Base condition evaluation (if enabled)
+            // Step 1.5: Base condition evaluation (if enabled)
             BitSet eligibleRules = null;
             RoaringBitmap eligibleRulesRoaring = null;
 
             if (baseConditionEvaluator != null) {
-                java.util.concurrent.CompletableFuture<com.helios.ruleengine.core.evaluation.cache.BaseConditionEvaluator.EvaluationResult> baseFuture =
+                // FIX: evaluateBaseConditions returns CompletableFuture<EvaluationResult> - takes only Event
+                CompletableFuture<BaseConditionEvaluator.EvaluationResult> baseFuture =
                         baseConditionEvaluator.evaluateBaseConditions(event);
                 try {
-                    com.helios.ruleengine.core.evaluation.cache.BaseConditionEvaluator.EvaluationResult baseResult = baseFuture.get();
+                    BaseConditionEvaluator.EvaluationResult baseResult = baseFuture.get();
                     eligibleRules = baseResult.matchingRules;
                     eligibleRulesRoaring = baseResult.matchingRulesRoaring;
 
@@ -104,17 +110,44 @@ public final class RuleEvaluator {
                                 evaluationTime, ctx.getPredicatesEvaluated(), 0);
                     }
                 } catch (Exception e) {
+                    evaluationSpan.recordException(e);
                     eligibleRules = null;
                     eligibleRulesRoaring = null;
                 }
+            } else {
+                // No base condition filtering - all rules eligible
+                if (model.getNumRules() == 0) {
+                    return new MatchResult(event.getEventId(), List.of(), 0, 0, 0);
+                }
+                eligibleRules = null;
+                eligibleRulesRoaring = null;
             }
 
-            // Step 2: Predicate evaluation
-            evaluatePredicatesHybrid(event, ctx, eligibleRules);
+            // Step 2: Predicate evaluation (FIX: Add child span)
+            Span predicateSpan = tracer.spanBuilder("evaluate-predicates").startSpan();
+            try (Scope predicateScope = predicateSpan.makeCurrent()) {
+                evaluatePredicatesHybrid(event, ctx, eligibleRules);
+                predicateSpan.setAttribute("predicatesEvaluated", ctx.getPredicatesEvaluated());
+            } finally {
+                predicateSpan.end();
+            }
 
-            // Step 3: Counter-based matching
-            updateCountersOptimized(ctx, eligibleRulesRoaring);
-            detectMatchesOptimized(ctx, eligibleRulesRoaring);
+            // Step 3: Counter-based matching (FIX: Add child spans)
+            Span updateCountersSpan = tracer.spanBuilder("update-counters-optimized").startSpan();
+            try (Scope updateScope = updateCountersSpan.makeCurrent()) {
+                updateCountersOptimized(ctx, eligibleRulesRoaring);
+                updateCountersSpan.setAttribute("touchedRules", ctx.getTouchedRules().size());
+            } finally {
+                updateCountersSpan.end();
+            }
+
+            Span detectMatchesSpan = tracer.spanBuilder("detect-matches-optimized").startSpan();
+            try (Scope detectScope = detectMatchesSpan.makeCurrent()) {
+                detectMatchesOptimized(ctx, eligibleRulesRoaring);
+                detectMatchesSpan.setAttribute("potentialMatches", ctx.getMutableMatchedRules().size());
+            } finally {
+                detectMatchesSpan.end();
+            }
 
             // Step 4: Rule selection
             selectMatches(ctx);
@@ -134,6 +167,7 @@ public final class RuleEvaluator {
             metrics.recordEvaluation(evaluationTime, ctx.getPredicatesEvaluated(), matchedRules.size());
 
             evaluationSpan.setAttribute("predicatesEvaluated", ctx.getPredicatesEvaluated());
+            evaluationSpan.setAttribute("rulesEvaluated", ctx.getTouchedRules().size());
             evaluationSpan.setAttribute("rulesMatched", matchedRules.size());
             evaluationSpan.setAttribute("evaluationTimeNanos", evaluationTime);
 
@@ -339,5 +373,9 @@ public final class RuleEvaluator {
 
     public EvaluatorMetrics getMetrics() {
         return metrics;
+    }
+
+    public EngineModel getModel() {
+        return model;
     }
 }
