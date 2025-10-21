@@ -14,8 +14,8 @@ import java.util.*;
  * Represents an event to be evaluated against rules.
  *
  * FIX: Removed encoded attributes caching to prevent stale cache issues
- * when the same Event object is reused with different EngineModel instances
- * (which have different dictionaries).
+ * when the same Event object is reused with different EngineModel instances.
+ * FIX: String values are uppercased for case-insensitive matching.
  */
 public record Event(
         String eventId,
@@ -23,9 +23,6 @@ public record Event(
         Map<String, Object> attributes
 ) {
     private static final Map<String, Object> EMPTY_MAP = Collections.emptyMap();
-
-    // FIX: Removed encodedAttributesCache and flattenedAttributesCache
-    // to prevent cache invalidation issues across different models
 
     public Event {
         if (eventId == null || eventId.isBlank()) {
@@ -35,21 +32,21 @@ public record Event(
     }
 
     /**
-     * Getter for eventId (for compatibility with code using getEventId()).
+     * Getter for eventId (for compatibility).
      */
     public String getEventId() {
         return eventId;
     }
 
     /**
-     * Getter for eventType (for compatibility with code using getEventType()).
+     * Getter for eventType (for compatibility).
      */
     public String getEventType() {
         return eventType;
     }
 
     /**
-     * Getter for attributes (for compatibility with code using getAttributes()).
+     * Getter for attributes (for compatibility).
      */
     public Map<String, Object> getAttributes() {
         return attributes;
@@ -68,9 +65,7 @@ public record Event(
     /**
      * Encodes event attributes using provided dictionaries.
      *
-     * FIX: No longer cached. Each call recomputes encoding to ensure
-     * correct behavior when used with different EngineModel instances.
-     * The performance impact is minimal as this is called once per evaluation.
+     * FIX: No longer cached. String values are uppercased for case-insensitive matching.
      */
     public Int2ObjectMap<Object> getEncodedAttributes(Dictionary fieldDictionary, Dictionary valueDictionary) {
         Map<String, Object> flattened = getFlattenedAttributes();
@@ -81,7 +76,9 @@ public record Event(
             if (fieldId != -1) {
                 Object value = entry.getValue();
                 if (value instanceof String) {
-                    int valueId = valueDictionary.getId((String) value);
+                    // FIX: Uppercase string value for case-insensitive matching
+                    String upperValue = ((String) value).toUpperCase();
+                    int valueId = valueDictionary.getId(upperValue);
                     encoded.put(fieldId, valueId != -1 ? (Object) valueId : value);
                 } else {
                     encoded.put(fieldId, value);
