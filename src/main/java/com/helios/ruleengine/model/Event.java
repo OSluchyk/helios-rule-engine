@@ -15,12 +15,16 @@ import java.util.*;
  *
  * CACHING STRATEGY:
  * - Flattened attributes: Cached (safe - no external dependencies)
- * - Encoded attributes: NOT cached (prevents stale dictionary ID issues across different models)
+ * - Encoded attributes: Pooled via ThreadLocal (NOT cached to prevent dictionary issues)
  *
  * String values are uppercased for case-insensitive matching.
  */
 public final class Event {
     private static final Map<String, Object> EMPTY_MAP = Collections.emptyMap();
+
+    // ThreadLocal pool for encoded attributes map (reused across evaluations)
+    private static final ThreadLocal<Int2ObjectOpenHashMap<Object>> ENCODED_BUFFER =
+            ThreadLocal.withInitial(() -> new Int2ObjectOpenHashMap<>(32));
 
     private final String eventId;
     private final String eventType;
@@ -86,13 +90,15 @@ public final class Event {
     /**
      * Encodes event attributes using provided dictionaries.
      *
-     * NOT cached - always recomputes to ensure correct behavior
-     * when the same Event is used with different EngineModel instances.
+     * Uses ThreadLocal pooling to avoid allocation on every evaluation.
      * String values are uppercased for case-insensitive matching.
      */
     public Int2ObjectMap<Object> getEncodedAttributes(Dictionary fieldDictionary, Dictionary valueDictionary) {
         Map<String, Object> flattened = getFlattenedAttributes();
-        Int2ObjectOpenHashMap<Object> encoded = new Int2ObjectOpenHashMap<>(flattened.size());
+
+        // Reuse thread-local buffer (reset it first)
+        Int2ObjectOpenHashMap<Object> encoded = ENCODED_BUFFER.get();
+        encoded.clear();
 
         for (Map.Entry<String, Object> entry : flattened.entrySet()) {
             int fieldId = fieldDictionary.getId(entry.getKey());
