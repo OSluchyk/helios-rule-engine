@@ -108,23 +108,25 @@ public class RuleCompiler implements IRuleCompiler {
                 for (RuleDefinition.Condition cond : def.conditions()) {
                     if (cond.field() == null) continue;
 
+                    // Encode field name (uppercase and normalize)
                     fieldDictionary.encode(cond.field().toUpperCase().replace('-', '_'));
 
                     if (cond.operator() == null) continue;
                     Predicate.Operator op = Predicate.Operator.fromString(cond.operator());
                     if (op == null) continue;
 
-                    // FIX P3: Encode ALL string values, not just EQUAL_TO/IS_ANY_OF
+                    // FIX: Encode ALL string values, uppercasing them for case-insensitive matching
                     if (cond.value() instanceof List) {
                         // Handle list values (IS_ANY_OF, BETWEEN, etc.)
                         ((List<?>) cond.value()).forEach(v -> {
                             if (v instanceof String) {
-                                valueDictionary.encode((String) v);
+                                // FIX: Uppercase string values for consistency
+                                valueDictionary.encode(((String) v).toUpperCase());
                             }
                         });
                     } else if (cond.value() instanceof String) {
-                        // Encode ALL string values
-                        valueDictionary.encode((String) cond.value());
+                        // FIX: Uppercase string values for consistency
+                        valueDictionary.encode(((String) cond.value()).toUpperCase());
                     }
                 }
             }
@@ -134,7 +136,6 @@ public class RuleCompiler implements IRuleCompiler {
             span.end();
         }
     }
-
     private EngineModel.Builder buildCoreModelWithDeduplication(List<RuleDefinition> definitions,
                                                                 SelectivityProfile profile,
                                                                 Dictionary fieldDictionary,
@@ -304,14 +305,22 @@ public class RuleCompiler implements IRuleCompiler {
                 List<?> values = (List<?>) cond.value();
                 List<Predicate> expanded = new ArrayList<>();
                 for (Object v : values) {
-                    int valueId = valueDictionary.getId(String.valueOf(v));
+                    // FIX: Uppercase string value before lookup
+                    String stringValue = String.valueOf(v).toUpperCase();
+                    int valueId = valueDictionary.getId(stringValue);
                     expanded.add(new Predicate(fieldId, Predicate.Operator.EQUAL_TO, valueId, null, weight, selectivity));
                 }
                 expandablePredicates.add(expanded);
             } else {
-                Object predicateValue = (operator == Predicate.Operator.EQUAL_TO && !(cond.value() instanceof Number))
-                        ? valueDictionary.getId(String.valueOf(cond.value()))
-                        : cond.value();
+                // FIX: Uppercase string value before lookup for EQUAL_TO
+                Object predicateValue;
+                if (operator == Predicate.Operator.EQUAL_TO && !(cond.value() instanceof Number)) {
+                    String stringValue = String.valueOf(cond.value()).toUpperCase();
+                    predicateValue = valueDictionary.getId(stringValue);
+                } else {
+                    predicateValue = cond.value();
+                }
+
                 Pattern pattern = (operator == Predicate.Operator.REGEX && cond.value() instanceof String)
                         ? Pattern.compile((String) cond.value()) : null;
                 staticPredicates.add(new Predicate(fieldId, operator, predicateValue, pattern, weight, selectivity));
