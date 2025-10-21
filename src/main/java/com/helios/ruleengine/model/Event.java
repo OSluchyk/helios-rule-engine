@@ -13,45 +13,52 @@ import java.util.*;
 /**
  * Represents an event to be evaluated against rules.
  *
- * FIX: Removed encoded attributes caching to prevent stale cache issues.
- * FIX: Kept flattened attributes caching for performance (it's safe since it doesn't depend on external state).
- * FIX: String values are uppercased for case-insensitive matching.
+ * CACHING STRATEGY:
+ * - Flattened attributes: Cached (safe - no external dependencies)
+ * - Encoded attributes: NOT cached (prevents stale dictionary ID issues across different models)
+ *
+ * String values are uppercased for case-insensitive matching.
  */
-public record Event(
-        String eventId,
-        String eventType,
-        Map<String, Object> attributes
-) {
+public final class Event {
     private static final Map<String, Object> EMPTY_MAP = Collections.emptyMap();
 
-    // FIX: Cache flattened attributes (safe - no external dependencies)
-    private static final ThreadLocal<Map<Event, Map<String, Object>>> FLATTENED_CACHE =
-            ThreadLocal.withInitial(() -> new WeakHashMap<>());
+    private final String eventId;
+    private final String eventType;
+    private final Map<String, Object> attributes;
 
-    public Event {
+    // Cache flattened attributes (safe - derived only from event's own data)
+    private volatile Map<String, Object> flattenedAttributesCache;
+
+    public Event(String eventId, String eventType, Map<String, Object> attributes) {
         if (eventId == null || eventId.isBlank()) {
             throw new IllegalArgumentException("Event ID cannot be null or blank");
         }
-        attributes = (attributes == null) ? EMPTY_MAP : new HashMap<>(attributes);
+        this.eventId = eventId;
+        this.eventType = eventType;
+        this.attributes = (attributes == null) ? EMPTY_MAP : new HashMap<>(attributes);
     }
 
-    /**
-     * Getter for eventId (for compatibility).
-     */
+    public String eventId() {
+        return eventId;
+    }
+
+    public String eventType() {
+        return eventType;
+    }
+
+    public Map<String, Object> attributes() {
+        return attributes;
+    }
+
+    // Legacy getters for backward compatibility
     public String getEventId() {
         return eventId;
     }
 
-    /**
-     * Getter for eventType (for compatibility).
-     */
     public String getEventType() {
         return eventType;
     }
 
-    /**
-     * Getter for attributes (for compatibility).
-     */
     public Map<String, Object> getAttributes() {
         return attributes;
     }
@@ -60,25 +67,27 @@ public record Event(
      * Returns a flattened view of nested attributes with normalized keys.
      * Keys are UPPER_SNAKE_CASE with nested keys joined by dots.
      *
-     * FIX: Now cached per-event for performance, but safe since it doesn't depend on external state.
+     * Cached for performance since flattening is deterministic.
      */
     public Map<String, Object> getFlattenedAttributes() {
-        Map<Event, Map<String, Object>> cache = FLATTENED_CACHE.get();
-        Map<String, Object> cached = cache.get(this);
-        if (cached != null) {
-            return cached;
+        // Double-checked locking pattern for thread-safe lazy initialization
+        Map<String, Object> result = flattenedAttributesCache;
+        if (result == null) {
+            synchronized (this) {
+                result = flattenedAttributesCache;
+                if (result == null) {
+                    flattenedAttributesCache = result = flattenMap(attributes);
+                }
+            }
         }
-
-        Map<String, Object> flattened = flattenMap(attributes);
-        cache.put(this, flattened);
-        return flattened;
+        return result;
     }
 
     /**
      * Encodes event attributes using provided dictionaries.
      *
-     * FIX: NO caching - always recomputes to ensure correct behavior
-     * when used with different EngineModel instances (different dictionaries).
+     * NOT cached - always recomputes to ensure correct behavior
+     * when the same Event is used with different EngineModel instances.
      * String values are uppercased for case-insensitive matching.
      */
     public Int2ObjectMap<Object> getEncodedAttributes(Dictionary fieldDictionary, Dictionary valueDictionary) {
@@ -90,7 +99,7 @@ public record Event(
             if (fieldId != -1) {
                 Object value = entry.getValue();
                 if (value instanceof String) {
-                    // FIX: Uppercase string value for case-insensitive matching
+                    // Uppercase string value for case-insensitive matching
                     String upperValue = ((String) value).toUpperCase();
                     int valueId = valueDictionary.getId(upperValue);
                     encoded.put(fieldId, valueId != -1 ? (Object) valueId : value);
@@ -131,5 +140,29 @@ public record Event(
             flatMap.put(prefix.toString(), value);
         }
         prefix.setLength(originalLength);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Event event = (Event) o;
+        return Objects.equals(eventId, event.eventId) &&
+                Objects.equals(eventType, event.eventType) &&
+                Objects.equals(attributes, event.attributes);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(eventId, eventType, attributes);
+    }
+
+    @Override
+    public String toString() {
+        return "Event[" +
+                "eventId='" + eventId + '\'' +
+                ", eventType='" + eventType + '\'' +
+                ", attributes=" + attributes +
+                ']';
     }
 }
