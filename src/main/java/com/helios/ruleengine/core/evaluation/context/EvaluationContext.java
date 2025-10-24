@@ -37,10 +37,15 @@ public final class EvaluationContext {
     // Metrics
     private int predicatesEvaluatedCount;
 
+    @Deprecated
     public EvaluationContext(int estimatedTouchedRules) {
+        this(10000, estimatedTouchedRules);
+    }
+
+    public EvaluationContext(int numRules,int estimatedTouchedRules) {
         this.truePredicates = new IntOpenHashSet(256);
         this.touchedRules = new IntOpenHashSet(estimatedTouchedRules); // FIX: Now a Set
-        this.counters = new int[10000]; // Adjust based on max rules
+        this.counters = new int[numRules];
         this.matchedRules = new ArrayList<>(32); // Pre-size for typical match count
         this.predicatesEvaluatedCount = 0;
     }

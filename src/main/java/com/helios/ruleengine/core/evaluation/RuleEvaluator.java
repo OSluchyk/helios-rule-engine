@@ -79,7 +79,9 @@ public final class RuleEvaluator {
             evaluationSpan.setAttribute("eventType", event.getEventType());
 
             // Step 1: Initialize evaluation context
-            EvaluationContext ctx = new EvaluationContext(model.getNumRules());
+            int numRules = model.getNumRules();
+            int estimatedTouched = Math.min(numRules / 10, 1000);
+            EvaluationContext ctx = new EvaluationContext(numRules, estimatedTouched);
 
             // Step 1.5: Base condition evaluation (if enabled)
             BitSet eligibleRules = null;
