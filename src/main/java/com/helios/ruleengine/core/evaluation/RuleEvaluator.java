@@ -53,7 +53,7 @@ public final class RuleEvaluator {
 
         // Create cache and BaseConditionEvaluator if enabled
         if (enableBaseConditionCache) {
-            int initialSize = Math.max(model.getNumRules() * 10, 50_000);
+            int initialSize = Math.max(model.getNumRules() * 10, 200_000);
 
             // Use adaptive cache that resizes based on hit rate
             BaseConditionCache cache = new AdaptiveCaffeineCache.Builder()
