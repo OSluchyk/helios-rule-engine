@@ -27,38 +27,38 @@ import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Development Performance Benchmark - 2-3 Minute Runtime
- *
+ * <p>
  * DESIGN RATIONALE:
  * - Total runtime: 2-3 minutes for comprehensive feedback
  * - Progressive testing: Simple → Medium → Complex scenarios
  * - Real-world cache patterns: Cold start → Warm → Hot
  * - Memory pressure testing without OOM
  * - Deduplication effectiveness validation
- *
+ * <p>
  * RUNTIME BREAKDOWN (Default Configuration):
  * - Setup & Compilation: ~5 seconds
  * - Warmup Phase: 20 seconds (10 iterations × 2 sec)
  * - Measurement Phase: 100 seconds (20 iterations × 5 sec)
  * - Analysis & Reporting: ~5 seconds
  * - TOTAL: ~130 seconds (2m 10s)
- *
+ * <p>
  * USAGE:
- *   # Standard 2-minute run
- *   mvn clean test-compile exec:java \
- *     -Dexec.mainClass="com.helios.ruleengine.benchmark.SimpleBenchmark" \
- *     -Dexec.classpathScope=test
- *
- *   # Quick 1-minute run for rapid iteration
- *   mvn test-compile exec:java [...] -Dbench.quick=true
- *
- *   # Extended 3-minute run for thorough testing
- *   mvn test-compile exec:java [...] -Dbench.extended=true
- *
+ * # Standard 2-minute run
+ * mvn clean test-compile exec:java \
+ * -Dexec.mainClass="com.helios.ruleengine.benchmark.SimpleBenchmark" \
+ * -Dexec.classpathScope=test
+ * <p>
+ * # Quick 1-minute run for rapid iteration
+ * mvn test-compile exec:java [...] -Dbench.quick=true
+ * <p>
+ * # Extended 3-minute run for thorough testing
+ * mvn test-compile exec:java [...] -Dbench.extended=true
+ * <p>
  * CONFIGURATION:
- *   -Dbench.quick     : 1-minute quick mode
- *   -Dbench.extended  : 3-minute extended mode
- *   -Dbench.rules     : Override rule count (default: progressive)
- *   -Dbench.profile   : Enable detailed profiling
+ * -Dbench.quick     : 1-minute quick mode
+ * -Dbench.extended  : 3-minute extended mode
+ * -Dbench.rules     : Override rule count (default: progressive)
+ * -Dbench.profile   : Enable detailed profiling
  */
 @BenchmarkMode({Mode.Throughput, Mode.SampleTime})
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
@@ -141,13 +141,15 @@ public class SimpleBenchmark {
         model = compiler.compile(rulesPath);
         compilationTime = System.nanoTime() - compileStart;
 
-        // Setup evaluator with cache
-        BaseConditionCache cache = new InMemoryBaseConditionCache.Builder()
-                .maxSize(50_000)
-                .defaultTtl(5, TimeUnit.MINUTES)
-                .build();
 
         evaluator = new RuleEvaluator(model, NOOP_TRACER, true);
+        if (evaluator.getBaseConditionEvaluator() == null) {
+            throw new IllegalStateException(
+                    "Base condition cache failed to initialize! " +
+                            "This will cause poor performance."
+            );
+        }
+
 
         // Generate diverse event pool
         eventPool = generateProgressiveEvents(10_000);
@@ -371,6 +373,48 @@ public class SimpleBenchmark {
         System.out.println("\n" + "=".repeat(80));
         System.out.println("🎉 Benchmark Complete!");
         System.out.println("=".repeat(80) + "\n");
+
+        printCacheMetrics();
+    }
+
+    private void printCacheMetrics() {
+        System.out.println("\n📊 CACHE EFFECTIVENESS:");
+        System.out.println("─".repeat(50));
+
+        if (evaluator.getBaseConditionEvaluator() != null) {
+            Map<String, Object> cacheMetrics =
+                    evaluator.getBaseConditionEvaluator().getMetrics();
+
+            System.out.printf("Total Evaluations:        %,d%n",
+                    cacheMetrics.get("totalEvaluations"));
+            System.out.printf("Cache Hits:               %,d%n",
+                    cacheMetrics.get("cacheHits"));
+            System.out.printf("Cache Misses:             %,d%n",
+                    cacheMetrics.get("cacheMisses"));
+            System.out.printf("Cache Hit Rate:           %.1f%%%n",
+                    (double) cacheMetrics.get("cacheHitRate") * 100);
+            System.out.printf("Base Condition Sets:      %,d%n",
+                    cacheMetrics.get("baseConditionSets"));
+            System.out.printf("Base Reduction:           %.1f%%%n",
+                    cacheMetrics.get("baseConditionReductionPercent"));
+
+            // Validate cache is working
+            double hitRate = (double) cacheMetrics.get("cacheHitRate");
+            if (hitRate < 0.50) {
+                System.out.println("\n⚠️  WARNING: Cache hit rate < 50% - " +
+                        "cache may be too small or base condition extraction not working!");
+            } else if (hitRate > 0.90) {
+                System.out.println("\n✅ EXCELLENT: Cache hit rate > 90% - " +
+                        "base condition optimization is effective!");
+            }
+        } else {
+            System.out.println("Base Condition Cache: NOT ENABLED");
+            System.out.println("⚠️  Performance will be poor without caching!");
+        }
+        // ============================================================
+
+        System.out.println("\n" + "=".repeat(80));
+
     }
 
     private Path createProgressiveRules(int count, String type) throws IOException {
