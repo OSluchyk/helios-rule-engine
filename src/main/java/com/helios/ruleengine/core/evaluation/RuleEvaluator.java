@@ -4,6 +4,7 @@
  */
 package com.helios.ruleengine.core.evaluation;
 
+import com.helios.ruleengine.core.cache.AdaptiveCaffeineCache;
 import com.helios.ruleengine.core.cache.BaseConditionCache;
 import com.helios.ruleengine.core.evaluation.cache.BaseConditionEvaluator;
 import com.helios.ruleengine.core.evaluation.context.EvaluationContext;
@@ -21,16 +22,18 @@ import org.roaringbitmap.RoaringBitmap;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * FIX: Rule evaluator with proper deduplication handling.
- *
+ * <p>
  * CRITICAL FIXES:
  * - Deduplicate touched rules to prevent duplicate matches
  * - Handle multiple rule codes per combination (1:N mapping)
  * - Preserve all logical rule associations after IS_ANY_OF expansion
  */
 public final class RuleEvaluator {
+    private final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(RuleEvaluator.class);
 
     private static final int PREFETCH_DISTANCE = 64;
     private static final int MAX_CACHE_SIZE = 10_000;
@@ -50,11 +53,18 @@ public final class RuleEvaluator {
 
         // Create cache and BaseConditionEvaluator if enabled
         if (enableBaseConditionCache) {
-            BaseConditionCache cache = new com.helios.ruleengine.core.cache.InMemoryBaseConditionCache.Builder()
-                    .maxSize(10_000)
-                    .defaultTtl(5, java.util.concurrent.TimeUnit.MINUTES)
+            int initialSize = Math.max(model.getNumRules() * 10, 50_000);
+
+            // Use adaptive cache that resizes based on hit rate
+            BaseConditionCache cache = new AdaptiveCaffeineCache.Builder()
+                    .initialMaxSize(initialSize)
+                    .maxSize(1_000_000)  // Can grow to 1M if needed
+                    .recordStats(true)
+                    .enableAdaptiveSizing(true)  // Auto-tune based on hit rate
                     .build();
             this.baseConditionEvaluator = new com.helios.ruleengine.core.evaluation.cache.BaseConditionEvaluator(model, cache);
+            logger.info("Adaptive cache initialized: initial_size={}, rules={}",
+                    initialSize, model.getNumRules());
         } else {
             this.baseConditionEvaluator = null;
         }
@@ -189,6 +199,12 @@ public final class RuleEvaluator {
         }
     }
 
+    private double getCacheHitRate() {
+        if (baseConditionEvaluator == null) return 0.0;
+        Map<String, Object> metrics = baseConditionEvaluator.getMetrics();
+        return (double) metrics.getOrDefault("cacheHitRate", 0.0);
+    }
+
     /**
      * Hybrid predicate evaluation with weight-based ordering.
      * Uses PredicateEvaluator facade for unified evaluation.
@@ -275,7 +291,7 @@ public final class RuleEvaluator {
 
     /**
      * Detect matched rules with prefetching optimization (P1 enhancement).
-     *
+     * <p>
      * FIX: Deduplicate touched rules and handle multiple rule codes per combination.
      */
     private void detectMatchesOptimized(EvaluationContext ctx, RoaringBitmap eligibleRulesRoaring) {
@@ -379,5 +395,9 @@ public final class RuleEvaluator {
 
     public EngineModel getModel() {
         return model;
+    }
+
+    public BaseConditionEvaluator getBaseConditionEvaluator() {
+        return baseConditionEvaluator;
     }
 }
