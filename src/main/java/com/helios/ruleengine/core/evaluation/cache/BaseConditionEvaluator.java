@@ -478,8 +478,6 @@ public class BaseConditionEvaluator {
     }
 
     boolean isStaticPredicate(Predicate pred) {
-        if (pred == null) return false;
-
         Set<String> dynamicFields = Set.of(
                 "TIMESTAMP", "RANDOM", "SESSION_ID", "REQUEST_ID", "CORRELATION_ID");
 
@@ -489,7 +487,12 @@ public class BaseConditionEvaluator {
         }
 
         return pred.operator() == Predicate.Operator.EQUAL_TO ||
-                pred.operator() == Predicate.Operator.IS_ANY_OF;
+                pred.operator() == Predicate.Operator.IS_ANY_OF ||
+                pred.operator() == Predicate.Operator.GREATER_THAN ||     // ← ADD
+                pred.operator() == Predicate.Operator.LESS_THAN ||        // ← ADD
+                pred.operator() == Predicate.Operator.GREATER_THAN_OR_EQUAL || // ← ADD (if exists)
+                pred.operator() == Predicate.Operator.LESS_THAN_OR_EQUAL ||    // ← ADD (if exists)
+                pred.operator() == Predicate.Operator.BETWEEN;            // ← ADD
     }
 
     private boolean shouldEvaluateSet(BaseConditionSet set, Event event) {
