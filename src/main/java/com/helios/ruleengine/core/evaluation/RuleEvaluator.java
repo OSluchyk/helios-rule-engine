@@ -6,6 +6,7 @@ package com.helios.ruleengine.core.evaluation;
 
 import com.helios.ruleengine.core.cache.AdaptiveCaffeineCache;
 import com.helios.ruleengine.core.cache.BaseConditionCache;
+import com.helios.ruleengine.core.cache.CacheConfig;
 import com.helios.ruleengine.core.cache.CacheFactory;
 import com.helios.ruleengine.core.evaluation.cache.BaseConditionEvaluator;
 import com.helios.ruleengine.core.evaluation.context.EvaluationContext;
@@ -54,11 +55,10 @@ public final class RuleEvaluator {
 
         // Create cache and BaseConditionEvaluator if enabled
         if (enableBaseConditionCache) {
-            int initialSize = Math.max(model.getNumRules() * 10, 200_000);
-            BaseConditionCache cache = CacheFactory.defaultCacheImpl();
+            BaseConditionCache cache = CacheFactory.create(CacheConfig.loadDefault());
             this.baseConditionEvaluator = new com.helios.ruleengine.core.evaluation.cache.BaseConditionEvaluator(model, cache);
-            logger.info("Adaptive cache initialized: initial_size={}, rules={}",
-                    initialSize, model.getNumRules());
+            logger.info("Cache initialized: {}. rules: {}",
+                    cache, model.getNumRules());
         } else {
             this.baseConditionEvaluator = null;
         }

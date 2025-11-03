@@ -1,5 +1,6 @@
 package com.helios.ruleengine.core.cache;
 
+import java.text.DecimalFormat;
 import java.util.logging.Logger;
 
 /**
@@ -196,20 +197,22 @@ public final class CacheFactory {
                 .enableAdaptiveSizing(config.isEnableAdaptiveSizing());
 
         if (config.isEnableAdaptiveSizing()) {
-            logger.info(String.format(
-                    "Adaptive cache created: initialSize=%d, ttl=%d %s, recordStats=%s. " +
-                            "Note: Adaptive tuning uses internal constants (minSize=10K, maxSize=10M, " +
-                            "lowThreshold=0.70, highThreshold=0.95, interval=30s). " +
-                            "Config values (minSize=%d, maxSize=%d, lowThreshold=%.2f, highThreshold=%.2f, interval=%ds) are logged but not applied.",
-                    config.getMaxSize(),
-                    config.getTtlDuration(),
-                    config.getTtlUnit(),
-                    config.getMinCacheSize(),
-                    config.getMaxCacheSize(),
-                    config.getLowHitRateThreshold(),
-                    config.getHighHitRateThreshold(),
-                    config.getTuningIntervalSeconds()
-            ));
+            DecimalFormat df = new DecimalFormat("0.00");
+
+            String msg = new StringBuilder(256)
+                    .append("Adaptive cache created: initialSize=").append(config.getMaxSize())
+                    .append(", ttl=").append(config.getTtlDuration()).append(' ').append(config.getTtlUnit())
+                    .append(", recordStats=").append(config.isRecordStats()).append(". ")
+                    .append("Note: Adaptive tuning uses internal constants (minSize=10K, maxSize=10M, ")
+                    .append("lowThreshold=0.70, highThreshold=0.95, interval=30s). ")
+                    .append("Config values (minSize=").append(config.getMinCacheSize())
+                    .append(", maxSize=").append(config.getMaxCacheSize())
+                    .append(", lowThreshold=").append(df.format(config.getLowHitRateThreshold()))
+                    .append(", highThreshold=").append(df.format(config.getHighHitRateThreshold()))
+                    .append(", interval=").append(config.getTuningIntervalSeconds()).append("s) are logged but not applied.")
+                    .toString();
+
+            logger.info(msg);
         } else {
             logger.info(String.format(
                     "Adaptive cache created with adaptive sizing disabled: maxSize=%d, ttl=%d %s",
