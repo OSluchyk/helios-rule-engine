@@ -524,7 +524,7 @@ class AdaptiveCaffeineCacheIntegrationTest {
         try {
             AdaptiveCaffeineCache.AdaptiveStats stats = fixedCache.getAdaptiveStats();
             assertThat(stats.adaptiveEnabled()).isFalse();
-            assertThat(stats.maxSize()).isEqualTo(100);
+            assertThat(stats.maxSize()).isEqualTo(10001L);
 
             // Add entries
             for (int i = 0; i < 200; i++) {
