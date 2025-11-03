@@ -504,29 +504,34 @@ public class BaseConditionEvaluator {
     }
 
     private boolean shouldEvaluateSet(BaseConditionSet set, Event event) {
-//        Int2ObjectMap<Object> eventAttrs = event.getEncodedAttributes(
-//                model.getFieldDictionary(), model.getValueDictionary());
-//
-//        for (int predId : set.staticPredicateIds) {
-//            Predicate pred = model.getPredicate(predId);
-//            if (!eventAttrs.containsKey(pred.fieldId())) {
-//                return false;
-//            }
-//        }
+        Int2ObjectMap<Object> eventAttrs = event.getEncodedAttributes(
+                model.getFieldDictionary(), model.getValueDictionary());
+
+        for (int predId : set.staticPredicateIds) {
+            Predicate pred = model.getPredicate(predId);
+            if (!eventAttrs.containsKey(pred.fieldId())) {
+                return false;
+            }
+        }
         return true;
     }
 
-    boolean isStaticPredicate(Predicate pred) {
-        Set<String> dynamicFields = Set.of(
-                "TIMESTAMP", "RANDOM", "SESSION_ID", "REQUEST_ID", "CORRELATION_ID");
+    private boolean isStaticPredicate(Predicate pred) {
+        // A "static" predicate is one that can be evaluated directly
+        // without complex string matching (REGEX, CONTAINS, etc.)
 
-        String fieldName = model.getFieldDictionary().decode(pred.fieldId());
-        if (dynamicFields.contains(fieldName)) {
-            return false;
+        // Use the built-in check for numeric operators
+        if (pred.operator().isNumeric()) {
+            return true;
         }
 
-        return pred.operator() == Predicate.Operator.EQUAL_TO ||
-                pred.operator() == Predicate.Operator.IS_ANY_OF;
+        // Also include other simple, non-regex operators
+        return switch (pred.operator()) {
+            case EQUAL_TO, IS_ANY_OF, IS_NONE_OF,
+                 IS_NULL, IS_NOT_NULL -> true;
+            // Exclude REGEX, CONTAINS, STARTS_WITH, ENDS_WITH
+            default -> false;
+        };
     }
 
     private float calculateAverageSelectivity(IntSet predicateIds) {
