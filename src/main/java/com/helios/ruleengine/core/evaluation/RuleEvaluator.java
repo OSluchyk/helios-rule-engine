@@ -338,6 +338,9 @@ public final class RuleEvaluator {
      * Select final matches based on strategy (ALL_MATCHES, MAX_PRIORITY_PER_FAMILY, FIRST_MATCH).
      */
     private void selectMatches(EvaluationContext ctx) {
+        if (model.getSelectionStrategy() == EngineModel.SelectionStrategy.ALL_MATCHES) {
+            return; // Keep all matches
+        }
         // For now, return all matches (no filtering)
         List<EvaluationContext.MutableMatchedRule> allMatches = ctx.getMutableMatchedRules();
 
