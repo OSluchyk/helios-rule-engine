@@ -504,22 +504,29 @@ public class BaseConditionEvaluator {
     }
 
     private boolean shouldEvaluateSet(BaseConditionSet set, Event event) {
-        Int2ObjectMap<Object> eventAttrs = event.getEncodedAttributes(
-                model.getFieldDictionary(), model.getValueDictionary());
-
-        for (int predId : set.staticPredicateIds) {
-            Predicate pred = model.getPredicate(predId);
-            if (!eventAttrs.containsKey(pred.fieldId())) {
-                return false;
-            }
-        }
+//        Int2ObjectMap<Object> eventAttrs = event.getEncodedAttributes(
+//                model.getFieldDictionary(), model.getValueDictionary());
+//
+//        for (int predId : set.staticPredicateIds) {
+//            Predicate pred = model.getPredicate(predId);
+//            if (!eventAttrs.containsKey(pred.fieldId())) {
+//                return false;
+//            }
+//        }
         return true;
     }
 
-    private boolean isStaticPredicate(Predicate pred) {
-        return !pred.operator().name().contains("GREATER") &&
-                !pred.operator().name().contains("LESS") &&
-                !pred.operator().name().equals("BETWEEN");
+    boolean isStaticPredicate(Predicate pred) {
+        Set<String> dynamicFields = Set.of(
+                "TIMESTAMP", "RANDOM", "SESSION_ID", "REQUEST_ID", "CORRELATION_ID");
+
+        String fieldName = model.getFieldDictionary().decode(pred.fieldId());
+        if (dynamicFields.contains(fieldName)) {
+            return false;
+        }
+
+        return pred.operator() == Predicate.Operator.EQUAL_TO ||
+                pred.operator() == Predicate.Operator.IS_ANY_OF;
     }
 
     private float calculateAverageSelectivity(IntSet predicateIds) {
