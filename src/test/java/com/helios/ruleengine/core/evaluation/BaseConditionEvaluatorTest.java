@@ -84,7 +84,7 @@ public class BaseConditionEvaluatorTest {
         // Combo 1: {country=US, type=RENEWAL, amount<50} -> Base condition fails
         // Combo 2: {status=ACTIVE, amount<100} -> Base condition matches
         // We expect 2 of the 3 combinations to remain eligible.
-        assertThat(result.matchingRules.cardinality()).isEqualTo(2);
+        assertThat(result.matchingRulesRoaring.getCardinality()).isEqualTo(2);
     }
 
 

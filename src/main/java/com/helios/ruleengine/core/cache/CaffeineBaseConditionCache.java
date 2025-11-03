@@ -3,6 +3,7 @@ package com.helios.ruleengine.core.cache;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
+import org.roaringbitmap.RoaringBitmap;
 
 import java.util.BitSet;
 import java.util.HashMap;
@@ -29,7 +30,7 @@ import java.util.logging.Logger;
 public class CaffeineBaseConditionCache implements BaseConditionCache {
     private static final Logger logger = Logger.getLogger(CaffeineBaseConditionCache.class.getName());
 
-    private final Cache<String, BitSet> cache;
+    private final Cache<String, RoaringBitmap> cache;
     private final long defaultTtlMillis;
     private final boolean statsEnabled;
 
@@ -70,14 +71,14 @@ public class CaffeineBaseConditionCache implements BaseConditionCache {
 
     @Override
     public CompletableFuture<Optional<CacheEntry>> get(String cacheKey) {
-        BitSet result = cache.getIfPresent(cacheKey);
+        RoaringBitmap result = cache.getIfPresent(cacheKey);
 
         if (result == null) {
             return CompletableFuture.completedFuture(Optional.empty());
         }
 
         CacheEntry entry = new CacheEntry(
-                (BitSet) result.clone(),
+                result.clone(),
                 System.nanoTime(),
                 0,
                 cacheKey
@@ -87,8 +88,8 @@ public class CaffeineBaseConditionCache implements BaseConditionCache {
     }
 
     @Override
-    public CompletableFuture<Void> put(String cacheKey, BitSet result, long ttl, TimeUnit timeUnit) {
-        BitSet cloned = (BitSet) result.clone();
+    public CompletableFuture<Void> put(String cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit) {
+        RoaringBitmap cloned = result.clone();
         cache.put(cacheKey, cloned);
         return CompletableFuture.completedFuture(null);
     }
@@ -98,10 +99,10 @@ public class CaffeineBaseConditionCache implements BaseConditionCache {
         Map<String, CacheEntry> results = new HashMap<>();
 
         for (String key : cacheKeys) {
-            BitSet result = cache.getIfPresent(key);
+            RoaringBitmap result = cache.getIfPresent(key);
             if (result != null) {
                 CacheEntry entry = new CacheEntry(
-                        (BitSet) result.clone(),
+                        result.clone(),
                         System.nanoTime(),
                         0,
                         key

@@ -1,5 +1,7 @@
 package com.helios.ruleengine.core.cache;
 
+import org.roaringbitmap.RoaringBitmap;
+
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -103,7 +105,7 @@ public class NoOpCache implements BaseConditionCache {
     }
 
     @Override
-    public CompletableFuture<Void> put(String cacheKey, BitSet result, long ttl, TimeUnit timeUnit) {
+    public CompletableFuture<Void> put(String cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit) {
         putCount++;
         return VOID_RESULT;
     }
@@ -122,7 +124,7 @@ public class NoOpCache implements BaseConditionCache {
     }
 
     @Override
-    public CompletableFuture<Void> warmUp(Map<String, BitSet> entries) {
+    public CompletableFuture<Void> warmUp(Map<String, RoaringBitmap> entries) {
         // No-op: warmup doesn't store anything
         logger.fine("NoOpCache.warmUp() called with " + entries.size() + " entries (ignored)");
         return VOID_RESULT;
