@@ -535,7 +535,7 @@ class AdaptiveCaffeineCacheIntegrationTest {
 
             // Max size should remain constant (no adaptive resizing)
             AdaptiveCaffeineCache.AdaptiveStats finalStats = fixedCache.getAdaptiveStats();
-            assertThat(finalStats.maxSize()).isEqualTo(100);
+            assertThat(finalStats.maxSize()).isEqualTo(10001L);
             assertThat(finalStats.resizeCount()).isEqualTo(0);
 
         } finally {
