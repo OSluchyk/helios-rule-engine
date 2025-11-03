@@ -2,6 +2,9 @@ package com.helios.ruleengine.benchmark;
 
 import com.helios.ruleengine.core.compiler.RuleCompiler;
 import com.helios.ruleengine.core.evaluation.RuleEvaluator;
+import com.helios.ruleengine.core.model.EngineModel;
+import com.helios.ruleengine.model.Event;
+import com.helios.ruleengine.model.MatchResult;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Tracer;
 import org.openjdk.jmh.annotations.*;
@@ -11,11 +14,6 @@ import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 import org.openjdk.jmh.runner.options.TimeValue;
-import com.helios.ruleengine.core.model.EngineModel;
-import com.helios.ruleengine.core.cache.BaseConditionCache;
-import com.helios.ruleengine.core.cache.InMemoryBaseConditionCache;
-import com.helios.ruleengine.model.Event;
-import com.helios.ruleengine.model.MatchResult;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -79,6 +77,10 @@ import java.util.concurrent.atomic.LongAdder;
 @Measurement(iterations = 20, time = 5) // 100 seconds measurement
 public class SimpleBenchmark {
 
+    // ========================================================================
+    // CONFIGURATION
+    // ========================================================================
+
     // Runtime modes
     private static final boolean QUICK_MODE = Boolean.getBoolean("bench.quick");
     private static final boolean EXTENDED_MODE = Boolean.getBoolean("bench.extended");
@@ -90,7 +92,10 @@ public class SimpleBenchmark {
     private static final int MEASUREMENT_ITERATIONS = QUICK_MODE ? 10 : (EXTENDED_MODE ? 30 : 20);
     private static final int MEASUREMENT_TIME = QUICK_MODE ? 3 : 5;
 
-    // Test parameters (progressive complexity)
+    // ========================================================================
+    // TEST PARAMETERS
+    // ========================================================================
+
     @Param({"500", "2000", "5000"})  // Progressive rule counts
     private int ruleCount;
 
@@ -100,8 +105,12 @@ public class SimpleBenchmark {
     @Param({"HOT", "WARM", "COLD"})  // Cache scenarios
     private String cacheScenario;
 
-    // State
+    // ========================================================================
+    // STATE VARIABLES
+    // ========================================================================
+
     private static final Tracer NOOP_TRACER = OpenTelemetry.noop().getTracer("noop");
+
     private RuleEvaluator evaluator;
     private List<Event> eventPool;
     private final AtomicInteger eventIndex = new AtomicInteger(0);
@@ -117,6 +126,10 @@ public class SimpleBenchmark {
     // Memory tracking
     private long initialMemory;
     private long peakMemory;
+
+    // ========================================================================
+    // SETUP METHODS
+    // ========================================================================
 
     @Setup(Level.Trial)
     public void setupTrial() throws Exception {
@@ -141,15 +154,15 @@ public class SimpleBenchmark {
         model = compiler.compile(rulesPath);
         compilationTime = System.nanoTime() - compileStart;
 
-
+        // Create evaluator with cache enabled
         evaluator = new RuleEvaluator(model, NOOP_TRACER, true);
+
         if (evaluator.getBaseConditionEvaluator() == null) {
             throw new IllegalStateException(
                     "Base condition cache failed to initialize! " +
                             "This will cause poor performance."
             );
         }
-
 
         // Generate diverse event pool
         eventPool = generateProgressiveEvents(10_000);
@@ -195,7 +208,14 @@ public class SimpleBenchmark {
         printFinalReport();
     }
 
-    // BENCHMARK 1: Throughput-focused batch evaluation
+    // ========================================================================
+    // BENCHMARK METHODS
+    // ========================================================================
+
+    /**
+     * BENCHMARK 1: Throughput-focused batch evaluation
+     * Measures ops/sec for batches of 100 events
+     */
     @Benchmark
     @BenchmarkMode(Mode.Throughput)
     @OutputTimeUnit(TimeUnit.SECONDS)
@@ -214,7 +234,10 @@ public class SimpleBenchmark {
         }
     }
 
-    // BENCHMARK 2: Latency-focused single evaluation
+    /**
+     * BENCHMARK 2: Latency-focused single evaluation
+     * Measures nanoseconds per single event
+     */
     @Benchmark
     @BenchmarkMode(Mode.SampleTime)
     @OutputTimeUnit(TimeUnit.NANOSECONDS)
@@ -232,7 +255,10 @@ public class SimpleBenchmark {
         return result;
     }
 
-    // BENCHMARK 3: Memory pressure test
+    /**
+     * BENCHMARK 3: Memory pressure test
+     * Multi-threaded to stress memory and cache
+     */
     @Benchmark
     @BenchmarkMode(Mode.Throughput)
     @Threads(4)  // Multi-threaded to stress memory
@@ -242,10 +268,180 @@ public class SimpleBenchmark {
         bh.consume(result);
     }
 
+    // ========================================================================
+    // HELPER METHODS
+    // ========================================================================
+
     private Event getNextEvent() {
         int idx = eventIndex.getAndIncrement();
         return eventPool.get(idx % eventPool.size());
     }
+
+    private Path createProgressiveRules(int count, String type) throws IOException {
+        Path path = Files.createTempFile("bench_rules_", ".json");
+        List<String> rules = new ArrayList<>();
+        Random rand = new Random(42);
+
+        // Progressive complexity: mix gets more complex as count increases
+        int simpleRatio = count <= 1000 ? 60 : (count <= 5000 ? 40 : 20);
+        int mediumRatio = count <= 1000 ? 30 : (count <= 5000 ? 40 : 40);
+        int complexRatio = 100 - simpleRatio - mediumRatio;
+
+        String[] statuses = {"ACTIVE", "PENDING", "SUSPENDED", "CLOSED"};
+        String[] countries = {"US", "CA", "UK", "DE", "FR", "JP", "AU", "BR", "IN", "CN"};
+        String[] tiers = {"BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"};
+        String[] products = {"ELECTRONICS", "CLOTHING", "FOOD", "BOOKS", "TOYS"};
+
+        for (int i = 0; i < count; i++) {
+            StringBuilder rule = new StringBuilder();
+            rule.append(String.format(
+                    "{\"rule_code\":\"RULE_%d\",\"priority\":%d,\"conditions\":[",
+                    i, 1000 - i
+            ));
+
+            int complexity = (i * 100 / count) < simpleRatio ? 0 :
+                    (i * 100 / count) < (simpleRatio + mediumRatio) ? 1 : 2;
+
+            List<String> conditions = new ArrayList<>();
+
+            switch (complexity) {
+                case 0: // Simple rules (2-3 conditions)
+                    conditions.add(String.format(
+                            "{\"field\":\"status\",\"operator\":\"EQUAL_TO\",\"value\":\"%s\"}",
+                            statuses[rand.nextInt(2)]
+                    ));
+                    conditions.add(String.format(
+                            "{\"field\":\"amount\",\"operator\":\"GREATER_THAN\",\"value\":%d}",
+                            rand.nextInt(1000)
+                    ));
+                    if (rand.nextBoolean()) {
+                        conditions.add(String.format(
+                                "{\"field\":\"country\",\"operator\":\"EQUAL_TO\",\"value\":\"%s\"}",
+                                countries[0]
+                        ));
+                    }
+                    break;
+
+                case 1: // Medium rules (4-5 conditions)
+                    conditions.add(String.format(
+                            "{\"field\":\"status\",\"operator\":\"IS_ANY_OF\",\"value\":[\"%s\",\"%s\"]}",
+                            statuses[rand.nextInt(statuses.length)],
+                            statuses[rand.nextInt(statuses.length)]
+                    ));
+                    conditions.add(String.format(
+                            "{\"field\":\"amount\",\"operator\":\"BETWEEN\",\"value\":[%d,%d]}",
+                            rand.nextInt(5000), 5000 + rand.nextInt(5000)
+                    ));
+                    conditions.add(String.format(
+                            "{\"field\":\"country\",\"operator\":\"IS_ANY_OF\",\"value\":[\"%s\",\"%s\",\"%s\"]}",
+                            countries[rand.nextInt(countries.length)],
+                            countries[rand.nextInt(countries.length)],
+                            countries[rand.nextInt(countries.length)]
+                    ));
+                    conditions.add(String.format(
+                            "{\"field\":\"tier\",\"operator\":\"IS_ANY_OF\",\"value\":[\"%s\",\"%s\"]}",
+                            tiers[rand.nextInt(tiers.length)],
+                            tiers[rand.nextInt(tiers.length)]
+                    ));
+                    break;
+
+                case 2: // Complex rules (6-8 conditions)
+                    conditions.add(String.format(
+                            "{\"field\":\"status\",\"operator\":\"IS_ANY_OF\",\"value\":[\"%s\",\"%s\",\"%s\"]}",
+                            statuses[0], statuses[1], statuses[2]
+                    ));
+                    conditions.add(String.format(
+                            "{\"field\":\"amount\",\"operator\":\"GREATER_THAN\",\"value\":%d}",
+                            rand.nextInt(10000)
+                    ));
+                    conditions.add(String.format(
+                            "{\"field\":\"country\",\"operator\":\"IS_ANY_OF\",\"value\":[\"%s\",\"%s\",\"%s\",\"%s\"]}",
+                            countries[rand.nextInt(countries.length)],
+                            countries[rand.nextInt(countries.length)],
+                            countries[rand.nextInt(countries.length)],
+                            countries[rand.nextInt(countries.length)]
+                    ));
+                    conditions.add(String.format(
+                            "{\"field\":\"tier\",\"operator\":\"IS_ANY_OF\",\"value\":[\"%s\",\"%s\",\"%s\"]}",
+                            tiers[0], tiers[1], tiers[2]
+                    ));
+                    conditions.add(String.format(
+                            "{\"field\":\"product\",\"operator\":\"IS_ANY_OF\",\"value\":[\"%s\",\"%s\"]}",
+                            products[rand.nextInt(products.length)],
+                            products[rand.nextInt(products.length)]
+                    ));
+                    conditions.add(String.format(
+                            "{\"field\":\"risk_score\",\"operator\":\"LESS_THAN\",\"value\":%d}",
+                            50 + rand.nextInt(50)
+                    ));
+                    break;
+            }
+
+            rule.append(String.join(",", conditions));
+            rule.append("]}");
+            rules.add(rule.toString());
+        }
+
+        Files.writeString(path, "[" + String.join(",", rules) + "]");
+        return path;
+    }
+
+    private List<Event> generateProgressiveEvents(int count) {
+        List<Event> events = new ArrayList<>(count);
+        Random rand = new Random(42);
+
+        String[] statuses = {"ACTIVE", "PENDING", "SUSPENDED", "CLOSED"};
+        String[] countries = {"US", "CA", "UK", "DE", "FR", "JP", "AU", "BR", "IN", "CN"};
+        String[] tiers = {"BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"};
+        String[] products = {"ELECTRONICS", "CLOTHING", "FOOD", "BOOKS", "TOYS"};
+
+        for (int i = 0; i < count; i++) {
+            Map<String, Object> attrs = new HashMap<>();
+
+            // Progressive complexity across the pool
+            int complexity = (i * 3) / count; // 0, 1, or 2
+
+            switch (complexity) {
+                case 0: // Simple events (first third)
+                    attrs.put("status", statuses[rand.nextInt(2)]);
+                    attrs.put("amount", rand.nextInt(1000));
+                    attrs.put("country", countries[0]); // Fixed country
+                    break;
+
+                case 1: // Medium complexity (second third)
+                    attrs.put("status", statuses[rand.nextInt(statuses.length)]);
+                    attrs.put("amount", rand.nextInt(10000));
+                    attrs.put("country", countries[rand.nextInt(5)]);
+                    attrs.put("tier", tiers[rand.nextInt(3)]);
+                    attrs.put("score", 50 + rand.nextInt(50));
+                    break;
+
+                case 2: // Complex events (final third)
+                    attrs.put("status", statuses[rand.nextInt(statuses.length)]);
+                    attrs.put("amount", rand.nextInt(100000));
+                    attrs.put("country", countries[rand.nextInt(countries.length)]);
+                    attrs.put("tier", tiers[rand.nextInt(tiers.length)]);
+                    attrs.put("product", products[rand.nextInt(products.length)]);
+                    attrs.put("risk_score", rand.nextInt(100));
+                    attrs.put("verified", rand.nextBoolean());
+                    attrs.put("score", rand.nextInt(100));
+                    attrs.put("user_segment", rand.nextInt(10));
+                    attrs.put("category", products[rand.nextInt(3)]);
+                    break;
+            }
+
+            events.add(new Event("evt_" + i, "BENCH", attrs));
+        }
+
+        // Shuffle to mix complexities
+        Collections.shuffle(events, rand);
+
+        return events;
+    }
+
+    // ========================================================================
+    // REPORTING METHODS
+    // ========================================================================
 
     private void printHeader() {
         System.out.println("\n" + "=".repeat(80));
@@ -254,47 +450,25 @@ public class SimpleBenchmark {
 
         String mode = QUICK_MODE ? "QUICK (1 min)" :
                 (EXTENDED_MODE ? "EXTENDED (3 min)" : "STANDARD (2 min)");
+        System.out.println("Mode: " + mode);
 
-        System.out.printf("Mode:         %s\n", mode);
-        System.out.printf("Total Time:   ~%d seconds\n",
-                WARMUP_ITERATIONS * WARMUP_TIME + MEASUREMENT_ITERATIONS * MEASUREMENT_TIME + 10);
-        System.out.printf("Warmup:       %d × %ds = %ds\n",
-                WARMUP_ITERATIONS, WARMUP_TIME, WARMUP_ITERATIONS * WARMUP_TIME);
-        System.out.printf("Measurement:  %d × %ds = %ds\n",
-                MEASUREMENT_ITERATIONS, MEASUREMENT_TIME, MEASUREMENT_ITERATIONS * MEASUREMENT_TIME);
-        System.out.println("=".repeat(80));
+        if (PROFILE) {
+            System.out.println("⚠️  Profiling enabled - expect slower results");
+        }
+
+        System.out.println("=".repeat(80) + "\n");
     }
 
     private void printSetupSummary() {
-        System.out.println("\n📊 COMPILATION & MODEL STATISTICS:");
-        System.out.println("─".repeat(50));
-
-        Map<String, Object> metadata = model.getStats().metadata();
-
-        System.out.printf("Compilation Time:      %.2f ms\n", compilationTime / 1_000_000.0);
-        System.out.printf("Logical Rules:         %,d\n", metadata.get("logicalRules"));
-        System.out.printf("Expanded Combinations: %,d\n", metadata.get("totalExpandedCombinations"));
-        System.out.printf("Unique Combinations:   %,d\n", metadata.get("uniqueCombinations"));
-        System.out.printf("Deduplication Rate:    %s%%\n", metadata.get("deduplicationRatePercent"));
-        System.out.printf("Unique Predicates:     %,d\n", model.getUniquePredicates().length);
-
-        long estimatedMemory = estimateMemoryUsage();
-        System.out.printf("Estimated Memory:      %.2f MB\n", estimatedMemory / (1024.0 * 1024.0));
-
-        // Deduplication effectiveness
-        int expanded = (int) metadata.get("totalExpandedCombinations");
-        int unique = (int) metadata.get("uniqueCombinations");
-        if (expanded > 0) {
-            double compressionRatio = (double) expanded / unique;
-            System.out.printf("Compression Ratio:     %.1fx\n", compressionRatio);
-        }
-
-        System.out.println("\n⚙️  TEST CONFIGURATION:");
+        System.out.println("\n📋 TEST CONFIGURATION:");
         System.out.println("─".repeat(50));
         System.out.printf("Rule Count:            %,d\n", ruleCount);
         System.out.printf("Workload Type:         %s\n", workloadType);
         System.out.printf("Event Pool Size:       %,d\n", eventPool.size());
         System.out.printf("Cache Scenario:        %s\n", cacheScenario);
+        System.out.printf("Compilation Time:      %.2f ms\n", compilationTime / 1_000_000.0);
+        System.out.printf("Model Size (est):      %.2f MB\n", estimateMemoryUsage() / (1024.0 * 1024.0));
+        System.out.println("─".repeat(50));
     }
 
     private void printFinalReport() {
@@ -340,19 +514,6 @@ public class SimpleBenchmark {
                 (peakMemory - initialMemory) / (1024.0 * 1024.0));
         System.out.printf("Memory per Rule:       %.2f KB\n",
                 (peakMemory - initialMemory) / (1024.0 * ruleCount));
-
-        // Cache effectiveness
-        Map<String, Object> metrics = evaluator.getMetrics().getSnapshot();
-        if (metrics.containsKey("cacheHitRate")) {
-            System.out.println("\n🎯 CACHE EFFECTIVENESS:");
-            System.out.println("─".repeat(50));
-            System.out.printf("Cache Hit Rate:        %.1f%%\n",
-                    ((Double) metrics.get("cacheHitRate")) * 100);
-            System.out.printf("Avg Predicates/Event:  %.1f\n",
-                    metrics.getOrDefault("avgPredicatesPerEvent", 0.0));
-            System.out.printf("Avg Rules/Event:       %.1f\n",
-                    metrics.getOrDefault("avgRulesConsideredPerEvent", 0.0));
-        }
 
         // Performance targets check
         System.out.println("\n✅ PERFORMANCE TARGETS:");
@@ -411,129 +572,13 @@ public class SimpleBenchmark {
             System.out.println("Base Condition Cache: NOT ENABLED");
             System.out.println("⚠️  Performance will be poor without caching!");
         }
-        // ============================================================
 
         System.out.println("\n" + "=".repeat(80));
-
     }
 
-    private Path createProgressiveRules(int count, String type) throws IOException {
-        Path path = Files.createTempFile("bench_rules_", ".json");
-        List<String> rules = new ArrayList<>();
-        Random rand = new Random(42);
-
-        // Progressive complexity: mix gets more complex as count increases
-        int simpleRatio = count <= 1000 ? 60 : (count <= 5000 ? 40 : 20);
-        int mediumRatio = count <= 1000 ? 30 : (count <= 5000 ? 40 : 40);
-        int complexRatio = 100 - simpleRatio - mediumRatio;
-
-        for (int i = 0; i < count; i++) {
-            int percentile = (i * 100) / count;
-
-            if (percentile < simpleRatio) {
-                // Simple rules
-                rules.add(String.format(
-                        "{\"rule_code\":\"S_%d\",\"priority\":%d,\"conditions\":[" +
-                                "{\"field\":\"status\",\"operator\":\"EQUAL_TO\",\"value\":\"ACTIVE\"}," +
-                                "{\"field\":\"amount\",\"operator\":\"GREATER_THAN\",\"value\":%d}]}",
-                        i, rand.nextInt(50), rand.nextInt(1000)
-                ));
-            } else if (percentile < simpleRatio + mediumRatio) {
-                // Medium complexity
-                rules.add(String.format(
-                        "{\"rule_code\":\"M_%d\",\"priority\":%d,\"conditions\":[" +
-                                "{\"field\":\"country\",\"operator\":\"IS_ANY_OF\",\"value\":[\"US\",\"UK\",\"CA\",\"AU\"]}," +
-                                "{\"field\":\"tier\",\"operator\":\"IS_ANY_OF\",\"value\":[\"GOLD\",\"PLATINUM\"]}," +
-                                "{\"field\":\"amount\",\"operator\":\"BETWEEN\",\"value\":[%d,%d]}]}",
-                        i, 50 + rand.nextInt(30), 100, 5000 + rand.nextInt(5000)
-                ));
-            } else {
-                // Complex rules with high expansion
-                List<String> countries = Arrays.asList("US", "UK", "CA", "AU", "DE", "FR", "JP", "CN");
-                List<String> tiers = Arrays.asList("GOLD", "PLATINUM", "DIAMOND");
-                List<String> products = Arrays.asList("ELECTRONICS", "FASHION", "HOME", "SPORTS");
-
-                // Randomly select subsets for variety
-                Collections.shuffle(countries, rand);
-                Collections.shuffle(tiers, rand);
-                Collections.shuffle(products, rand);
-
-                String countryList = String.join("\",\"",
-                        countries.subList(0, 3 + rand.nextInt(3)));
-                String tierList = String.join("\",\"",
-                        tiers.subList(0, 2 + rand.nextInt(2)));
-                String productList = String.join("\",\"",
-                        products.subList(0, 2 + rand.nextInt(2)));
-
-                rules.add(String.format(
-                        "{\"rule_code\":\"C_%d\",\"priority\":%d,\"conditions\":[" +
-                                "{\"field\":\"country\",\"operator\":\"IS_ANY_OF\",\"value\":[\"%s\"]}," +
-                                "{\"field\":\"tier\",\"operator\":\"IS_ANY_OF\",\"value\":[\"%s\"]}," +
-                                "{\"field\":\"product\",\"operator\":\"IS_ANY_OF\",\"value\":[\"%s\"]}," +
-                                "{\"field\":\"status\",\"operator\":\"EQUAL_TO\",\"value\":\"ACTIVE\"}," +
-                                "{\"field\":\"amount\",\"operator\":\"GREATER_THAN\",\"value\":%d}]}",
-                        i, 70 + rand.nextInt(30), countryList, tierList, productList,
-                        rand.nextInt(10000)
-                ));
-            }
-        }
-
-        Files.writeString(path, "[" + String.join(",\n", rules) + "]");
-        return path;
-    }
-
-    private List<Event> generateProgressiveEvents(int count) {
-        List<Event> events = new ArrayList<>(count);
-        Random rand = new Random(123);
-
-        String[] countries = {"US", "UK", "CA", "AU", "DE", "FR", "JP", "CN", "IN", "BR"};
-        String[] tiers = {"BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"};
-        String[] statuses = {"ACTIVE", "INACTIVE", "PENDING", "SUSPENDED"};
-        String[] products = {"ELECTRONICS", "FASHION", "HOME", "SPORTS", "BOOKS"};
-
-        for (int i = 0; i < count; i++) {
-            Map<String, Object> attrs = new HashMap<>();
-
-            // Vary event complexity based on position in pool
-            int complexity = (i * 3) / count; // 0, 1, or 2
-
-            switch (complexity) {
-                case 0: // Simple events (first third)
-                    attrs.put("status", statuses[rand.nextInt(2)]);
-                    attrs.put("amount", rand.nextInt(1000));
-                    attrs.put("country", countries[0]); // Fixed country
-                    break;
-
-                case 1: // Medium complexity (second third)
-                    attrs.put("status", statuses[rand.nextInt(statuses.length)]);
-                    attrs.put("amount", rand.nextInt(10000));
-                    attrs.put("country", countries[rand.nextInt(5)]);
-                    attrs.put("tier", tiers[rand.nextInt(3)]);
-                    attrs.put("score", 50 + rand.nextInt(50));
-                    break;
-
-                case 2: // Complex events (final third)
-                    attrs.put("status", statuses[rand.nextInt(statuses.length)]);
-                    attrs.put("amount", rand.nextInt(100000));
-                    attrs.put("country", countries[rand.nextInt(countries.length)]);
-                    attrs.put("tier", tiers[rand.nextInt(tiers.length)]);
-                    attrs.put("product", products[rand.nextInt(products.length)]);
-                    attrs.put("risk_score", rand.nextInt(100));
-                    attrs.put("verified", rand.nextBoolean());
-                    attrs.put("score", rand.nextInt(100));
-                    attrs.put("user_segment", rand.nextInt(10));
-                    attrs.put("category", products[rand.nextInt(3)]);
-                    break;
-            }
-
-            events.add(new Event("evt_" + i, "BENCH", attrs));
-        }
-
-        // Shuffle to mix complexities
-        Collections.shuffle(events, rand);
-
-        return events;
-    }
+    // ========================================================================
+    // UTILITY METHODS
+    // ========================================================================
 
     private long estimateMemoryUsage() {
         int numRules = model.getNumRules();
@@ -564,6 +609,10 @@ public class SimpleBenchmark {
         int index = (int) Math.ceil(p * values.size()) - 1;
         return values.get(Math.max(0, Math.min(index, values.size() - 1)));
     }
+
+    // ========================================================================
+    // MAIN METHOD
+    // ========================================================================
 
     public static void main(String[] args) throws RunnerException {
         // Configure for 2-3 minute runtime
