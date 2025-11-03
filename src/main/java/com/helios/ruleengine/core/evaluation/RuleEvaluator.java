@@ -339,7 +339,23 @@ public final class RuleEvaluator {
      */
     private void selectMatches(EvaluationContext ctx) {
         // For now, return all matches (no filtering)
-        // TODO: Implement selection strategies (PER_FAMILY_MAX_PRIORITY, TOP_K)
+        List<EvaluationContext.MutableMatchedRule> allMatches = ctx.getMutableMatchedRules();
+
+        if (allMatches.isEmpty()) {
+            return;  // No matches, nothing to filter
+        }
+
+        // Find the highest priority across ALL matches
+        int highestPriority = Integer.MIN_VALUE;
+        for (EvaluationContext.MutableMatchedRule rule : allMatches) {
+            if (rule.getPriority() > highestPriority) {
+                highestPriority = rule.getPriority();
+            }
+        }
+
+        // Keep only matches with the highest priority
+        final int maxPriority = highestPriority;
+        allMatches.removeIf(rule -> rule.getPriority() < maxPriority);
     }
 
     public EvaluatorMetrics getMetrics() {

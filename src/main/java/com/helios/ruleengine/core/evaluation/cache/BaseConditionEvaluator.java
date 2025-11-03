@@ -419,7 +419,9 @@ public class BaseConditionEvaluator {
                                                                  long startTime) {
         // ✅ P0-A: Use RoaringBitmap from the start (no BitSet conversion)
         RoaringBitmap matchingCombinations = new RoaringBitmap();
-        matchingCombinations.add(0L, model.getNumRules());
+        for (BaseConditionSet set : sets) {
+            matchingCombinations.or(set.affectedRules);
+        }
 
         Int2ObjectMap<Object> eventAttrs = event.getEncodedAttributes(
                 model.getFieldDictionary(), model.getValueDictionary());
@@ -534,12 +536,39 @@ public class BaseConditionEvaluator {
     public Map<String, Object> getMetrics() {
         double hitRate = totalEvaluations > 0 ? (double) cacheHits / totalEvaluations : 0.0;
 
+        // Calculate deduplication metrics
+        int totalCombinations = model.getNumRules();
+        int uniqueBaseSets = baseConditionSets.size();
+
+        double reductionPercent = totalCombinations > 0
+                ? (1.0 - (double) uniqueBaseSets / totalCombinations) * 100.0
+                : 0.0;
+
+        // Calculate average predicate set size
+        double avgSetSize = 0.0;
+        if (!baseConditionSets.isEmpty()) {
+            int totalPredicates = 0;
+            for (BaseConditionSet set : baseConditionSets.values()) {
+                totalPredicates += set.size();
+            }
+            avgSetSize = (double) totalPredicates / baseConditionSets.size();
+        }
+
+        // Calculate average reuse per set (how many combinations share each base set)
+        double avgReusePerSet = uniqueBaseSets > 0
+                ? (double) totalCombinations / uniqueBaseSets
+                : 0.0;
+
         return Map.of(
                 "totalEvaluations", totalEvaluations,
                 "cacheHits", cacheHits,
                 "cacheMisses", cacheMisses,
                 "cacheHitRate", hitRate,
-                "baseConditionSets", baseConditionSets.size()
+                "baseConditionSets", uniqueBaseSets,
+                "totalCombinations", totalCombinations,  // FIX: Added
+                "baseConditionReductionPercent", reductionPercent,  // FIX: Added
+                "avgSetSize", avgSetSize,  // FIX: Added
+                "avgReusePerSet", avgReusePerSet  // FIX: Added
         );
     }
 }
