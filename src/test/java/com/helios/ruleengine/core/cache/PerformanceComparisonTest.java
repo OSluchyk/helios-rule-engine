@@ -4,6 +4,7 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.roaringbitmap.RoaringBitmap;
 
 import java.util.BitSet;
 import java.util.Optional;
@@ -63,8 +64,8 @@ class PerformanceComparisonTest {
 
             Optional<BaseConditionCache.CacheEntry> cached = cache.get(key).join();
             if (cached.isEmpty()) {
-                BitSet result = new BitSet();
-                result.set(i % 64);
+                RoaringBitmap result = new RoaringBitmap();
+                result.add(i % 64);
                 cache.put(key, result, 5, TimeUnit.MINUTES).join();
             }
         }
