@@ -48,7 +48,7 @@ public class RuleEngineApplication {
 
     private void shutdown() {
         if (modelManager != null) modelManager.shutdown();
-        if (httpServer != null) httpServer.stop();
+        if (httpServer != null) httpServer.stop(2*60*1000);
         logger.info("Rule Engine shutdown complete");
     }
 

@@ -72,7 +72,11 @@ class RuleEvaluatorTest {
 
         RuleCompiler compiler = new RuleCompiler(tracer);
         engineModel = compiler.compile(rulesPath);
-        ruleEvaluator = new RuleEvaluator(engineModel, tracer);
+
+        // ✅ BUG FIX: Initialize with cache enabled (true)
+        // This is required for the cache-sharing test to work, as it ensures
+        // the eligiblePredicateSetCache code path is actually executed.
+        ruleEvaluator = new RuleEvaluator(engineModel, tracer, true);
     }
 
     @Test
@@ -263,6 +267,57 @@ class RuleEvaluatorTest {
 
         // Verify the first result's data is not present in the second
         assertThat(result2.eventId()).isEqualTo("evt-2");
+    }
+
+    /**
+     * ✅ RECOMMENDATION 2 FIX
+     * New test to verify that the eligiblePredicateSetCache is shared
+     * between different RuleEvaluator instances using the same EngineModel.
+     */
+    @Test
+    @DisplayName("Should share eligiblePredicateSetCache via EngineModel")
+    void shouldShareEligiblePredicateCache() {
+        // Given
+        // Create two separate evaluators from the *same* model
+        // Caching is enabled in setUp()
+        RuleEvaluator evaluator1 = ruleEvaluator; // Use the one from setUp
+        RuleEvaluator evaluator2 = new RuleEvaluator(engineModel, tracer, true); // Create a new one
+
+        Event event = new Event("evt-cache-share", "TRANSACTION", Map.of(
+                "transaction_amount", 20000,
+                "country_code", "US",
+                "user_age_days", 30 // Add this to match the first rule only
+        ));
+
+        // When
+        // Evaluate on the first evaluator to populate the cache
+        MatchResult result1 = evaluator1.evaluate(event);
+
+        // Then
+        // Verify it was a cache miss
+        assertThat(result1.matchedRules()).hasSize(1);
+        Map<String, Object> metrics1 = evaluator1.getMetrics().getSnapshot();
+
+        // This assertion should now pass because caching is enabled
+        assertThat(metrics1.get("eligibleSetCacheMisses")).isEqualTo(1L);
+        assertThat(metrics1.get("eligibleSetCacheHits")).isEqualTo(0L);
+        // Verify the shared cache in the model was populated
+        assertThat(evaluator1.getModel().getEligiblePredicateSetCache().estimatedSize()).isEqualTo(1);
+
+
+        // When
+        // Evaluate the *same* event on the second evaluator
+        MatchResult result2 = evaluator2.evaluate(event);
+
+        // Then
+        // Verify it was a cache hit from the shared model cache
+        assertThat(result2.matchedRules()).hasSize(1);
+        Map<String, Object> metrics2 = evaluator2.getMetrics().getSnapshot();
+        assertThat(metrics2.get("eligibleSetCacheMisses")).isEqualTo(0L); // No miss for this evaluator
+        assertThat(metrics2.get("eligibleSetCacheHits")).isEqualTo(1L);   // A hit!
+
+        // The cache size is still 1, proving it was shared
+        assertThat(evaluator2.getModel().getEligiblePredicateSetCache().estimatedSize()).isEqualTo(1);
     }
 
     @Test
