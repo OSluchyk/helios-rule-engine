@@ -4,6 +4,7 @@
  */
 package com.helios.ruleengine.core.model;
 
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.helios.ruleengine.model.Predicate;
 import com.helios.ruleengine.model.RuleDefinition;
 import it.unimi.dsi.fastutil.ints.*;
@@ -17,6 +18,9 @@ import java.util.regex.Pattern;
 
 public final class EngineModel implements Serializable {
     private static final long serialVersionUID = 1L;
+
+    // ✅ RECOMMENDATION 2 FIX: Define cache size constant here
+    private static final int ELIGIBLE_PREDICATE_CACHE_SIZE = 10_000;
 
     private final Dictionary fieldDictionary;
     private final Dictionary valueDictionary;
@@ -40,6 +44,16 @@ public final class EngineModel implements Serializable {
 
     // Cache for predicate ID lookups
     private final Object2IntMap<PredicateKey> predicateKeyToId;
+
+    /**
+     * ✅ RECOMMENDATION 2 FIX
+     * The eligiblePredicateSetCache is moved here from RuleEvaluator.
+     * It is now tied to the EngineModel, not an evaluator instance.
+     * It is marked 'transient' so it's not serialized with the model.
+     * It is thread-safe (Caffeine) and shared by all evaluators.
+     */
+    private final transient com.github.benmanes.caffeine.cache.Cache<RoaringBitmap, IntSet> eligiblePredicateSetCache;
+
 
     public enum SelectionStrategy {
         ALL_MATCHES,
@@ -101,7 +115,31 @@ public final class EngineModel implements Serializable {
                 this.predicateKeyToId.put(key, i);
             }
         }
+
+        // ✅ RECOMMENDATION 2 FIX: Initialize the shared, thread-safe cache
+        this.eligiblePredicateSetCache = Caffeine.newBuilder()
+                .maximumSize(ELIGIBLE_PREDICATE_CACHE_SIZE)
+                .build();
     }
+
+    /**
+     * Gets the shared, model-specific cache for eligible predicate sets.
+     * This cache is thread-safe and shared across all RuleEvaluator instances
+     * using this model.
+     * @return The Caffeine cache instance.
+     */
+    public com.github.benmanes.caffeine.cache.Cache<RoaringBitmap, IntSet> getEligiblePredicateSetCache() {
+        return eligiblePredicateSetCache;
+    }
+
+    /**
+     * Getter for the cache size constant.
+     */
+    public long getEligiblePredicateCacheMaxSize() {
+        return ELIGIBLE_PREDICATE_CACHE_SIZE;
+    }
+
+
     // --- Public Accessors (Preserved for Compatibility) ---
 
     public int getNumRules() { return predicateCounts.length; }

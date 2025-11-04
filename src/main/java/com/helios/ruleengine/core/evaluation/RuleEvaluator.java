@@ -43,12 +43,17 @@ import java.util.concurrent.CompletableFuture;
  * - Added ThreadLocal contextPool to pool EvaluationContext objects.
  * - This eliminates heap allocations in the hot path, drastically reducing
  * GC pressure and improving tail latency.
+ *
+ * ✅ RECOMMENDATION 2 FIX (HIGH PRIORITY):
+ * - Removed instance-specific eligiblePredicateSetCache.
+ * - RuleEvaluator is now STATELESS regarding this cache.
+ * - It uses the shared, thread-safe cache from the EngineModel.
  */
 public final class RuleEvaluator {
     private final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(RuleEvaluator.class);
 
     private static final int PREFETCH_DISTANCE = 64;
-    private static final int MAX_CACHE_SIZE = 10_000;
+    // ✅ RECOMMENDATION 2 FIX: Removed MAX_CACHE_SIZE (now defined in EngineModel)
 
     private final EngineModel model;
     private final Tracer tracer;
@@ -56,10 +61,11 @@ public final class RuleEvaluator {
     private final PredicateEvaluator predicateEvaluator;
     private final BaseConditionEvaluator baseConditionEvaluator;
 
-    // ✅ P0-A: Changed from Map<BitSet, IntSet> to Map<RoaringBitmap, IntSet>
-    private final Map<RoaringBitmap, IntSet> eligiblePredicateSetCache;
+    // ✅ RECOMMENDATION 2 FIX: Removed instance-specific cache
+    // private final Map<RoaringBitmap, IntSet> eligiblePredicateSetCache;
 
     /**
+     * ✅ RECOMMENDATION 1 FIX
      * Thread-local object pool for EvaluationContext.
      * This is the single most critical performance optimization.
      * It avoids allocating a new EvaluationContext (and its large internal arrays)
@@ -85,10 +91,11 @@ public final class RuleEvaluator {
             this.baseConditionEvaluator = null;
         }
 
-        // ✅ P0-A: Initialize cache with RoaringBitmap keys
-        this.eligiblePredicateSetCache = new HashMap<>();
+        // ✅ RECOMMENDATION 2 FIX: Removed cache initialization
+        // this.eligiblePredicateSetCache = new HashMap<>();
 
         /**
+         * ✅ RECOMMENDATION 1 FIX
          * Initialize the thread-local context pool.
          * This creates one EvaluationContext per thread, sized specifically for this EngineModel.
          */
@@ -229,6 +236,15 @@ public final class RuleEvaluator {
         }
     }
 
+    // ✅ RECOMMENDATION 2 FIX: Added getter for the model
+    /**
+     * Gets the underlying EngineModel used by this evaluator.
+     * @return The EngineModel.
+     */
+    public EngineModel getModel() {
+        return model;
+    }
+
     private double getCacheHitRate() {
         if (baseConditionEvaluator == null) return 0.0;
         Map<String, Object> metrics = baseConditionEvaluator.getMetrics();
@@ -264,6 +280,7 @@ public final class RuleEvaluator {
 
     /**
      * ✅ P0-A: Compute eligible predicate set with caching using RoaringBitmap
+     * ✅ RECOMMENDATION 2 FIX: Uses shared cache from EngineModel
      *
      * CHANGED: Method signature now accepts RoaringBitmap instead of BitSet
      * CHANGED: Cache now uses RoaringBitmap keys
@@ -273,8 +290,11 @@ public final class RuleEvaluator {
             return null;
         }
 
-        // ✅ P0-A: Check cache with RoaringBitmap key
-        IntSet cached = eligiblePredicateSetCache.get(eligibleRules);
+        // ✅ RECOMMENDATION 2 FIX: Get cache from the model
+        var cache = model.getEligiblePredicateSetCache();
+
+        // ✅ RECOMMENDATION 2 FIX: Use getIfPresent for Caffeine
+        IntSet cached = cache.getIfPresent(eligibleRules);
         if (cached != null) {
             metrics.eligibleSetCacheHits.incrementAndGet();
             return cached;
@@ -290,10 +310,9 @@ public final class RuleEvaluator {
             eligible.addAll(predicateIds);
         });
 
-        // ✅ P0-A: Add to cache with RoaringBitmap key if space available
-        if (eligiblePredicateSetCache.size() < MAX_CACHE_SIZE) {
-            eligiblePredicateSetCache.put(eligibleRules.clone(), eligible);
-        }
+        // ✅ RECOMMENDATION 2 FIX: Put into the shared model cache
+        // Caffeine will handle eviction automatically based on its size policy.
+        cache.put(eligibleRules.clone(), eligible);
 
         return eligible;
     }
@@ -402,9 +421,11 @@ public final class RuleEvaluator {
             allMetrics.put("baseCondition", baseMetrics);
         }
 
-        // ✅ P0-A: Add cache statistics
-        allMetrics.put("eligibleSetCacheSize", eligiblePredicateSetCache.size());
-        allMetrics.put("eligibleSetCacheMaxSize", MAX_CACHE_SIZE);
+        // ✅ RECOMMENDATION 2 FIX: Report metrics from the shared model cache
+        var eligibleCache = model.getEligiblePredicateSetCache();
+        allMetrics.put("eligibleSetCacheSize", eligibleCache.estimatedSize());
+        allMetrics.put("eligibleSetCacheMaxSize", model.getEligiblePredicateCacheMaxSize());
+
 
         return allMetrics;
     }
