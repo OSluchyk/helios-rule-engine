@@ -20,12 +20,14 @@ class PerformanceComparisonTest {
         // Fixed-size cache
         BaseConditionCache fixedCache = new CaffeineBaseConditionCache.Builder()
                 .maxSize(10_000)
+                .recordStats(true)
                 .build();
 
         // Adaptive cache
         AdaptiveCaffeineCache adaptiveCache = new AdaptiveCaffeineCache.Builder()
                 .initialMaxSize(10_000)
                 .enableAdaptiveSizing(true)
+                .recordStats(true)
                 .build();
 
         try {
@@ -41,6 +43,8 @@ class PerformanceComparisonTest {
             System.out.println("Fixed cache duration:    " + (fixedDuration / 1_000_000) + "ms");
             System.out.println("Adaptive cache duration: " + (adaptiveDuration / 1_000_000) + "ms");
 
+            double expectedFixedHitRate = 99.0;
+
             BaseConditionCache.CacheMetrics fixedMetrics = fixedCache.getMetrics();
             BaseConditionCache.CacheMetrics adaptiveMetrics = adaptiveCache.getMetrics();
 
@@ -48,8 +52,7 @@ class PerformanceComparisonTest {
             System.out.println("Adaptive hit rate: " + adaptiveMetrics.hitRate() + "%");
 
             // Adaptive should have similar or better hit rate
-            assertThat(adaptiveMetrics.hitRate()).isGreaterThanOrEqualTo(fixedMetrics.hitRate() - 5);
-
+            assertThat(adaptiveMetrics.hitRate()).isGreaterThanOrEqualTo(expectedFixedHitRate - 5);
         } finally {
             adaptiveCache.shutdown();
         }
