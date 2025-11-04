@@ -18,11 +18,11 @@ import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
 import it.unimi.dsi.fastutil.ints.*;
-import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import org.roaringbitmap.RoaringBitmap;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+
 
 /**
  * ✅ P0-A FIX COMPLETE: Rule evaluator using only RoaringBitmap (no BitSet conversions)
@@ -39,10 +39,14 @@ import java.util.concurrent.CompletableFuture;
  * - Cache miss latency: -40-60% (no conversion overhead)
  * - RoaringBitmap iteration: 15-25% faster than BitSet
  *
- * ✅ RECOMMENDATION 1 FIX (CRITICAL):
- * - Added ThreadLocal contextPool to pool EvaluationContext objects.
- * - This eliminates heap allocations in the hot path, drastically reducing
- * GC pressure and improving tail latency.
+ * ✅ RECOMMENDATION 1 FIX (CRITICAL) / P5 GOAL:
+ * - Changed context management from simple ThreadLocal.get() to ScopedValue.
+ * - The ThreadLocal 'contextPool' is *retained* as the object pool,
+ * which is necessary because EvaluationContext is sized per-model-instance.
+ * - The 'evaluate' method now binds the pooled context to a 'static final ScopedValue'.
+ * - All internal methods (evaluatePredicatesHybrid, etc.) are refactored
+ * to use 'CONTEXT.get()' instead of receiving 'ctx' as a parameter.
+ * - This achieves the Phase 5 goal of modernizing concurrency patterns.
  *
  * ✅ RECOMMENDATION 2 FIX (HIGH PRIORITY):
  * - Removed instance-specific eligiblePredicateSetCache.
@@ -55,6 +59,9 @@ public final class RuleEvaluator {
     private static final int PREFETCH_DISTANCE = 64;
     // ✅ RECOMMENDATION 2 FIX: Removed MAX_CACHE_SIZE (now defined in EngineModel)
 
+    // ✅ P5 FIX: Add static ScopedValue for context access per Phase 5 spec
+    private static final ScopedValue<EvaluationContext> CONTEXT = ScopedValue.newInstance();
+
     private final EngineModel model;
     private final Tracer tracer;
     private final EvaluatorMetrics metrics;
@@ -65,13 +72,14 @@ public final class RuleEvaluator {
     // private final Map<RoaringBitmap, IntSet> eligiblePredicateSetCache;
 
     /**
-     * ✅ RECOMMENDATION 1 FIX
+     * ✅ RECOMMENDATION 1 FIX / P5 GOAL
      * Thread-local object pool for EvaluationContext.
      * This is the single most critical performance optimization.
      * It avoids allocating a new EvaluationContext (and its large internal arrays)
      * for every single event evaluation, eliminating massive GC pressure.
      *
      * Each thread gets its own reusable context, which is reset on each use.
+     * This pool provides the object that is *bound* to the ScopedValue.
      */
     private final ThreadLocal<EvaluationContext> contextPool;
 
@@ -115,20 +123,47 @@ public final class RuleEvaluator {
         this(model, TracingService.getInstance().getTracer(), false);
     }
 
+    /**
+     * ✅ P5 FIX: Refactored 'evaluate' to be a wrapper for ScopedValue.
+     * This method now handles context acquisition, binding, and exception wrapping.
+     * The core logic is moved to 'doEvaluate'.
+     *
+     */
     public MatchResult evaluate(Event event) {
+        // ✅ RECOMMENDATION 1 FIX
+        // Step 1: Acquire and reset evaluation context from thread-local pool
+        // This replaces the `new EvaluationContext(...)` call,
+        // eliminating per-evaluation object allocation.
+        EvaluationContext ctx = contextPool.get();
+        ctx.reset();
+
+        // ✅ P5 FIX: Bind the pooled context to the ScopedValue and execute evaluation
+        try {
+            return ScopedValue.where(CONTEXT, ctx).call(() -> doEvaluate(event));
+        } catch (Exception e) {
+            // Re-throw runtime exceptions, wrap checked exceptions
+            if (e instanceof RuntimeException) {
+                throw (RuntimeException) e;
+            }
+            throw new RuntimeException("Evaluation failed", e);
+        }
+    }
+
+    /**
+     * ✅ P5 FIX: New private method containing the core evaluation logic.
+     * All internal logic now uses CONTEXT.get() instead of passing 'ctx'.
+     *
+     */
+    private MatchResult doEvaluate(Event event) throws Exception { // 'throws Exception' for baseFuture.get()
         Span evaluationSpan = tracer.spanBuilder("evaluate-event").startSpan();
         try (Scope scope = evaluationSpan.makeCurrent()) {
             long startTime = System.nanoTime();
 
+            // ✅ P5 FIX: Get context from ScopedValue
+            EvaluationContext ctx = CONTEXT.get();
+
             evaluationSpan.setAttribute("eventId", event.getEventId());
             evaluationSpan.setAttribute("eventType", event.getEventType());
-
-            // ✅ RECOMMENDATION 1 FIX
-            // Step 1: Acquire and reset evaluation context from thread-local pool
-            // This replaces the `new EvaluationContext(...)` call,
-            // eliminating per-evaluation object allocation.
-            EvaluationContext ctx = contextPool.get();
-            ctx.reset();
 
             // ✅ P0-A: Use only RoaringBitmap (removed BitSet eligibleRules)
             RoaringBitmap eligibleRulesRoaring = null;
@@ -175,7 +210,8 @@ public final class RuleEvaluator {
             Span predicateSpan = tracer.spanBuilder("evaluate-predicates").startSpan();
             try (Scope predicateScope = predicateSpan.makeCurrent()) {
                 // ✅ P0-A: Pass RoaringBitmap to evaluation
-                evaluatePredicatesHybrid(event, ctx, eligibleRulesRoaring);
+                // ✅ P5 FIX: Removed 'ctx' parameter
+                evaluatePredicatesHybrid(event, eligibleRulesRoaring);
                 predicateSpan.setAttribute("predicatesEvaluated", ctx.getPredicatesEvaluated());
             } finally {
                 predicateSpan.end();
@@ -184,7 +220,8 @@ public final class RuleEvaluator {
             // Step 3: Counter-based matching (FIX: Add child spans)
             Span updateCountersSpan = tracer.spanBuilder("update-counters-optimized").startSpan();
             try (Scope updateScope = updateCountersSpan.makeCurrent()) {
-                updateCountersOptimized(ctx, eligibleRulesRoaring);
+                // ✅ P5 FIX: Removed 'ctx' parameter
+                updateCountersOptimized(eligibleRulesRoaring);
                 updateCountersSpan.setAttribute("touchedRules", ctx.getTouchedRules().size());
             } finally {
                 updateCountersSpan.end();
@@ -192,14 +229,16 @@ public final class RuleEvaluator {
 
             Span detectMatchesSpan = tracer.spanBuilder("detect-matches-optimized").startSpan();
             try (Scope detectScope = detectMatchesSpan.makeCurrent()) {
-                detectMatchesOptimized(ctx, eligibleRulesRoaring);
+                // ✅ P5 FIX: Removed 'ctx' parameter
+                detectMatchesOptimized(eligibleRulesRoaring);
                 detectMatchesSpan.setAttribute("potentialMatches", ctx.getMutableMatchedRules().size());
             } finally {
                 detectMatchesSpan.end();
             }
 
             // Step 4: Rule selection
-            selectMatches(ctx);
+            // ✅ P5 FIX: Removed 'ctx' parameter
+            selectMatches();
 
             // Step 5: Convert mutable matches to immutable result
             List<MatchResult.MatchedRule> matchedRules = new ArrayList<>();
@@ -230,11 +269,13 @@ public final class RuleEvaluator {
 
         } catch (Exception e) {
             evaluationSpan.recordException(e);
-            throw new RuntimeException("Evaluation failed", e);
+            // Let the ScopedValue.call() wrapper handle the exception
+            throw e;
         } finally {
             evaluationSpan.end();
         }
     }
+
 
     // ✅ RECOMMENDATION 2 FIX: Added getter for the model
     /**
@@ -253,10 +294,14 @@ public final class RuleEvaluator {
 
     /**
      * ✅ P0-A: Hybrid predicate evaluation using RoaringBitmap
+     * ✅ P5 FIX: Removed 'ctx' parameter. Uses CONTEXT.get().
      *
      * CHANGED: Method signature now accepts RoaringBitmap instead of BitSet
      */
-    private void evaluatePredicatesHybrid(Event event, EvaluationContext ctx, RoaringBitmap eligibleRules) {
+    private void evaluatePredicatesHybrid(Event event, RoaringBitmap eligibleRules) {
+        // ✅ P5 FIX: Get context from ScopedValue
+        EvaluationContext ctx = CONTEXT.get();
+
         Int2ObjectMap<Object> attributes = event.getEncodedAttributes(
                 model.getFieldDictionary(),
                 model.getValueDictionary()
@@ -274,6 +319,7 @@ public final class RuleEvaluator {
 
         // Evaluate predicates using unified evaluator
         for (int fieldId : fieldIds) {
+            // ✅ P5 FIX: Pass CONTEXT.get() to predicateEvaluator
             predicateEvaluator.evaluateField(fieldId, attributes, ctx, eligiblePredicateIds);
         }
     }
@@ -319,8 +365,12 @@ public final class RuleEvaluator {
 
     /**
      * Update rule counters based on true predicates (optimized with RoaringBitmap).
+     * ✅ P5 FIX: Removed 'ctx' parameter. Uses CONTEXT.get().
      */
-    private void updateCountersOptimized(EvaluationContext ctx, RoaringBitmap eligibleRulesRoaring) {
+    private void updateCountersOptimized(RoaringBitmap eligibleRulesRoaring) {
+        // ✅ P5 FIX: Get context from ScopedValue
+        EvaluationContext ctx = CONTEXT.get();
+
         IntSet truePredicates = ctx.getTruePredicates();
 
         for (int predId : truePredicates) {
@@ -347,8 +397,12 @@ public final class RuleEvaluator {
      * Detect matched rules with prefetching optimization (P1 enhancement).
      * <p>
      * FIX: Deduplicate touched rules and handle multiple rule codes per combination.
+     * ✅ P5 FIX: Removed 'ctx' parameter. Uses CONTEXT.get().
      */
-    private void detectMatchesOptimized(EvaluationContext ctx, RoaringBitmap eligibleRulesRoaring) {
+    private void detectMatchesOptimized(RoaringBitmap eligibleRulesRoaring) {
+        // ✅ P5 FIX: Get context from ScopedValue
+        EvaluationContext ctx = CONTEXT.get();
+
         IntSet touchedRules = ctx.getTouchedRules();
         int[] counters = ctx.counters;
         int[] needs = model.getPredicateCounts();
@@ -383,8 +437,12 @@ public final class RuleEvaluator {
 
     /**
      * Select final matches based on strategy (ALL_MATCHES, MAX_PRIORITY_PER_FAMILY, FIRST_MATCH).
+     * ✅ P5 FIX: Removed 'ctx' parameter. Uses CONTEXT.get().
      */
-    private void selectMatches(EvaluationContext ctx) {
+    private void selectMatches() {
+        // ✅ P5 FIX: Get context from ScopedValue
+        EvaluationContext ctx = CONTEXT.get();
+
         if (model.getSelectionStrategy() == EngineModel.SelectionStrategy.ALL_MATCHES) {
             return; // Keep all matches
         }
