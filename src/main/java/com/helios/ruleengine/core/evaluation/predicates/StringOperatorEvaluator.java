@@ -75,10 +75,12 @@ public final class StringOperatorEvaluator {
             IntSet matches = new IntOpenHashSet();
             Set<Integer> candidates = new HashSet<>();
 
+            final String upperValue = value.toUpperCase(); // <-- FIX
+
             // Gather candidates from bigrams
-            if (value.length() >= 2) {
-                for (int i = 0; i < value.length() - 1; i++) {
-                    String bigram = value.substring(i, i + 2);
+            if (upperValue.length() >= 2) { // <-- FIX
+                for (int i = 0; i < upperValue.length() - 1; i++) { // <-- FIX
+                    String bigram = upperValue.substring(i, i + 2); // <-- FIX
                     IntList predIndices = bigramIndex.get(bigram);
                     if (predIndices != null) {
                         predIndices.forEach((int idx) -> candidates.add(idx));
@@ -100,7 +102,7 @@ public final class StringOperatorEvaluator {
                 if (eligiblePredicateIds != null && !eligiblePredicateIds.contains(pred.id)) {
                     continue;
                 }
-                if (value.contains(pred.pattern)) {
+                if (upperValue.contains(pred.pattern)) {
                     matches.add(pred.id);
                 }
                 fullVerifications++;
