@@ -439,7 +439,7 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
                 stats.missCount(),
                 stats.evictionCount(),
                 cache.estimatedSize(),
-                stats.hitRate(),
+                stats.hitRate()*100, //Convert to percentage (e.g., 0.99 -> 99.0)
                 (long) stats.averageLoadPenalty(),  // Cast double to long
                 0  // Put time not tracked by Caffeine
         );
@@ -566,7 +566,7 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
     private Cache<String, RoaringBitmap> buildCache(long maxSize) {
         Caffeine<Object, Object> builder = Caffeine.newBuilder()
                 .maximumSize(maxSize)
-                .expireAfterAccess(DEFAULT_TTL)  // Better for read-heavy workloads
+                .expireAfterWrite(this.defaultTtlMillis, TimeUnit.MILLISECONDS)
                 .initialCapacity((int) Math.min(maxSize / 4, 100_000));
 
         if (statsEnabled) {

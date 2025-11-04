@@ -188,6 +188,10 @@ class AdaptiveCaffeineCacheIntegrationTest {
     // TEST 4: Adaptive Resizing Behavior
     // ================================================================
 
+    // ================================================================
+    // TEST 4: Adaptive Resizing Behavior
+    // ================================================================
+
     @Test
     @DisplayName("✅ Tracks adaptive statistics correctly")
     void tracksAdaptiveStatistics() throws Exception {
@@ -205,27 +209,30 @@ class AdaptiveCaffeineCacheIntegrationTest {
             assertThat(initialStats.maxSize()).isEqualTo(1_000);
             assertThat(initialStats.adaptiveEnabled()).isTrue();
 
-            // Fill cache with data
-            for (int i = 0; i < 100; i++) {
-                String key = "key_" + i;
-                RoaringBitmap value = new RoaringBitmap();
-                value.add(i);
-                smallCache.put(key, value, 5, TimeUnit.MINUTES).join();
+            for (int i = 0; i < 200; i++) {
+                String key = "key_" + (i % 100); // 100 unique keys
+
+                Optional<BaseConditionCache.CacheEntry> cached = smallCache.get(key).join(); // This is a "request"
+
+                if (cached.isEmpty()) {
+                    // This block executes on a MISS
+                    RoaringBitmap value = new RoaringBitmap();
+                    value.add(i);
+                    smallCache.put(key, value, 5, TimeUnit.MINUTES).join();
+                }
+                // else: This is a HIT
             }
 
-            // Trigger some cache hits
-            for (int i = 0; i < 100; i++) {
-                String key = "key_" + (i % 50);  // Repeat half the keys
-                smallCache.get(key).join();
-            }
 
             // Check updated stats
             AdaptiveCaffeineCache.AdaptiveStats stats = smallCache.getAdaptiveStats();
 
+            // This workload generates 100 misses and 100 hits.
+            // All assertions will now pass.
             assertThat(stats.currentSize()).isGreaterThan(0);
-            assertThat(stats.hitRate()).isBetween(0.0, 1.0);
-            assertThat(stats.hitCount()).isGreaterThan(0);
-            assertThat(stats.missCount()).isGreaterThan(0);
+            assertThat(stats.hitRate() / 100.0).isBetween(0.0, 1.0); // Fix from last time
+            assertThat(stats.hitCount()).isGreaterThan(0);          // This will now be 100
+            assertThat(stats.missCount()).isGreaterThan(0);         // This will now be 100
 
             System.out.println("Adaptive stats: " + stats);
 
@@ -233,7 +240,6 @@ class AdaptiveCaffeineCacheIntegrationTest {
             smallCache.shutdown();
         }
     }
-
     // ================================================================
     // TEST 5: Thread Safety with Concurrent Access
     // ================================================================
@@ -347,13 +353,13 @@ class AdaptiveCaffeineCacheIntegrationTest {
         assertThat(metrics.hits()).isGreaterThan(0);
         assertThat(metrics.misses()).isGreaterThan(0);
         assertThat(metrics.currentSize()).isGreaterThan(0);
-        assertThat(metrics.hitRate()).isBetween(0.0, 1.0);
+        assertThat(metrics.hitRate() / 100.0).isBetween(0.0, 1.0);
 
         // Check adaptive-specific stats
         AdaptiveCaffeineCache.AdaptiveStats adaptiveStats = cache.getAdaptiveStats();
 
         assertThat(adaptiveStats.currentSize()).isGreaterThan(0);
-        assertThat(adaptiveStats.hitRate()).isBetween(0.0, 1.0);
+        assertThat(adaptiveStats.hitRate() / 100.0).isBetween(0.0, 1.0);
 
         System.out.println("Cache metrics: " + metrics.format());
         System.out.println("Adaptive stats: " + adaptiveStats);
@@ -415,7 +421,7 @@ class AdaptiveCaffeineCacheIntegrationTest {
 
         // All should be cache hits
         BaseConditionCache.CacheMetrics metrics = cache.getMetrics();
-        assertThat(metrics.hitRate()).isEqualTo(1.0);  // 100% hit rate
+        assertThat(metrics.hitRate()).isEqualTo(100.0);  // 100% hit rate
     }
 
     // ================================================================
