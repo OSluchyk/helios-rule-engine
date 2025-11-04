@@ -1,5 +1,7 @@
 package com.helios.ruleengine.model;
 
+import com.fasterxml.jackson.annotation.JsonValue;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;
@@ -18,17 +20,20 @@ public record Predicate(
 ) {
 
     public enum Operator {
-        EQUAL_TO, IS_ANY_OF,IS_NONE_OF,
+        EQUAL_TO, NOT_EQUAL_TO,
+        IS_ANY_OF, IS_NONE_OF,
         GREATER_THAN, LESS_THAN, BETWEEN, CONTAINS, REGEX,
         GREATER_THAN_OR_EQUAL, LESS_THAN_OR_EQUAL,
         IS_NULL, IS_NOT_NULL,
-        STARTS_WITH, ENDS_WITH
-        ;
+        STARTS_WITH, ENDS_WITH;
 
         public static Operator fromString(String text) {
             if (text == null) return null;
-            try { return Operator.valueOf(text.toUpperCase()); }
-            catch (IllegalArgumentException e) { return null; }
+            try {
+                return Operator.valueOf(text.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return null;
+            }
         }
 
         public boolean isNumeric() {
@@ -38,11 +43,18 @@ public record Predicate(
                     || this == LESS_THAN
                     || this == BETWEEN;
         }
+
+        @JsonValue
+        public String getValue() {
+            return name();
+        }
     }
 
     public Predicate {
         Objects.requireNonNull(operator, "Operator cannot be null");
-        Objects.requireNonNull(value, "Value cannot be null");
+        if (operator != Operator.IS_NULL && operator != Operator.IS_NOT_NULL) {
+            Objects.requireNonNull(value, "Value cannot be null for operator " + operator);
+        }
     }
 
     public Predicate(int fieldId, Operator operator, Object value) {
@@ -54,6 +66,7 @@ public record Predicate(
         // Non-numeric and non-vectorizable operations
         return switch (operator) {
             case EQUAL_TO -> value.equals(eventValue);
+            case NOT_EQUAL_TO -> !value.equals(eventValue);
             case CONTAINS -> (eventValue instanceof String) && ((String) eventValue).contains((String) value);
             case REGEX -> (eventValue instanceof String) && pattern.matcher((String) eventValue).matches();
             // Numeric operations are now handled by dedicated methods for vectorization

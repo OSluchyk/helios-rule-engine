@@ -67,7 +67,7 @@ class CompilationValidationTest {
 
         assertThatThrownBy(() -> COMPILER.compile(rulesFile))
                 .as("Should reject: %s", test.description)
-                .isInstanceOfAny(CompilationException.class, IOException.class,
+                    .isInstanceOfAny(CompilationException.class, IOException.class,
                         IllegalArgumentException.class);
     }
 

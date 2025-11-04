@@ -24,7 +24,7 @@ public final class StringOperatorEvaluator {
         model.getFieldToPredicates().forEach((fieldId, predicates) -> {
             List<StringPredicate> stringPredicates = predicates.stream()
                     .filter(p -> p.operator() == Predicate.Operator.CONTAINS)
-                    .map(p -> new StringPredicate(model.getPredicateId(p), (String) p.value()))
+                    .map(p -> new StringPredicate(model.getPredicateId(p), String.valueOf(p.value())))
                     .toList();
 
             if (!stringPredicates.isEmpty()) {
