@@ -231,12 +231,13 @@ class RuleEvaluatorTest {
     }
 
     /**
-     * ✅ RECOMMENDATION 1 FIX
-     * New test to verify that the EvaluationContext is properly pooled and reset.
+     * ✅ RECOMMENDATION 1 FIX / P5 FIX
+     * Updated test to verify that the EvaluationContext is properly pooled and reset,
+     * even when accessed via ScopedValue.
      */
     @Test
-    @DisplayName("Should reuse EvaluationContext via ThreadLocal pool")
-    void shouldReuseEvaluationContext() {
+    @DisplayName("Should reuse EvaluationContext via ThreadLocal pool and ScopedValue") // ✅ P5 FIX: Renamed
+    void shouldReuseEvaluationContextWithScopedValue() {
         // Given
         Event event1 = new Event("evt-1", "TRANSACTION", Map.of(
                 "transaction_amount", 20000,
@@ -321,8 +322,8 @@ class RuleEvaluatorTest {
     }
 
     @Test
-    @DisplayName("Should work correctly in concurrent scenarios with ContextPooling") // ✅ RECOMMENDATION 1 FIX: Renamed test
-    void shouldWorkCorrectlyInConcurrentScenariosWithContextPooling() throws InterruptedException {
+    @DisplayName("Should work correctly in concurrent scenarios with ScopedValue") // ✅ P5 FIX: Renamed
+    void shouldWorkCorrectlyInConcurrentScenariosWithScopedValue() throws InterruptedException {
         // Given
         final int threadCount = 8;
         final int iterationsPerThread = 1000;
