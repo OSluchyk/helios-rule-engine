@@ -188,10 +188,6 @@ class AdaptiveCaffeineCacheIntegrationTest {
     // TEST 4: Adaptive Resizing Behavior
     // ================================================================
 
-    // ================================================================
-    // TEST 4: Adaptive Resizing Behavior
-    // ================================================================
-
     @Test
     @DisplayName("✅ Tracks adaptive statistics correctly")
     void tracksAdaptiveStatistics() throws Exception {
