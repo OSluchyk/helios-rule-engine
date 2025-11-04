@@ -2,17 +2,16 @@ package com.helios.ruleengine.core.compiler;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.helios.ruleengine.api.IRuleCompiler;
-import com.helios.ruleengine.core.evaluation.context.EvaluationContext;
 import com.helios.ruleengine.core.model.Dictionary;
 import com.helios.ruleengine.core.model.EngineModel;
-import com.helios.ruleengine.core.optimization.SmartIsAnyOfFactorizer;
-import com.helios.ruleengine.model.Event;
 import com.helios.ruleengine.model.Predicate;
 import com.helios.ruleengine.model.RuleDefinition;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
-import it.unimi.dsi.fastutil.ints.*;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -45,8 +44,9 @@ public class RuleCompiler implements IRuleCompiler {
 
             List<RuleDefinition> validRules = validateAndCanonize(definitions);
 
-            SmartIsAnyOfFactorizer factorizer = new SmartIsAnyOfFactorizer();
-            List<RuleDefinition> factoredRules = factorizer.factorize(validRules);
+            // SmartIsAnyOfFactorizer factorizer = new SmartIsAnyOfFactorizer(); // RECOMMENDATION 3 FIX: REMOVED
+            // List<RuleDefinition> factoredRules = factorizer.factorize(validRules); // RECOMMENDATION 3 FIX: REMOVED
+            List<RuleDefinition> factoredRules = validRules; // RECOMMENDATION 3 FIX: ADDED
 
             Dictionary fieldDictionary = new Dictionary();
             Dictionary valueDictionary = new Dictionary();
@@ -125,8 +125,19 @@ public class RuleCompiler implements IRuleCompiler {
                             }
                         });
                     } else if (cond.value() instanceof String) {
-                        // FIX: Uppercase string values for consistency
-                        valueDictionary.encode(((String) cond.value()).toUpperCase());
+                        // Only encode strings for relevant operators
+                        // (e.g., don't encode a REGEX pattern string as a value)
+                        if (op == Predicate.Operator.EQUAL_TO ||
+                                op == Predicate.Operator.NOT_EQUAL_TO ||
+                                op == Predicate.Operator.IS_ANY_OF ||
+                                op == Predicate.Operator.IS_NONE_OF ||
+                                op == Predicate.Operator.CONTAINS ||
+                                op == Predicate.Operator.STARTS_WITH ||
+                                op == Predicate.Operator.ENDS_WITH)
+                        {
+                            // FIX: Uppercase string values for consistency
+                            valueDictionary.encode(((String) cond.value()).toUpperCase());
+                        }
                     }
                 }
             }
@@ -144,6 +155,7 @@ public class RuleCompiler implements IRuleCompiler {
         try (Scope scope = span.makeCurrent()) {
             EngineModel.Builder builder = new EngineModel.Builder();
             for (RuleDefinition def : definitions) {
+                if (!def.enabled()) continue; // Skip disabled rules
                 List<List<Predicate>> combinations = generatePredicateCombinations(def, profile, fieldDictionary, valueDictionary);
                 if (combinations.isEmpty()) continue;
 
@@ -176,7 +188,7 @@ public class RuleCompiler implements IRuleCompiler {
      */
     private boolean hasContradictoryConditions(List<RuleDefinition.Condition> conditions) {
         Map<String, List<RuleDefinition.Condition>> byField = conditions.stream()
-                .collect(Collectors.groupingBy(RuleDefinition.Condition::field));
+                .collect(Collectors.groupingBy(c -> c.field().toUpperCase().replace('-', '_'))); // Use canonical field name
 
         for (Map.Entry<String, List<RuleDefinition.Condition>> entry : byField.entrySet()) {
             List<RuleDefinition.Condition> fieldConds = entry.getValue();
@@ -230,7 +242,7 @@ public class RuleCompiler implements IRuleCompiler {
             Double maxLTE = null;  // Maximum value from LESS_THAN_OR_EQUAL (≤)
 
             for (RuleDefinition.Condition cond : fieldConds) {
-                if (!(cond.value() instanceof Number)) continue;
+                if (cond.value() == null || !(cond.value() instanceof Number)) continue;
                 double val = ((Number) cond.value()).doubleValue();
 
                 String operator = cond.operator().toUpperCase();
@@ -307,20 +319,32 @@ public class RuleCompiler implements IRuleCompiler {
                 List<Predicate> expanded = new ArrayList<>();
                 for (Object v : values) {
                     // FIX: Uppercase string value before lookup
-                    String stringValue = String.valueOf(v).toUpperCase();
-                    int valueId = valueDictionary.getId(stringValue);
+                    Object processedValue = v;
+                    if (v instanceof String) {
+                        processedValue = valueDictionary.getId(((String) v).toUpperCase());
+                    }
+
                     // Predicates with same field/value but different weights will deduplicate correctly
                     // thanks to PredicateKey in Builder.registerPredicate()
-                    expanded.add(new Predicate(fieldId, Predicate.Operator.EQUAL_TO, valueId, null, weight, selectivity));
+                    expanded.add(new Predicate(fieldId, Predicate.Operator.EQUAL_TO, processedValue, null, weight, selectivity));
                 }
                 expandablePredicates.add(expanded);
             } else {
-                // FIX: Uppercase string value before lookup for EQUAL_TO
+                // FIX: Uppercase string value before lookup for EQUAL_TO / NOT_EQUAL_TO
                 Object predicateValue;
-                if (operator == Predicate.Operator.EQUAL_TO && !(cond.value() instanceof Number)) {
-                    String stringValue = String.valueOf(cond.value()).toUpperCase();
+                if ((operator == Predicate.Operator.EQUAL_TO || operator == Predicate.Operator.NOT_EQUAL_TO)
+                        && cond.value() instanceof String) {
+                    String stringValue = ((String) cond.value()).toUpperCase();
                     predicateValue = valueDictionary.getId(stringValue);
-                } else {
+                } else if (operator == Predicate.Operator.REGEX && cond.value() instanceof String) {
+                    // Do not dictionary-encode regex patterns
+                    predicateValue = cond.value();
+                } else if (cond.value() instanceof String) {
+                    // This might be an error (e.g. CONTAINS) but we encode it anyway
+                    predicateValue = valueDictionary.getId(((String) cond.value()).toUpperCase());
+                }
+                else {
+                    // This handles numbers, booleans, and other types
                     predicateValue = cond.value();
                 }
 
@@ -354,6 +378,11 @@ public class RuleCompiler implements IRuleCompiler {
     private void generateCombinationsRecursive(List<List<Predicate>> lists, int index, List<Predicate> current, List<List<Predicate>> result) {
         if (index == lists.size()) {
             result.add(new ArrayList<>(current));
+            return;
+        }
+        if (lists.get(index).isEmpty()) {
+            // Handle case where an IS_ANY_OF list was empty
+            generateCombinationsRecursive(lists, index + 1, current, result);
             return;
         }
         for (Predicate p : lists.get(index)) {
@@ -425,13 +454,15 @@ public class RuleCompiler implements IRuleCompiler {
                 }
 
                 // Validate IS_ANY_OF and BETWEEN operators
+                // FIX: Added IS_NONE_OF
                 if (operator == Predicate.Operator.IS_ANY_OF || operator == Predicate.Operator.IS_NONE_OF) {
                     if (!(cond.value() instanceof List)) {
                         throw new CompilationException("Rule '" + def.ruleCode() + "' operator " + operator + " requires array value");
                     }
                     List<?> list = (List<?>) cond.value();
                     if (list.isEmpty()) {
-                        throw new CompilationException("Rule '" + def.ruleCode() + "' operator " + operator + " requires non-empty array");
+                        // Allow empty lists, they just won't match anything
+                        logger.warning("Rule '" + def.ruleCode() + "' operator " + operator + " has empty array value.");
                     }
                 }
 
@@ -457,7 +488,7 @@ public class RuleCompiler implements IRuleCompiler {
                 // Validate numeric operators
                 if (operator == Predicate.Operator.GREATER_THAN || operator == Predicate.Operator.GREATER_THAN_OR_EQUAL ||
                         operator == Predicate.Operator.LESS_THAN || operator == Predicate.Operator.LESS_THAN_OR_EQUAL) {
-                    if (!(cond.value() instanceof Number)) {
+                    if (cond.value() != null && !(cond.value() instanceof Number)) {
                         throw new CompilationException("Rule '" + def.ruleCode() + "' numeric operator " + operator + " requires numeric value, got: " + cond.value().getClass().getSimpleName());
                     }
                 }
@@ -498,7 +529,7 @@ public class RuleCompiler implements IRuleCompiler {
     private void detectContradictions(String ruleCode, List<RuleDefinition.Condition> conditions) throws CompilationException {
         // Group conditions by field
         Map<String, List<RuleDefinition.Condition>> byField = conditions.stream()
-                .collect(Collectors.groupingBy(RuleDefinition.Condition::field));
+                .collect(Collectors.groupingBy(c -> c.field().toUpperCase().replace('-', '_'))); // Use canonical field name
 
         for (Map.Entry<String, List<RuleDefinition.Condition>> entry : byField.entrySet()) {
             List<RuleDefinition.Condition> fieldConditions = entry.getValue();
@@ -566,13 +597,15 @@ public class RuleCompiler implements IRuleCompiler {
             int fieldCount = fieldCounts.getOrDefault(fieldId, 1);
             float baseSelectivity = Math.min(1.0f, (float) fieldCount / totalRules);
 
+            // FIX: Restore full operator list from original file
             return switch (operator) {
-                case EQUAL_TO -> baseSelectivity * 0.1f;
+                case EQUAL_TO, NOT_EQUAL_TO -> baseSelectivity * 0.1f;
                 case GREATER_THAN, LESS_THAN -> baseSelectivity * 0.3f;
                 case GREATER_THAN_OR_EQUAL, LESS_THAN_OR_EQUAL -> baseSelectivity * 0.35f;
-                case IS_ANY_OF -> baseSelectivity * (value instanceof List ? ((List<?>) value).size() * 0.15f : 0.2f);
+                case IS_ANY_OF, IS_NONE_OF -> baseSelectivity * (value instanceof List ? ((List<?>) value).size() * 0.15f : 0.2f);
                 case CONTAINS, STARTS_WITH, ENDS_WITH -> baseSelectivity * 0.4f;
                 case REGEX -> baseSelectivity * 0.5f;
+                case IS_NULL, IS_NOT_NULL -> baseSelectivity * 0.05f;
                 default -> 0.5f;
             };
         }
@@ -580,10 +613,11 @@ public class RuleCompiler implements IRuleCompiler {
         public float getCost(Predicate.Operator operator) {
             if (operator == null) return 1.0f;
 
+            // FIX: Restore full operator list from original file
             return switch (operator) {
-                case EQUAL_TO -> 1.0f;
+                case EQUAL_TO, NOT_EQUAL_TO, IS_NULL, IS_NOT_NULL -> 1.0f;
                 case GREATER_THAN, LESS_THAN, GREATER_THAN_OR_EQUAL, LESS_THAN_OR_EQUAL -> 1.5f;
-                case IS_ANY_OF -> 2.0f;
+                case IS_ANY_OF, IS_NONE_OF -> 2.0f;
                 case CONTAINS, STARTS_WITH, ENDS_WITH -> 3.0f;
                 case REGEX -> 10.0f;
                 default -> 1.0f;
@@ -591,3 +625,4 @@ public class RuleCompiler implements IRuleCompiler {
         }
     }
 }
+

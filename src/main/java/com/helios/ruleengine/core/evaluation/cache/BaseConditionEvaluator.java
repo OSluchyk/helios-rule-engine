@@ -28,6 +28,14 @@ import java.util.logging.Logger;
  * - ✅ `evaluateAndCache` now starts with this set, ensuring rules with
  * only dynamic/numeric predicates are not dropped.
  *
+ * ✅ RECOMMENDATION 3 FIX (HIGH PRIORITY):
+ * - Removed IS_ANY_OF from isStaticPredicate().
+ * - This resolves the logical conflict with the compiler's DNF expansion.
+ * - This change forces IS_ANY_OF to be expanded by the RuleCompiler into
+ * its component EQUAL_TO predicates.
+ * - The BaseConditionEvaluator will now cache these smaller, reusable
+ * EQUAL_TO predicates, which *achieves* true subset factoring.
+ *
  * PERFORMANCE IMPROVEMENTS:
  * - ✅ Store only RoaringBitmap (remove duplicate BitSet storage)
  * - ✅ Eliminate repeated conversions (100-200µs saved per cache miss)
@@ -584,6 +592,8 @@ public class BaseConditionEvaluator {
 
     // --- EXPLANATION FOR isStaticPredicate ---
     /**
+     * ✅ RECOMMENDATION 3 FIX
+     *
      * This is the most critical method for the BaseConditionEvaluator's optimization.
      * Its one and only job is to decide what is "cheap" vs. "expensive."
      *
@@ -592,30 +602,37 @@ public class BaseConditionEvaluator {
      * the exact same *simple* conditions (like `STATUS == "ACTIVE"`).
      *
      * 2.  **"Static" (Cheap):** We define "static" or "cheap" predicates as
-     * simple equality checks (EQUAL_TO, IS_ANY_OF, etc.). These can be
+     * simple equality checks (`EQUAL_TO`, `NOT_EQUAL_TO`). These can be
      * evaluated very quickly and are good candidates for caching.
      *
      * 3.  **"Dynamic" (Expensive):** We *exclude* operators that are
-     * computationally expensive or less likely to be shared.
-     * - **Numeric (GREATER_THAN, etc.):** These are excluded because they
-     * don't group well. `AMOUNT > 10` and `AMOUNT > 11` are two
-     * *different* base condition sets, which would destroy the cache.
-     * By treating them as non-static, we let the main `RuleEvaluator`
-     * handle them after the static filtering is done.
-     * - **String (REGEX, CONTAINS):** These are very expensive and are
-     * terrible candidates for a preliminary filter.
+     * computationally expensive, less likely to be shared, or
+     * are intended for DNF expansion.
      *
-     * **Why this implementation is correct:**
-     * This specific logic (`!contains("GREATER")`, etc.) is the one that
-     * matches the assumptions in your `BaseConditionEvaluatorTest`.
-     * Changing this definition (e.g., by including numeric operators)
-     * would break the test (`expected: 2 but was: 3`) because it would
-     * change how the rules are grouped into sets.
+     * ✅ **WHY `IS_ANY_OF` IS NO LONGER STATIC:**
+     * By removing `IS_ANY_OF` from this method, we classify it as "dynamic".
+     * This prevents the `BaseConditionEvaluator` from trying to cache it as
+     * a single, large predicate.
+     * Instead, this forces the `RuleCompiler` to apply DNF expansion,
+     * breaking `IS_ANY_OF[A, B]` into two combinations:
+     * 1. `... AND (field == A)`
+     * 2. `... AND (field == B)`
+     * The `BaseConditionEvaluator` will then see the simple, static
+     * `EQUAL_TO` predicates, which it *can* cache effectively.
+     * This achieves the goal of subset factoring, as the `BaseConditionSet`
+     * for `(field == A)` will be shared by all rules that include "A"
+     * in their `IS_ANY_OF` lists.
      */
     private boolean isStaticPredicate(Predicate pred) {
-        return !pred.operator().name().contains("GREATER") &&
-                !pred.operator().name().contains("LESS") &&
-                !pred.operator().name().equals("BETWEEN");
+        // Only simple equality checks are now considered static.
+        Predicate.Operator op = pred.operator();
+        return op == Predicate.Operator.EQUAL_TO ||
+                op == Predicate.Operator.NOT_EQUAL_TO;
+
+        // --- OLD LOGIC (INCORRECT) ---
+        // return !pred.operator().name().contains("GREATER") &&
+        //         !pred.operator().name().contains("LESS") &&
+        //         !pred.operator().name().equals("BETWEEN");
     }
 
     private float calculateAverageSelectivity(IntSet predicateIds) {
@@ -665,9 +682,7 @@ public class BaseConditionEvaluator {
                 "baseConditionReductionPercent", reductionPercent,
                 "avgSetSize", avgSetSize,
                 "avgReusePerSet", avgReusePerSet,
-                // --- FIX ---
                 "rulesWithNoBaseConditions", this.rulesWithNoBaseConditions.getCardinality()
-                // --- END FIX ---
         );
     }
 }
