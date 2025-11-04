@@ -38,6 +38,11 @@ import java.util.concurrent.CompletableFuture;
  * - Memory: -30-40% (no double storage)
  * - Cache miss latency: -40-60% (no conversion overhead)
  * - RoaringBitmap iteration: 15-25% faster than BitSet
+ *
+ * ✅ RECOMMENDATION 1 FIX (CRITICAL):
+ * - Added ThreadLocal contextPool to pool EvaluationContext objects.
+ * - This eliminates heap allocations in the hot path, drastically reducing
+ * GC pressure and improving tail latency.
  */
 public final class RuleEvaluator {
     private final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(RuleEvaluator.class);
@@ -53,6 +58,16 @@ public final class RuleEvaluator {
 
     // ✅ P0-A: Changed from Map<BitSet, IntSet> to Map<RoaringBitmap, IntSet>
     private final Map<RoaringBitmap, IntSet> eligiblePredicateSetCache;
+
+    /**
+     * Thread-local object pool for EvaluationContext.
+     * This is the single most critical performance optimization.
+     * It avoids allocating a new EvaluationContext (and its large internal arrays)
+     * for every single event evaluation, eliminating massive GC pressure.
+     *
+     * Each thread gets its own reusable context, which is reset on each use.
+     */
+    private final ThreadLocal<EvaluationContext> contextPool;
 
     public RuleEvaluator(EngineModel model, Tracer tracer, boolean enableBaseConditionCache) {
         this.model = model;
@@ -72,6 +87,17 @@ public final class RuleEvaluator {
 
         // ✅ P0-A: Initialize cache with RoaringBitmap keys
         this.eligiblePredicateSetCache = new HashMap<>();
+
+        /**
+         * Initialize the thread-local context pool.
+         * This creates one EvaluationContext per thread, sized specifically for this EngineModel.
+         */
+        this.contextPool = ThreadLocal.withInitial(() -> {
+            int numRules = model.getNumRules();
+            // Estimate 10% touched rules, capped at 1000, for initial set capacity
+            int estimatedTouched = Math.min(numRules / 10, 1000);
+            return new EvaluationContext(numRules, estimatedTouched);
+        });
     }
 
     public RuleEvaluator(EngineModel model, Tracer tracer) {
@@ -90,10 +116,12 @@ public final class RuleEvaluator {
             evaluationSpan.setAttribute("eventId", event.getEventId());
             evaluationSpan.setAttribute("eventType", event.getEventType());
 
-            // Step 1: Initialize evaluation context
-            int numRules = model.getNumRules();
-            int estimatedTouched = Math.min(numRules / 10, 1000);
-            EvaluationContext ctx = new EvaluationContext(numRules, estimatedTouched);
+            // ✅ RECOMMENDATION 1 FIX
+            // Step 1: Acquire and reset evaluation context from thread-local pool
+            // This replaces the `new EvaluationContext(...)` call,
+            // eliminating per-evaluation object allocation.
+            EvaluationContext ctx = contextPool.get();
+            ctx.reset();
 
             // ✅ P0-A: Use only RoaringBitmap (removed BitSet eligibleRules)
             RoaringBitmap eligibleRulesRoaring = null;
