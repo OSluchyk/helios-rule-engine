@@ -27,6 +27,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat; // Import AssertJ
 
 class RuleEvaluatorTest {
 
@@ -225,9 +226,48 @@ class RuleEvaluatorTest {
         assertEquals("TRANSACTION", mainSpan.getAttributes().asMap().get(AttributeKey.stringKey("eventType")));
     }
 
+    /**
+     * ✅ RECOMMENDATION 1 FIX
+     * New test to verify that the EvaluationContext is properly pooled and reset.
+     */
     @Test
-    @DisplayName("Should work correctly in concurrent scenarios with ScopedValue")
-    void shouldWorkCorrectlyInConcurrentScenariosWithScopedValue() throws InterruptedException {
+    @DisplayName("Should reuse EvaluationContext via ThreadLocal pool")
+    void shouldReuseEvaluationContext() {
+        // Given
+        Event event1 = new Event("evt-1", "TRANSACTION", Map.of(
+                "transaction_amount", 20000,
+                "country_code", "US"
+        ));
+        Event event2 = new Event("evt-2", "USER_ACTIVITY", Map.of(
+                "user_age_days", 1
+        ));
+
+        // When
+        // Evaluate first event
+        MatchResult result1 = ruleEvaluator.evaluate(event1);
+
+        // Then
+        // Verify first result is correct
+        assertThat(result1.matchedRules()).hasSize(1);
+        assertThat(result1.matchedRules().get(0).ruleCode()).isEqualTo("HIGH_VALUE_TRANSACTION");
+        assertThat(result1.eventId()).isEqualTo("evt-1");
+
+        // When
+        // Evaluate second event on the same thread
+        MatchResult result2 = ruleEvaluator.evaluate(event2);
+
+        // Then
+        // Verify the context was reset correctly and gave the correct new result
+        assertThat(result2.matchedRules()).hasSize(1);
+        assertThat(result2.matchedRules().get(0).ruleCode()).isEqualTo("NEW_USER_ALERT");
+
+        // Verify the first result's data is not present in the second
+        assertThat(result2.eventId()).isEqualTo("evt-2");
+    }
+
+    @Test
+    @DisplayName("Should work correctly in concurrent scenarios with ContextPooling") // ✅ RECOMMENDATION 1 FIX: Renamed test
+    void shouldWorkCorrectlyInConcurrentScenariosWithContextPooling() throws InterruptedException {
         // Given
         final int threadCount = 8;
         final int iterationsPerThread = 1000;
