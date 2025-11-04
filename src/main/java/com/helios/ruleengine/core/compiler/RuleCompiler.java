@@ -133,8 +133,7 @@ public class RuleCompiler implements IRuleCompiler {
                                 op == Predicate.Operator.IS_NONE_OF ||
                                 op == Predicate.Operator.CONTAINS ||
                                 op == Predicate.Operator.STARTS_WITH ||
-                                op == Predicate.Operator.ENDS_WITH)
-                        {
+                                op == Predicate.Operator.ENDS_WITH) {
                             // FIX: Uppercase string values for consistency
                             valueDictionary.encode(((String) cond.value()).toUpperCase());
                         }
@@ -147,6 +146,7 @@ public class RuleCompiler implements IRuleCompiler {
             span.end();
         }
     }
+
     private EngineModel.Builder buildCoreModelWithDeduplication(List<RuleDefinition> definitions,
                                                                 SelectivityProfile profile,
                                                                 Dictionary fieldDictionary,
@@ -177,9 +177,9 @@ public class RuleCompiler implements IRuleCompiler {
 
     /**
      * Check for contradictory conditions in a rule.
-     *
+     * <p>
      * FIX: Now includes numeric range contradiction detection
-     *
+     * <p>
      * Detects:
      * 1. Multiple different EQUAL_TO values on same field
      * 2. IS_ANY_OF operators with no overlap on same field
@@ -337,13 +337,18 @@ public class RuleCompiler implements IRuleCompiler {
                     String stringValue = ((String) cond.value()).toUpperCase();
                     predicateValue = valueDictionary.getId(stringValue);
                 } else if (operator == Predicate.Operator.REGEX && cond.value() instanceof String) {
-                    // Do not dictionary-encode regex patterns
+                    // Do not dictionary-encode regex patterns. Store AS-IS.
                     predicateValue = cond.value();
+                } else if ((operator == Predicate.Operator.CONTAINS ||
+                        operator == Predicate.Operator.STARTS_WITH ||
+                        operator == Predicate.Operator.ENDS_WITH)
+                        && cond.value() instanceof String) {
+                    // Store the raw (uppercased) string value.
+                    predicateValue = ((String) cond.value()).toUpperCase();
                 } else if (cond.value() instanceof String) {
-                    // This might be an error (e.g. CONTAINS) but we encode it anyway
+                    // This handles any other string-based operators that *should* be encoded.
                     predicateValue = valueDictionary.getId(((String) cond.value()).toUpperCase());
-                }
-                else {
+                } else {
                     // This handles numbers, booleans, and other types
                     predicateValue = cond.value();
                 }
@@ -368,6 +373,7 @@ public class RuleCompiler implements IRuleCompiler {
         }
         return combinations;
     }
+
     private List<List<Predicate>> generateCombinations(List<List<Predicate>> lists) {
         List<List<Predicate>> result = new ArrayList<>();
         if (lists.isEmpty()) return result;
@@ -461,8 +467,8 @@ public class RuleCompiler implements IRuleCompiler {
                     }
                     List<?> list = (List<?>) cond.value();
                     if (list.isEmpty()) {
-                        // Allow empty lists, they just won't match anything
-                        logger.warning("Rule '" + def.ruleCode() + "' operator " + operator + " has empty array value.");
+                        // FIX: Reject empty lists as per validation test expectation
+                        throw new CompilationException("Rule '" + def.ruleCode() + "' operator " + operator + " cannot have empty array value.");
                     }
                 }
 
@@ -602,7 +608,8 @@ public class RuleCompiler implements IRuleCompiler {
                 case EQUAL_TO, NOT_EQUAL_TO -> baseSelectivity * 0.1f;
                 case GREATER_THAN, LESS_THAN -> baseSelectivity * 0.3f;
                 case GREATER_THAN_OR_EQUAL, LESS_THAN_OR_EQUAL -> baseSelectivity * 0.35f;
-                case IS_ANY_OF, IS_NONE_OF -> baseSelectivity * (value instanceof List ? ((List<?>) value).size() * 0.15f : 0.2f);
+                case IS_ANY_OF, IS_NONE_OF ->
+                        baseSelectivity * (value instanceof List ? ((List<?>) value).size() * 0.15f : 0.2f);
                 case CONTAINS, STARTS_WITH, ENDS_WITH -> baseSelectivity * 0.4f;
                 case REGEX -> baseSelectivity * 0.5f;
                 case IS_NULL, IS_NOT_NULL -> baseSelectivity * 0.05f;
