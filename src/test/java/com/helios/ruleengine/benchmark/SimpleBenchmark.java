@@ -11,6 +11,7 @@ import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
+import org.openjdk.jmh.runner.options.ChainedOptionsBuilder;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 import org.openjdk.jmh.runner.options.TimeValue;
@@ -616,15 +617,20 @@ public class SimpleBenchmark {
 
     public static void main(String[] args) throws RunnerException {
         // Configure for 2-3 minute runtime
-        Options opt = new OptionsBuilder()
+        ChainedOptionsBuilder jmhBuilder = new OptionsBuilder()
                 .include(SimpleBenchmark.class.getSimpleName())
                 .warmupIterations(WARMUP_ITERATIONS)
                 .warmupTime(TimeValue.seconds(WARMUP_TIME))
                 .measurementIterations(MEASUREMENT_ITERATIONS)
                 .measurementTime(TimeValue.seconds(MEASUREMENT_TIME))
                 .shouldFailOnError(true)
-                .shouldDoGC(true)
-                .build();
+                .shouldDoGC(true);
+        if(args.length > 0 && args[0].equals("profile")) {
+            jmhBuilder.addProfiler("jfr")
+                    .forks(1)
+                    .threads(1)   ;
+        }
+        Options opt = jmhBuilder.build();
 
         System.out.println("\n🚀 Starting benchmark... Expected runtime: 2-3 minutes\n");
 
