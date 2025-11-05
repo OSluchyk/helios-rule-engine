@@ -113,6 +113,13 @@ public class SmartIsAnyOfFactorizer {
     /**
      * Attempts to apply one pass of factorization to a group of rules
      * that share the same signature.
+     *
+     * --- FIX APPLIED ---
+     * This logic now iterates through *all* common `IS_ANY_OF` fields
+     * and performs factorization on the *first* field it finds that
+     * has a common subset with size > 1. This prevents the bug where
+     * a non-factorable field (subset size 1) was checked first,
+     * causing the entire group to be skipped.
      */
     private FactoredGroupResult factorizeGroup(List<RuleDefinition> group) {
         if (group.size() <= 1) {
@@ -121,44 +128,49 @@ public class SmartIsAnyOfFactorizer {
         }
 
         // Find all IS_ANY_OF fields that are present in *every* rule in the group
-        String fieldToFactor = findCommonIsAnyOfField(group);
-        if (fieldToFactor == null) {
+        Set<String> commonFields = findCommonIsAnyOfFields(group);
+        if (commonFields.isEmpty()) {
             // No common field to factor
             return new FactoredGroupResult(group, false);
         }
 
-        // Find the largest common subset of values for this field
-        Set<Object> commonSubset = findLargestCommonSubset(group, fieldToFactor);
+        // --- FIX: Iterate all common fields to find one that is factorable ---
+        for (String fieldToFactor : commonFields) {
+            // Find the largest common subset of values for this field
+            Set<Object> commonSubset = findLargestCommonSubset(group, fieldToFactor);
 
-        // Factoring is not beneficial if the common subset is empty or just one item,
-        // as `IS_ANY_OF [A]` is equivalent to `EQUAL_TO A`, which the
-        // compiler already handles efficiently.
-        if (commonSubset.size() <= 1) {
-            return new FactoredGroupResult(group, false);
+            // Factoring is not beneficial if the common subset is empty or just one item.
+            // If so, continue to the next common field.
+            if (commonSubset.size() <= 1) {
+                continue;
+            }
+
+            // --- Found a factorable field ---
+            // We found a beneficial factorization. Rewrite the rules.
+            List<RuleDefinition> newRules = new ArrayList<>();
+            for (RuleDefinition originalRule : group) {
+                newRules.add(rewriteRule(originalRule, fieldToFactor, commonSubset));
+            }
+
+            // Check if the rewritten rules are *actually different* from
+            // the original group to prevent infinite loops.
+            boolean wasFactored = !new HashSet<>(group).equals(new HashSet<>(newRules));
+
+            // Return the result for this successful factorization
+            return new FactoredGroupResult(newRules, wasFactored);
         }
-
-        // We found a beneficial factorization. Rewrite the rules.
-        List<RuleDefinition> newRules = new ArrayList<>();
-        for (RuleDefinition originalRule : group) {
-            newRules.add(rewriteRule(originalRule, fieldToFactor, commonSubset));
-        }
-
-        // --- FIX: Check for Infinite Loop ---
-        // We must check if the rewritten rules are *actually different* from
-        // the original group. If they are identical (using Set equality to
-        // ignore list order), it means factorization is complete, and we
-        // must return false to prevent an infinite loop.
-        boolean wasFactored = !new HashSet<>(group).equals(new HashSet<>(newRules));
         // --- END FIX ---
 
-        return new FactoredGroupResult(newRules, wasFactored);
+        // If we looped through all common fields and none were factorable,
+        // return the original group.
+        return new FactoredGroupResult(group, false);
     }
 
     /**
      * Rewrites a single rule by replacing its original IS_ANY_OF condition
      * with two new conditions:
-     * 1. A new `IS_ANY_OF` condition for the common subset.
-     * 2. One or more `EQUAL_TO` or a smaller `IS_ANY_OF` for the remainder.
+     * 1. A new `IS_ANY_OF` condition for the common subset (sorted).
+     * 2. One or more `EQUAL_TO` or a smaller `IS_ANY_OF` (sorted) for the remainder.
      */
     private RuleDefinition rewriteRule(RuleDefinition rule, String field, Set<Object> commonSubset) {
         List<RuleDefinition.Condition> newConditions = new ArrayList<>();
@@ -171,9 +183,7 @@ public class SmartIsAnyOfFactorizer {
         }
 
         // 2. Add the new, shared `IS_ANY_OF` condition for the common subset
-        // --- FIX: Ensure deterministic order ---
         List<Object> sortedCommonSubset = getSortedList(commonSubset);
-        // --- END FIX ---
         newConditions.add(new RuleDefinition.Condition(
                 field,
                 "IS_ANY_OF",
@@ -181,7 +191,6 @@ public class SmartIsAnyOfFactorizer {
         ));
 
         // 3. Find the remainder values (Original - CommonSubset) and add them back
-        //    (Uses the fixed getIsAnyOfValues to get ALL original values)
         Set<Object> originalValues = getIsAnyOfValues(rule, field);
         originalValues.removeAll(commonSubset); // Calculate the remainder
 
@@ -189,7 +198,6 @@ public class SmartIsAnyOfFactorizer {
             // This rule *only* contained the common subset, so we are done.
         } else if (originalValues.size() == 1) {
             // Remainder is one item, add it as `EQUAL_TO`
-            // (No sorting needed for a single item)
             newConditions.add(new RuleDefinition.Condition(
                     field,
                     "EQUAL_TO",
@@ -197,9 +205,7 @@ public class SmartIsAnyOfFactorizer {
             ));
         } else {
             // Remainder is multiple items, add it as a new, smaller `IS_ANY_OF`
-            // --- FIX: Ensure deterministic order ---
             List<Object> sortedRemainder = getSortedList(originalValues);
-            // --- END FIX ---
             newConditions.add(new RuleDefinition.Condition(
                     field,
                     "IS_ANY_OF",
@@ -223,7 +229,6 @@ public class SmartIsAnyOfFactorizer {
     private Set<Object> findLargestCommonSubset(List<RuleDefinition> group, String field) {
         Set<Object> commonSubset = null;
         for (RuleDefinition rule : group) {
-            // Uses the fixed getIsAnyOfValues
             Set<Object> currentValues = getIsAnyOfValues(rule, field);
             if (commonSubset == null) {
                 // First rule, start with its values
@@ -237,24 +242,25 @@ public class SmartIsAnyOfFactorizer {
     }
 
     /**
-     * Finds an `IS_ANY_OF` field that is present in all rules in the group.
+     * Finds all `IS_ANY_OF` fields that are present in all rules in the group.
      *
-     * @return The canonical name of a common field, or null if none is found.
+     * @return A Set of common field names, or an empty set if none.
      */
-    private String findCommonIsAnyOfField(List<RuleDefinition> group) {
-        if (group.isEmpty()) return null;
+    private Set<String> findCommonIsAnyOfFields(List<RuleDefinition> group) {
+        if (group.isEmpty()) return Collections.emptySet();
 
         // Get all IS_ANY_OF fields from the first rule
         Set<String> commonFields = getIsAnyOfFields(group.get(0));
-        if (commonFields.isEmpty()) return null;
+        if (commonFields.isEmpty()) return Collections.emptySet();
 
         // Intersect with fields from all other rules
         for (int i = 1; i < group.size(); i++) {
             commonFields.retainAll(getIsAnyOfFields(group.get(i)));
+            if (commonFields.isEmpty()) break; // Early exit
         }
 
-        // Return the first common field found, if any
-        return commonFields.stream().findFirst().orElse(null);
+        // Return all common fields found
+        return commonFields;
     }
 
     /**
@@ -273,8 +279,7 @@ public class SmartIsAnyOfFactorizer {
      * Gets the set of values for a specific `IS_ANY_OF` field in a rule.
      *
      * This method aggregates values from *all* IS_ANY_OF conditions
-     * for the given field, not just the first one. This correctly handles
-     * rules rewritten by a previous pass.
+     * for the given field.
      */
     private Set<Object> getIsAnyOfValues(RuleDefinition rule, String field) {
         if (rule.conditions() == null) return Collections.emptySet();
@@ -291,7 +296,6 @@ public class SmartIsAnyOfFactorizer {
     }
 
     /**
-     * --- NEW HELPER METHOD ---
      * Converts a Set<Object> into a deterministically sorted List<Object>.
      *
      * It first attempts to sort based on natural order (Comparable).
