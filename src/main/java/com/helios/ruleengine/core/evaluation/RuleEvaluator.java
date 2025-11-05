@@ -4,6 +4,7 @@
  */
 package com.helios.ruleengine.core.evaluation;
 
+import com.helios.ruleengine.api.IRuleEvaluator;
 import com.helios.ruleengine.core.cache.BaseConditionCache;
 import com.helios.ruleengine.core.cache.CacheConfig;
 import com.helios.ruleengine.core.cache.CacheFactory;
@@ -53,11 +54,10 @@ import java.util.concurrent.CompletableFuture;
  * - RuleEvaluator is now STATELESS regarding this cache.
  * - It uses the shared, thread-safe cache from the EngineModel.
  */
-public final class RuleEvaluator {
+public final class RuleEvaluator implements IRuleEvaluator {
     private final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(RuleEvaluator.class);
 
     private static final int PREFETCH_DISTANCE = 64;
-    // ✅ RECOMMENDATION 2 FIX: Removed MAX_CACHE_SIZE (now defined in EngineModel)
 
     // ✅ P5 FIX: Add static ScopedValue for context access per Phase 5 spec
     private static final ScopedValue<EvaluationContext> CONTEXT = ScopedValue.newInstance();
@@ -99,8 +99,6 @@ public final class RuleEvaluator {
             this.baseConditionEvaluator = null;
         }
 
-        // ✅ RECOMMENDATION 2 FIX: Removed cache initialization
-        // this.eligiblePredicateSetCache = new HashMap<>();
 
         /**
          * ✅ RECOMMENDATION 1 FIX
