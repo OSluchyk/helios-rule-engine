@@ -15,7 +15,7 @@ public interface IRuleCompiler {
      *
      * @param rulesPath path to JSON rules file
      * @return compiled engine model
-     * @throws Exception if compilation fails
+     * @throws Exception if compilation fails (e.g., IO or Validation)
      */
     EngineModel compile(Path rulesPath) throws Exception;
 }

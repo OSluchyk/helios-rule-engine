@@ -7,14 +7,17 @@ import java.util.Objects;
 import java.util.regex.Pattern;
 
 /**
- * Immutable atomic condition using dictionary-encoded integer IDs for fields and values.
- * Weight and selectivity are metadata for optimization.
+ * Represents an immutable, atomic condition within the compiled engine.
+ * It uses dictionary-encoded integer IDs for fields and (where applicable) values.
+ *
+ * Weight and selectivity are metadata calculated at compile time
+ * to guide runtime evaluation optimizations.
  */
 public record Predicate(
         int fieldId,
         Operator operator,
         Object value,
-        Pattern pattern,
+        Pattern pattern, // Pre-compiled regex pattern, null for other operators
         float weight,
         float selectivity
 ) {
@@ -27,15 +30,23 @@ public record Predicate(
         IS_NULL, IS_NOT_NULL,
         STARTS_WITH, ENDS_WITH;
 
+        /**
+         * Safely converts a string to an Operator enum.
+         * @param text The operator string (e.g., "EQUAL_TO").
+         * @return The corresponding Operator, or null if not found.
+         */
         public static Operator fromString(String text) {
             if (text == null) return null;
             try {
                 return Operator.valueOf(text.toUpperCase());
             } catch (IllegalArgumentException e) {
-                return null;
+                return null; // Unknown operator
             }
         }
 
+        /**
+         * Checks if this operator performs a numeric comparison.
+         */
         public boolean isNumeric() {
             return this == GREATER_THAN
                     || this == GREATER_THAN_OR_EQUAL
@@ -50,32 +61,54 @@ public record Predicate(
         }
     }
 
+    /**
+     * Constructor that validates predicate invariants.
+     */
     public Predicate {
         Objects.requireNonNull(operator, "Operator cannot be null");
+        // Value can be null *only* for IS_NULL and IS_NOT_NULL operators
         if (operator != Operator.IS_NULL && operator != Operator.IS_NOT_NULL) {
             Objects.requireNonNull(value, "Value cannot be null for operator " + operator);
         }
     }
 
+    /**
+     * Simplified constructor for testing.
+     */
     public Predicate(int fieldId, Operator operator, Object value) {
         this(fieldId, operator, value, null, 0, 0);
     }
 
+    /**
+     * Placeholder evaluation logic (runtime logic is in RuleEvaluator).
+     */
     public boolean evaluate(Object eventValue) {
-        if (eventValue == null) return false;
-        // Non-numeric and non-vectorizable operations
+        if (eventValue == null) {
+            // Handle null checks
+            return switch (operator) {
+                case IS_NULL -> true;
+                case IS_NOT_NULL -> false;
+                default -> false;
+            };
+        }
+
+        // Non-null evaluation
         return switch (operator) {
+            case IS_NULL -> false;
+            case IS_NOT_NULL -> true;
             case EQUAL_TO -> value.equals(eventValue);
             case NOT_EQUAL_TO -> !value.equals(eventValue);
             case CONTAINS -> (eventValue instanceof String) && ((String) eventValue).contains((String) value);
             case REGEX -> (eventValue instanceof String) && pattern.matcher((String) eventValue).matches();
-            // Numeric operations are now handled by dedicated methods for vectorization
             case GREATER_THAN, LESS_THAN, BETWEEN -> evaluateNumeric(eventValue);
+            // Other operators (IS_ANY_OF, etc.) are handled by the evaluator logic
             default -> false;
         };
     }
 
-    // Dedicated method for numeric evaluation
+    /**
+     * Placeholder numeric evaluation.
+     */
     private boolean evaluateNumeric(Object eventValue) {
         if (!(eventValue instanceof Number)) return false;
         double eventDouble = ((Number) eventValue).doubleValue();
@@ -93,16 +126,31 @@ public record Predicate(
         };
     }
 
+    /**
+     * Overridden equals for logical predicate equality.
+     * Note: This does *not* include weight or selectivity,
+     * as they are metadata, not part of the logical identity.
+     */
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         Predicate that = (Predicate) o;
-        return fieldId == that.fieldId && operator == that.operator && Objects.equals(value, that.value);
+        return fieldId == that.fieldId &&
+                operator == that.operator &&
+                Objects.equals(value, that.value) &&
+                Objects.equals(patternToString(), that.patternToString()); // Compare pattern strings
     }
 
+    /**
+     * Overridden hashCode for logical predicate hashing.
+     */
     @Override
     public int hashCode() {
-        return Objects.hash(fieldId, operator, value);
+        return Objects.hash(fieldId, operator, value, patternToString());
+    }
+
+    private String patternToString() {
+        return pattern != null ? pattern.pattern() : null;
     }
 }
