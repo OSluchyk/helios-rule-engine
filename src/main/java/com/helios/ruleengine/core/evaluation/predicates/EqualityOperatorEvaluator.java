@@ -14,6 +14,7 @@ import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Optimized equality operator evaluator for EQUAL_TO and NOT_EQUAL_TO predicates.
@@ -21,48 +22,48 @@ import java.util.concurrent.ConcurrentHashMap;
  * PERFORMANCE OPTIMIZATIONS:
  *
  * 1. FIELD-SPECIFIC COMPILATION (Initialization Time):
- *    Pre-compiles each field's predicates into specialized data structures:
- *    - Value→PredicateIds hash map for O(1) EQUAL_TO lookups
- *    - Pre-computed predicate IDs (no runtime model.getPredicateId() calls)
- *    - Selectivity-sorted arrays for optimal evaluation order
- *    - Separated EQUAL_TO and NOT_EQUAL_TO for specialized handling
+ * Pre-compiles each field's predicates into specialized data structures:
+ * - Value→PredicateIds hash map for O(1) EQUAL_TO lookups
+ * - Pre-computed predicate IDs (no runtime model.getPredicateId() calls)
+ * - Selectivity-sorted arrays for optimal evaluation order
+ * - Separated EQUAL_TO and NOT_EQUAL_TO for specialized handling
  *
  * 2. FAST PATH SPECIALIZATIONS:
- *    - Single-predicate fields: Skip all overhead, direct evaluation
- *    - EQUAL_TO: O(1) hash lookup instead of O(N) linear scan
- *    - Empty predicate sets: Immediate return
+ * - Single-predicate fields: Skip all overhead, direct evaluation
+ * - EQUAL_TO: O(1) hash lookup instead of O(N) linear scan
+ * - Empty predicate sets: Immediate return
  *
  * 3. SELECTIVITY-BASED ORDERING:
- *    High selectivity predicates (rare matches) evaluated first.
- *    Rationale: 
- *    - High selectivity = few matches = likely to fail fast
- *    - Enables early termination when combined with eligibility filtering
- *    - Reduces average comparisons per evaluation
+ * High selectivity predicates (rare matches) evaluated first.
+ * Rationale:
+ * - High selectivity = few matches = likely to fail fast
+ * - Enables early termination when combined with eligibility filtering
+ * - Reduces average comparisons per evaluation
  *
- *    Example: 
- *    - Predicate A: country == "RARE_COUNTRY" (selectivity 0.95 - matches 5%)
- *    - Predicate B: status == "ACTIVE" (selectivity 0.30 - matches 70%)
- *    - Evaluate A first (likely to fail and skip B)
+ * Example:
+ * - Predicate A: country == "RARE_COUNTRY" (selectivity 0.95 - matches 5%)
+ * - Predicate B: status == "ACTIVE" (selectivity 0.30 - matches 70%)
+ * - Evaluate A first (likely to fail and skip B)
  *
  * 4. MEMORY EFFICIENCY:
- *    - Lazy initialization: Only compile fields that have equality predicates
- *    - Shared structures: Value maps shared across evaluations
- *    - No per-evaluation allocations
+ * - Lazy initialization: Only compile fields that have equality predicates
+ * - Shared structures: Value maps shared across evaluations
+ * - No per-evaluation allocations
  *
  * EXECUTION FLOW:
  * 1. Initialization (once per field):
- *    a. Extract EQUAL_TO and NOT_EQUAL_TO predicates for field
- *    b. Build value→predicateIds map for EQUAL_TO
- *    c. Pre-lookup all predicate IDs from model
- *    d. Sort predicates by selectivity (descending)
- *    e. Create specialized FieldEvaluator
+ * a. Extract EQUAL_TO and NOT_EQUAL_TO predicates for field
+ * b. Build value→predicateIds map for EQUAL_TO
+ * c. Pre-lookup all predicate IDs from model
+ * d. Sort predicates by selectivity (descending)
+ * e. Create specialized FieldEvaluator
  *
  * 2. Runtime evaluation (per event):
- *    a. Get FieldEvaluator for field (O(1) map lookup)
- *    b. EQUAL_TO: Hash lookup in value map (O(1))
- *    c. NOT_EQUAL_TO: Iterate sorted array (early termination)
- *    d. Apply eligibility filter
- *    e. Update context with matches
+ * a. Get FieldEvaluator for field (O(1) map lookup)
+ * b. EQUAL_TO: Hash lookup in value map (O(1))
+ * c. NOT_EQUAL_TO: Iterate sorted array (early termination)
+ * d. Apply eligibility filter
+ * e. Update context with matches
  *
  * PERFORMANCE IMPACT:
  * - EQUAL_TO evaluation: O(N) → O(1) per field
@@ -80,11 +81,18 @@ public final class EqualityOperatorEvaluator {
     // Lazy initialization: Only fields with equality predicates are compiled
     private final Map<Integer, FieldEvaluator> fieldEvaluators;
 
+    // --- FIX START ---
+    // Switched to AtomicLong for thread-safe metric collection.
+    // Primitive longs (e.g., totalEvaluations++) are not atomic operations,
+    // causing a race condition and lost updates under concurrent load.
+
     // Performance metrics
-    private long totalEvaluations = 0;
-    private long equalToMatches = 0;
-    private long notEqualToMatches = 0;
-    private long fastPathHits = 0;
+    private final AtomicLong totalEvaluations = new AtomicLong(0);
+    private final AtomicLong equalToMatches = new AtomicLong(0);
+    private final AtomicLong notEqualToMatches = new AtomicLong(0);
+    private final AtomicLong fastPathHits = new AtomicLong(0);
+    // --- FIX END ---
+
 
     public EqualityOperatorEvaluator(EngineModel model) {
         this.model = model;
@@ -122,7 +130,11 @@ public final class EqualityOperatorEvaluator {
      */
     public void evaluateEquality(int fieldId, Object eventValue,
                                  EvaluationContext ctx, IntSet eligiblePredicateIds) {
-        totalEvaluations++;
+        // --- FIX START ---
+        // Changed from totalEvaluations++ to totalEvaluations.incrementAndGet()
+        // to ensure atomic increment in a concurrent environment.
+        totalEvaluations.incrementAndGet();
+        // --- FIX END ---
 
         // Get pre-compiled evaluator for this field
         FieldEvaluator evaluator = fieldEvaluators.get(fieldId);
@@ -187,7 +199,7 @@ public final class EqualityOperatorEvaluator {
          *
          * Example:
          * - Predicate P1: country == "US"
-         * - Predicate P2: country == "CA"  
+         * - Predicate P2: country == "CA"
          * - Predicate P3: country == "US"
          *
          * Map:
@@ -289,14 +301,20 @@ public final class EqualityOperatorEvaluator {
 
             if (matched) {
                 ctx.addTruePredicate(predId);
+                // --- FIX START ---
+                // Changed to atomic increments to prevent race conditions.
                 if (singlePredicateCache.isEqualTo) {
-                    equalToMatches++;
+                    equalToMatches.incrementAndGet();
                 } else {
-                    notEqualToMatches++;
+                    notEqualToMatches.incrementAndGet();
                 }
+                // --- FIX END ---
             }
 
-            fastPathHits++;
+            // --- FIX START ---
+            // Changed to atomic increment.
+            fastPathHits.incrementAndGet();
+            // --- FIX END ---
         }
 
         /**
@@ -329,7 +347,11 @@ public final class EqualityOperatorEvaluator {
                 // Match found
                 ctx.incrementPredicatesEvaluatedCount();
                 ctx.addTruePredicate(predId);
-                equalToMatches++;
+
+                // --- FIX START ---
+                // Changed to atomic increment.
+                equalToMatches.incrementAndGet();
+                // --- FIX END ---
             }
         }
 
@@ -355,7 +377,11 @@ public final class EqualityOperatorEvaluator {
 
                 if (matched) {
                     ctx.addTruePredicate(pred.predicateId);
-                    notEqualToMatches++;
+
+                    // --- FIX START ---
+                    // Changed to atomic increment.
+                    notEqualToMatches.incrementAndGet();
+                    // --- FIX END ---
                 }
             }
         }
@@ -391,13 +417,17 @@ public final class EqualityOperatorEvaluator {
      * Get performance metrics for monitoring.
      */
     public Metrics getMetrics() {
+        // --- FIX START ---
+        // Changed to use .get() on AtomicLongs to retrieve the current,
+        // thread-safe value for the metrics snapshot.
         return new Metrics(
-                totalEvaluations,
-                equalToMatches,
-                notEqualToMatches,
-                fastPathHits,
+                totalEvaluations.get(),
+                equalToMatches.get(),
+                notEqualToMatches.get(),
+                fastPathHits.get(),
                 fieldEvaluators.size()
         );
+        // --- FIX END ---
     }
 
     public record Metrics(
