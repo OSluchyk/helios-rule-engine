@@ -627,19 +627,18 @@ public class SimpleBenchmark {
                 .measurementTime(TimeValue.seconds(MEASUREMENT_TIME))
                 .shouldFailOnError(true)
                 .shouldDoGC(false);
-        if(args.length > 0 && args[0].equals("profile")) {
-            String jfrOutputPath = "jfr-reports/benchmark-profile.jfr";
+        if (args.length > 0 && args[0].equals("profile")) {
+            String jfrOutputDir = "jfr-reports";
             try {
-                java.nio.file.Path outputPath = get(jfrOutputPath);
-                createDirectories(outputPath.getParent());
-                System.out.println("JFR profiling enabled. Output will be written to: " + jfrOutputPath);
+                java.nio.file.Path outputPath = get(jfrOutputDir);
+                createDirectories(outputPath);
+                System.out.println("JFR profiling enabled. Output will be written to: " + jfrOutputDir);
             } catch (java.io.IOException e) {
                 System.err.println("Warning: Could not create JFR output directory: " + e.getMessage());
             }
 
-            jmhBuilder.addProfiler("jfr:filename=" + jfrOutputPath)
-                    .forks(1)
-                    .threads(1)   ;
+            jmhBuilder.addProfiler("jfr", "dir=" + jfrOutputDir) // <-- THE FIX                    .forks(1)
+                    .threads(1);
         }
         Options opt = jmhBuilder.build();
 
