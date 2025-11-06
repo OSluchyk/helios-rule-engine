@@ -24,6 +24,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
 
+import static java.nio.file.Files.createDirectories;
+import static java.nio.file.Paths.*;
+
 /**
  * Development Performance Benchmark - 2-3 Minute Runtime
  * <p>
@@ -625,7 +628,16 @@ public class SimpleBenchmark {
                 .shouldFailOnError(true)
                 .shouldDoGC(false);
         if(args.length > 0 && args[0].equals("profile")) {
-            jmhBuilder.addProfiler("jfr")
+            String jfrOutputPath = "jfr-reports/benchmark-profile.jfr";
+            try {
+                java.nio.file.Path outputPath = get(jfrOutputPath);
+                createDirectories(outputPath.getParent());
+                System.out.println("JFR profiling enabled. Output will be written to: " + jfrOutputPath);
+            } catch (java.io.IOException e) {
+                System.err.println("Warning: Could not create JFR output directory: " + e.getMessage());
+            }
+
+            jmhBuilder.addProfiler("jfr:filename=" + jfrOutputPath)
                     .forks(1)
                     .threads(1)   ;
         }
