@@ -143,7 +143,6 @@ public class SimpleBenchmark {
         printHeader();
 
         // Track initial memory
-        System.gc();
         initialMemory = getUsedMemory();
 
         // Create progressive rule set
@@ -624,7 +623,7 @@ public class SimpleBenchmark {
                 .measurementIterations(MEASUREMENT_ITERATIONS)
                 .measurementTime(TimeValue.seconds(MEASUREMENT_TIME))
                 .shouldFailOnError(true)
-                .shouldDoGC(true);
+                .shouldDoGC(false);
         if(args.length > 0 && args[0].equals("profile")) {
             jmhBuilder.addProfiler("jfr")
                     .forks(1)
