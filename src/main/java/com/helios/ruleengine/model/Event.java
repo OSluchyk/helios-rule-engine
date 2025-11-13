@@ -9,6 +9,8 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import com.helios.ruleengine.core.model.Dictionary;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * Represents an event to be evaluated against rules.
@@ -21,12 +23,12 @@ import java.util.*;
  * EXECUTION FLOW:
  * 1. Event created with original attribute values
  * 2. First call to getEncodedAttributes():
- *    - Flattened attributes are computed and cached (already implemented)
- *    - For each string value, toUpperCase() is called once
- *    - The mapping (original → uppercased) is stored in normalizedStringsCache
+ * - Flattened attributes are computed and cached (already implemented)
+ * - For each string value, toUpperCase() is called once
+ * - The mapping (original → uppercased) is stored in normalizedStringsCache
  * 3. Subsequent calls to getEncodedAttributes():
- *    - String normalization uses cached uppercased values
- *    - toUpperCase() is never called again for the same string
+ * - String normalization uses cached uppercased values
+ * - toUpperCase() is never called again for the same string
  *
  * REGEX OPERATOR COMPATIBILITY:
  * REGEX operators require original (non-uppercased) string values for case-sensitive matching.
@@ -57,9 +59,9 @@ public final class Event {
     // Cache flattened attributes (safe - derived only from event's own data)
     private volatile Map<String, Object> flattenedAttributesCache;
 
-    // Cache normalized (uppercased) string values to avoid repeated toUpperCase() calls
-    // Initialized lazily on first getEncodedAttributes() call
-    private volatile Map<String, String> normalizedStringsCache;
+    // ✅ FIX: Use ConcurrentHashMap for thread-safe, non-blocking, high-performance caching.
+    // Replaces the volatile HashMap and unsafe double-checked locking.
+    private final ConcurrentMap<String, String> normalizedStringsCache = new ConcurrentHashMap<>();
 
     public Event(String eventId, String eventType, Map<String, Object> attributes) {
         if (eventId == null || eventId.isBlank()) {
@@ -128,12 +130,12 @@ public final class Event {
      * EXECUTION FLOW:
      * 1. Get flattened attributes (cached)
      * 2. For each attribute:
-     *    a. Look up field ID in dictionary
-     *    b. If value is a string:
-     *       - Check normalizedStringsCache for uppercased version
-     *       - If not cached, call toUpperCase() once and cache the result
-     *       - Look up uppercased value in value dictionary
-     *    c. If value is numeric/boolean, use as-is
+     * a. Look up field ID in dictionary
+     * b. If value is a string:
+     * - Check normalizedStringsCache for uppercased version
+     * - If not cached, call toUpperCase() once and cache the result
+     * - Look up uppercased value in value dictionary
+     * c. If value is numeric/boolean, use as-is
      * 3. Return encoded map (reusing ThreadLocal buffer)
      *
      * This ensures toUpperCase() is called at most once per unique string value
@@ -168,46 +170,18 @@ public final class Event {
     }
 
     /**
-     * Gets the normalized (uppercased) version of a string value.
-     * Uses lazy caching to avoid repeated toUpperCase() calls.
+     * ✅ FIX: Gets the normalized (uppercased) version of a string value.
+     * Uses ConcurrentHashMap.computeIfAbsent for a thread-safe, lock-free,
+     * and high-performance implementation. This guarantees toUpperCase()
+     * is called exactly once per string, even under high concurrent load.
      *
      * REASONING:
      * The profiling data showed that toUpperCase() was consuming 51.1% of CPU samples
-     * because it was called repeatedly for the same string values on every event evaluation.
-     * By caching the normalized strings, we call toUpperCase() at most once per unique
-     * string value, reducing CPU overhead by ~50%.
-     *
-     * Thread-safety: Uses double-checked locking for cache initialization.
+     * because it was called repeatedly. This fix resolves that hotspot
+     * and corrects the data race in the previous implementation.
      */
     private String getNormalizedString(String original) {
-        // Fast path: check if cache exists and contains the value
-        Map<String, String> cache = normalizedStringsCache;
-        if (cache != null) {
-            String cached = cache.get(original);
-            if (cached != null) {
-                return cached;
-            }
-        }
-
-        // Slow path: initialize cache if needed and compute normalized value
-        synchronized (this) {
-            // Re-check cache after acquiring lock
-            cache = normalizedStringsCache;
-            if (cache == null) {
-                normalizedStringsCache = cache = new HashMap<>();
-            }
-
-            // Check again if another thread added the value
-            String cached = cache.get(original);
-            if (cached != null) {
-                return cached;
-            }
-
-            // Compute and cache the normalized value
-            String normalized = original.toUpperCase();
-            cache.put(original, normalized);
-            return normalized;
-        }
+        return normalizedStringsCache.computeIfAbsent(original, String::toUpperCase);
     }
 
     private Map<String, Object> flattenMap(Map<String, Object> map) {

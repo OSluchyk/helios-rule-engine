@@ -83,20 +83,63 @@ public final class NumericOperatorEvaluator {
         private final PredicateGroup[] groups;
         private final float[] thresholdCache;
 
+        // ✅ FIX: Add ThreadLocal buffer to pool dense predicate lists
+        // This avoids allocating a new list for every evaluation.
+        private final ThreadLocal<List<NumericPredicate>> densePredicateBuffer =
+                ThreadLocal.withInitial(ArrayList::new);
+
         FieldEvaluator(List<NumericPredicate> predicates) {
             this.groups = organizeIntoGroups(predicates);
             int maxSize = Arrays.stream(groups).mapToInt(g -> g.predicates.length).max().orElse(0);
             this.thresholdCache = new float[Math.max(maxSize, FLOAT_SPECIES.length())];
         }
 
+        /**
+         * ✅ FIX: This method is updated to "densify" predicates *before*
+         * calling the vector logic.
+         */
         IntSet evaluate(float value, IntSet eligiblePredicateIds) {
             IntSet matches = new IntOpenHashSet();
 
+            // Get the reusable, thread-local buffer
+            List<NumericPredicate> denseBuffer = densePredicateBuffer.get();
+
             for (PredicateGroup group : groups) {
-                switch (group.operator) {
-                    case GREATER_THAN -> evaluateGT(value, group, matches, eligiblePredicateIds);
-                    case LESS_THAN -> evaluateLT(value, group, matches, eligiblePredicateIds);
-                    case BETWEEN -> evaluateBetween(value, group, matches, eligiblePredicateIds);
+                // Reset the buffer for this group
+                denseBuffer.clear();
+
+                // --- DENSIFICATION STEP ---
+                // Pre-filter predicates into a dense list.
+                // This ensures the vector unit only processes relevant data.
+                if (eligiblePredicateIds != null) {
+                    for (NumericPredicate pred : group.predicates) {
+                        if (eligiblePredicateIds.contains(pred.id)) {
+                            denseBuffer.add(pred);
+                        }
+                    }
+                } else {
+                    // No filter, add all (e.g., base cache disabled)
+                    Collections.addAll(denseBuffer, group.predicates);
+                }
+
+                if (denseBuffer.isEmpty()) {
+                    continue; // Skip this group, no eligible predicates
+                }
+                // --- END DENSIFICATION ---
+
+                // Create a temporary, dense group from the buffer's contents
+                // We use .toArray() here, which is a minor copy, but it
+                // simplifies the logic significantly.
+                NumericPredicate[] denseArray = denseBuffer.toArray(new NumericPredicate[0]);
+                PredicateGroup eligibleGroup = new PredicateGroup(group.operator, denseArray);
+
+                // ✅ CHANGED: Call evaluate methods with the *dense* group
+                // and pass 'null' for eligibility. The underlying methods
+                // are already optimized to skip checks when eligibility is null.
+                switch (eligibleGroup.operator) {
+                    case GREATER_THAN -> evaluateGT(value, eligibleGroup, matches, null);
+                    case LESS_THAN -> evaluateLT(value, eligibleGroup, matches, null);
+                    case BETWEEN -> evaluateBetween(value, eligibleGroup, matches, null);
                 }
             }
 
@@ -105,6 +148,7 @@ public final class NumericOperatorEvaluator {
 
         /**
          * Vectorized GREATER_THAN evaluation.
+         * (No changes needed, already handles null eligiblePredicateIds)
          */
         private void evaluateGT(float value, PredicateGroup group,
                                 IntSet matches, IntSet eligiblePredicateIds) {
@@ -143,6 +187,7 @@ public final class NumericOperatorEvaluator {
 
         /**
          * Vectorized LESS_THAN evaluation.
+         * (No changes needed, already handles null eligiblePredicateIds)
          */
         private void evaluateLT(float value, PredicateGroup group,
                                 IntSet matches, IntSet eligiblePredicateIds) {
@@ -178,6 +223,7 @@ public final class NumericOperatorEvaluator {
 
         /**
          * Vectorized BETWEEN evaluation (inclusive range).
+         * (No changes needed, already handles null eligiblePredicateIds)
          */
         private void evaluateBetween(float value, PredicateGroup group,
                                      IntSet matches, IntSet eligiblePredicateIds) {
@@ -254,6 +300,8 @@ public final class NumericOperatorEvaluator {
                                           long[] eligibilityMask, NumericPredicate[] predicates,
                                           IntSet matches) {
             for (int j = 0; j < FLOAT_SPECIES.length() && (offset + j) < predicates.length; j++) {
+                // This logic is correct: if eligibilityMask is null, eligible is true.
+                // This is the "fast path" we want when passing a dense list.
                 boolean eligible = eligibilityMask == null ||
                         ((eligibilityMask[(offset + j) / 64] & (1L << ((offset + j) % 64))) != 0);
                 if (eligible && compareMask.laneIsSet(j)) {
@@ -265,6 +313,7 @@ public final class NumericOperatorEvaluator {
         private void processScalarRemainder(int start, int end, float value, PredicateGroup group,
                                             long[] eligibilityMask, IntSet matches, boolean isGT) {
             for (int i = start; i < end; i++) {
+                // This logic is also correct and handles the null mask "fast path"
                 boolean eligible = eligibilityMask == null ||
                         ((eligibilityMask[i / 64] & (1L << (i % 64))) != 0);
                 if (eligible) {
