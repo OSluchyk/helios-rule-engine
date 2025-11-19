@@ -2,7 +2,7 @@ package com.helios.ruleengine.core;
 
 import org.junit.jupiter.api.Test;
 import org.openjdk.jol.info.ClassLayout;
-import com.helios.ruleengine.model.Predicate;
+import com.helios.ruleengine.runtime.model.Predicate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

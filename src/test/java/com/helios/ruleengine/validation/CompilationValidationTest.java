@@ -1,9 +1,9 @@
 package com.helios.ruleengine.validation;
 
-import com.helios.ruleengine.core.compiler.CompilationException;
-import com.helios.ruleengine.core.compiler.RuleCompiler;
-import com.helios.ruleengine.core.model.EngineModel;
-import com.helios.ruleengine.infrastructure.telemetry.TracingService;
+import com.helios.ruleengine.api.exceptions.CompilationException;
+import com.helios.ruleengine.compiler.RuleCompiler;
+import com.helios.ruleengine.runtime.model.EngineModel;
+import com.helios.ruleengine.infra.telemetry.TracingService;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;

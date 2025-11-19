@@ -4,13 +4,13 @@
  */
 package com.helios.ruleengine.core;
 
-import com.helios.ruleengine.core.compiler.RuleCompiler;
-import com.helios.ruleengine.core.evaluation.cache.BaseConditionEvaluator;
-import com.helios.ruleengine.core.model.EngineModel;
-import com.helios.ruleengine.infrastructure.telemetry.TracingService;
+import com.helios.ruleengine.compiler.RuleCompiler;
+import com.helios.ruleengine.runtime.evaluation.BaseConditionEvaluator;
+import com.helios.ruleengine.runtime.model.EngineModel;
+import com.helios.ruleengine.infra.telemetry.TracingService;
 import io.opentelemetry.api.trace.Tracer;
 import org.junit.jupiter.api.*;
-import com.helios.ruleengine.core.cache.InMemoryBaseConditionCache;
+import com.helios.ruleengine.infra.cache.InMemoryBaseConditionCache;
 
 import java.io.IOException;
 import java.nio.file.Files;

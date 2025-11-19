@@ -1,12 +1,12 @@
 package com.helios.ruleengine.integration;
 
-import com.helios.ruleengine.core.compiler.CompilationException;
-import com.helios.ruleengine.core.compiler.RuleCompiler;
-import com.helios.ruleengine.core.evaluation.RuleEvaluator;
-import com.helios.ruleengine.core.model.EngineModel;
-import com.helios.ruleengine.infrastructure.telemetry.TracingService;
-import com.helios.ruleengine.model.Event;
-import com.helios.ruleengine.model.MatchResult;
+import com.helios.ruleengine.api.exceptions.CompilationException;
+import com.helios.ruleengine.compiler.RuleCompiler;
+import com.helios.ruleengine.runtime.evaluation.RuleEvaluator;
+import com.helios.ruleengine.runtime.model.EngineModel;
+import com.helios.ruleengine.infra.telemetry.TracingService;
+import com.helios.ruleengine.api.model.Event;
+import com.helios.ruleengine.api.model.MatchResult;
 import io.opentelemetry.api.trace.Tracer;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;

@@ -1,9 +1,9 @@
-package com.helios.ruleengine.core.evaluation;
+package com.helios.ruleengine.runtime.evaluation;
 
-import com.helios.ruleengine.core.compiler.CompilationException;
-import com.helios.ruleengine.core.compiler.RuleCompiler;
-import com.helios.ruleengine.core.evaluation.RuleEvaluator;
-import com.helios.ruleengine.core.model.EngineModel;
+import com.helios.ruleengine.api.exceptions.CompilationException;
+import com.helios.ruleengine.compiler.RuleCompiler;
+import com.helios.ruleengine.runtime.evaluation.RuleEvaluator;
+import com.helios.ruleengine.runtime.model.EngineModel;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
@@ -13,8 +13,8 @@ import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import com.helios.ruleengine.model.Event;
-import com.helios.ruleengine.model.MatchResult;
+import com.helios.ruleengine.api.model.Event;
+import com.helios.ruleengine.api.model.MatchResult;
 
 import java.io.IOException;
 import java.nio.file.Files;

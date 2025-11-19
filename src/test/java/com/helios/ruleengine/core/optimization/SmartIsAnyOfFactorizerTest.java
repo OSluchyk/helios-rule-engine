@@ -1,6 +1,6 @@
-package com.helios.ruleengine.core.optimization;
+package com.helios.ruleengine.compiler.optimization;
 
-import com.helios.ruleengine.model.RuleDefinition;
+import com.helios.ruleengine.api.model.RuleDefinition;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

@@ -1,8 +1,8 @@
 package com.helios.ruleengine.api;
 
 
-import com.helios.ruleengine.model.Event;
-import com.helios.ruleengine.model.MatchResult;
+import com.helios.ruleengine.api.model.Event;
+import com.helios.ruleengine.api.model.MatchResult;
 
 /**
  * Contract for evaluating events against compiled rules.

@@ -4,10 +4,11 @@
  */
 package com.helios.ruleengine.core.evaluation.predicates;
 
-import com.helios.ruleengine.core.compiler.RuleCompiler;
-import com.helios.ruleengine.core.evaluation.context.EvaluationContext;
-import com.helios.ruleengine.core.model.EngineModel;
-import com.helios.ruleengine.infrastructure.telemetry.TracingService;
+import com.helios.ruleengine.compiler.RuleCompiler;
+import com.helios.ruleengine.runtime.context.EvaluationContext;
+import com.helios.ruleengine.runtime.model.EngineModel;
+import com.helios.ruleengine.infra.telemetry.TracingService;
+import com.helios.ruleengine.runtime.operators.EqualityOperatorEvaluator;
 import io.opentelemetry.api.trace.Tracer;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;

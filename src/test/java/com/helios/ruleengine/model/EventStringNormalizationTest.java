@@ -2,9 +2,9 @@
  * Copyright (c) 2025 Helios Rule Engine
  * Licensed under the Apache License, Version 2.0
  */
-package com.helios.ruleengine.model;
+package com.helios.ruleengine.api.model;
 
-import com.helios.ruleengine.core.model.Dictionary;
+import com.helios.ruleengine.runtime.model.Dictionary;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

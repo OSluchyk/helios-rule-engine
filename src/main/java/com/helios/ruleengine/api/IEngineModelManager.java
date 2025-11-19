@@ -1,7 +1,7 @@
 package com.helios.ruleengine.api;
 
 
-import com.helios.ruleengine.core.model.EngineModel;
+import com.helios.ruleengine.runtime.model.EngineModel;
 
 /**
  * Contract for managing engine model lifecycle (hot reload).
