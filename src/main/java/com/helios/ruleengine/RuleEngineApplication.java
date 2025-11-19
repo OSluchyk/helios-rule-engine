@@ -1,9 +1,9 @@
 package com.helios.ruleengine;
 
-import com.helios.ruleengine.core.compiler.CompilationException;
-import com.helios.ruleengine.core.management.EngineModelManager;
-import com.helios.ruleengine.infrastructure.telemetry.TracingService;
-import com.helios.ruleengine.server.HttpServer;
+import com.helios.ruleengine.api.exceptions.CompilationException;
+import com.helios.ruleengine.infra.management.EngineModelManager;
+import com.helios.ruleengine.infra.server.HttpServer;
+import com.helios.ruleengine.infra.telemetry.TracingService;
 
 import java.io.IOException;
 import java.nio.file.Path;

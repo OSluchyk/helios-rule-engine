@@ -1,14 +1,15 @@
 package com.helios.ruleengine.core.compiler;
 
-import com.helios.ruleengine.core.model.EngineModel;
-import com.helios.ruleengine.infrastructure.telemetry.TracingService;
+import com.helios.ruleengine.compiler.RuleCompiler;
+import com.helios.ruleengine.runtime.model.EngineModel;
+import com.helios.ruleengine.infra.telemetry.TracingService;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import com.helios.ruleengine.model.Predicate;
+import com.helios.ruleengine.runtime.model.Predicate;
 
 import java.io.IOException;
 import java.nio.file.Files;

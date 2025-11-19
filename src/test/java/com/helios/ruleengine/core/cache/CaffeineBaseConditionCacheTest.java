@@ -1,4 +1,4 @@
-package com.helios.ruleengine.core.cache;
+package com.helios.ruleengine.infra.cache;
 
 import org.junit.jupiter.api.*;
 import org.roaringbitmap.RoaringBitmap;

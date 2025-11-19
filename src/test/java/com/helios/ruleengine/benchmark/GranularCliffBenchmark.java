@@ -1,6 +1,6 @@
 package com.helios.ruleengine.benchmark;
 
-import com.helios.ruleengine.core.evaluation.RuleEvaluator;
+import com.helios.ruleengine.runtime.evaluation.RuleEvaluator;
 import io.opentelemetry.api.trace.Tracer;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
@@ -9,11 +9,11 @@ import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
-import com.helios.ruleengine.core.model.EngineModel;
-import com.helios.ruleengine.core.compiler.RuleCompiler;
-import com.helios.ruleengine.infrastructure.telemetry.TracingService;
-import com.helios.ruleengine.model.Event;
-import com.helios.ruleengine.model.MatchResult;
+import com.helios.ruleengine.runtime.model.EngineModel;
+import com.helios.ruleengine.compiler.RuleCompiler;
+import com.helios.ruleengine.infra.telemetry.TracingService;
+import com.helios.ruleengine.api.model.Event;
+import com.helios.ruleengine.api.model.MatchResult;
 
 import java.io.IOException;
 import java.nio.file.Files;

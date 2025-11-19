@@ -1,14 +1,14 @@
 package com.helios.ruleengine.core;
 
-import com.helios.ruleengine.core.evaluation.RuleEvaluator;
-import com.helios.ruleengine.core.management.EngineModelManager;
-import com.helios.ruleengine.infrastructure.telemetry.TracingService;
+import com.helios.ruleengine.runtime.evaluation.RuleEvaluator;
+import com.helios.ruleengine.infra.management.EngineModelManager;
+import com.helios.ruleengine.infra.telemetry.TracingService;
 import io.opentelemetry.api.trace.Tracer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import com.helios.ruleengine.model.Event;
-import com.helios.ruleengine.model.MatchResult;
+import com.helios.ruleengine.api.model.Event;
+import com.helios.ruleengine.api.model.MatchResult;
 
 import java.io.IOException;
 import java.nio.file.Files;
