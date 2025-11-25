@@ -1,0 +1,234 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://helios-rule-engine.io/schemas/rule-v1.json",
+  "title": "Helios Rule Engine Schema v1",
+  "description": "Schema for validating rule definitions with conditions, operators, and metadata",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Semantic version of the ruleset"
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/rule"
+      }
+    }
+  },
+  "required": [
+    "rules"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "rule": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Unique identifier for the rule"
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "Execution priority (higher = evaluated first)"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether the rule is active"
+        },
+        "conditions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/definitions/condition"
+          }
+        },
+        "action": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "conditions"
+      ],
+      "additionalProperties": false
+    },
+    "condition": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "type": "string",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_-]*$",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Event attribute field name (supports alphanumeric, underscore, hyphen)"
+        },
+        "operator": {
+          "type": "string",
+          "enum": [
+            "EQUAL_TO",
+            "NOT_EQUAL_TO",
+            "GREATER_THAN",
+            "GREATER_THAN_OR_EQUAL",
+            "LESS_THAN",
+            "LESS_THAN_OR_EQUAL",
+            "IS_ANY_OF",
+            "IS_NONE_OF",
+            "CONTAINS",
+            "STARTS_WITH",
+            "ENDS_WITH",
+            "MATCHES_REGEX",
+            "IS_NULL",
+            "IS_NOT_NULL"
+          ],
+          "description": "Comparison operator for the condition"
+        },
+        "value": {
+          "description": "Expected value(s) for comparison - type must match operator requirements",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
+              "minItems": 1,
+              "maxItems": 1000
+            }
+          ]
+        },
+        "caseSensitive": {
+          "type": "boolean",
+          "default": false,
+          "description": "For string operations, whether to match case"
+        }
+      },
+      "required": [
+        "field",
+        "operator",
+        "value"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "enum": [
+                  "IS_ANY_OF",
+                  "IS_NONE_OF"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "array"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "enum": [
+                  "GREATER_THAN",
+                  "GREATER_THAN_OR_EQUAL",
+                  "LESS_THAN",
+                  "LESS_THAN_OR_EQUAL"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "enum": [
+                  "IS_NULL",
+                  "IS_NOT_NULL"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
