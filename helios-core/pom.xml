@@ -21,6 +21,11 @@
     <!-- DEPENDENCIES                                                             -->
     <!-- ═══════════════════════════════════════════════════════════════════════ -->
     <dependencies>
+        <dependency>
+            <groupId>com.helios</groupId>
+            <artifactId>helios-api</artifactId>
+        </dependency>
+
         <!-- JSON Processing -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>

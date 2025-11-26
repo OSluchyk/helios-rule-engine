@@ -1,14 +1,14 @@
 package com.helios.ruleengine.infra.metrics.impl.prometheus;
 
-
 import com.helios.ruleengine.infra.metrics.MetricsRegistry;
 import com.helios.ruleengine.infra.metrics.api.MetricsRegistryProvider;
-import com.helios.ruleengine.metrics.impl.prometheus.PrometheusMetricsRegistry;
 
 /**
  * Prometheus-backed metrics provider.
  *
- * <p>Registers itself via ServiceLoader. To enable, add this file:
+ * <p>
+ * Registers itself via ServiceLoader. To enable, add this file:
+ * 
  * <pre>
  * src/main/resources/META-INF/services/com.helios.rules.metrics.spi.MetricsRegistryProvider
  *
@@ -25,7 +25,7 @@ public final class PrometheusMetricsRegistryProvider implements MetricsRegistryP
 
     @Override
     public int priority() {
-        return 100;  // Prefer Prometheus in production
+        return 100; // Prefer Prometheus in production
     }
 
     @Override

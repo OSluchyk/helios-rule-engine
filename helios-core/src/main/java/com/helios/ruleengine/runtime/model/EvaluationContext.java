@@ -2,9 +2,8 @@
  * Copyright (c) 2025 Helios Rule Engine
  * Licensed under the Apache License, Version 2.0
  */
-package com.helios.ruleengine.api.model;
+package com.helios.ruleengine.runtime.model;
 
-import com.helios.ruleengine.runtime.model.Dictionary;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 
@@ -48,7 +47,7 @@ import java.util.concurrent.ConcurrentMap;
  * - Normalized strings: Cached lazily (only string values, not all attributes)
  * - Encoded attributes: Pooled via ThreadLocal (NOT cached to prevent dictionary issues)
  */
-public final class Event {
+public final class EvaluationContext {
     private static final Map<String, Object> EMPTY_MAP = Collections.emptyMap();
 
     // ThreadLocal pool for encoded attributes map (reused across evaluations)
@@ -66,7 +65,7 @@ public final class Event {
     // Replaces the volatile HashMap and unsafe double-checked locking.
     private final ConcurrentMap<String, String> normalizedStringsCache = new ConcurrentHashMap<>();
 
-    public Event(String eventId, String eventType, Map<String, Object> attributes) {
+    public EvaluationContext(String eventId, String eventType, Map<String, Object> attributes) {
         if (eventId == null || eventId.isBlank()) {
             throw new IllegalArgumentException("Event ID cannot be null or blank");
         }
@@ -221,7 +220,7 @@ public final class Event {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        Event event = (Event) o;
+        EvaluationContext event = (EvaluationContext) o;
         return Objects.equals(eventId, event.eventId) &&
                 Objects.equals(eventType, event.eventType) &&
                 Objects.equals(attributes, event.attributes);

@@ -1,40 +1,43 @@
-package com.helios.ruleengine.metrics.impl.prometheus;
-
+package com.helios.ruleengine.infra.metrics.impl.prometheus;
 
 import com.helios.ruleengine.infra.metrics.Gauge;
 
 /**
  * Adapter that bridges Helios Gauge interface to Prometheus Gauge.
  *
- * <p>Thread-safe wrapper around Prometheus gauge. Unlike counters, gauges
+ * <p>
+ * Thread-safe wrapper around Prometheus gauge. Unlike counters, gauges
  * can go up or down, making them suitable for metrics like:
  * <ul>
- *   <li>Cache size
- *   <li>Active connections
- *   <li>Memory usage
- *   <li>Queue depth
- *   <li>Temperature, CPU %, etc.
+ * <li>Cache size
+ * <li>Active connections
+ * <li>Memory usage
+ * <li>Queue depth
+ * <li>Temperature, CPU %, etc.
  * </ul>
  *
  * <h3>Usage Example:</h3>
+ * 
  * <pre>{@code
  * // Create gauge
  * io.prometheus.client.Gauge promGauge = Gauge.build()
- *     .name("cache_size")
- *     .help("Current cache size")
- *     .register();
+ *         .name("cache_size")
+ *         .help("Current cache size")
+ *         .register();
  *
  * Gauge gauge = new PrometheusGaugeAdapter(promGauge, new String[0]);
  *
  * // Update gauge value
- * gauge.set(1500.0);  // Cache has 1500 entries
+ * gauge.set(1500.0); // Cache has 1500 entries
  *
  * // Later...
- * gauge.set(1450.0);  // Cache shrunk to 1450 entries
+ * gauge.set(1450.0); // Cache shrunk to 1450 entries
  * }</pre>
  *
  * <h3>Thread Safety:</h3>
- * <p>All operations are thread-safe. Multiple threads can call {@link #set(double)}
+ * <p>
+ * All operations are thread-safe. Multiple threads can call
+ * {@link #set(double)}
  * and {@link #value()} concurrently. The last write wins (no atomic increment).
  *
  * @author Helios Platform Team
@@ -51,10 +54,11 @@ final class PrometheusGaugeAdapter implements Gauge {
     /**
      * Creates an adapter for a Prometheus gauge with specific label values.
      *
-     * @param gauge the Prometheus gauge (parent, not yet bound to labels)
+     * @param gauge       the Prometheus gauge (parent, not yet bound to labels)
      * @param labelValues the values for each label (must match labelNames order)
      *
-     * @throws IllegalArgumentException if labelValues length doesn't match labelNames
+     * @throws IllegalArgumentException if labelValues length doesn't match
+     *                                  labelNames
      */
     PrometheusGaugeAdapter(io.prometheus.client.Gauge gauge, String[] labelValues) {
         if (labelValues == null) {
@@ -64,17 +68,19 @@ final class PrometheusGaugeAdapter implements Gauge {
         // Bind gauge to specific label values
         this.gauge = labelValues.length > 0
                 ? gauge.labels(labelValues)
-                : gauge.labels();  // No labels = default child
+                : gauge.labels(); // No labels = default child
     }
 
     /**
      * Sets the gauge to the specified value.
      *
-     * <p>This operation is atomic within Prometheus. If multiple threads
+     * <p>
+     * This operation is atomic within Prometheus. If multiple threads
      * call set() concurrently, the last write wins. There is no "increment"
      * semantic - each set() completely replaces the previous value.
      *
-     * <p>Thread-safe operation.
+     * <p>
+     * Thread-safe operation.
      *
      * @param value the new gauge value (can be any double, including negative)
      */
@@ -86,10 +92,12 @@ final class PrometheusGaugeAdapter implements Gauge {
     /**
      * Gets the current gauge value.
      *
-     * <p>This read may not reflect a concurrent {@link #set(double)} happening
+     * <p>
+     * This read may not reflect a concurrent {@link #set(double)} happening
      * at the exact same moment, but will eventually see all writes.
      *
-     * <p>Thread-safe operation.
+     * <p>
+     * Thread-safe operation.
      *
      * @return current gauge value
      */
@@ -101,10 +109,12 @@ final class PrometheusGaugeAdapter implements Gauge {
     /**
      * Increments the gauge by 1.
      *
-     * <p>Convenience method equivalent to incrementing a counter, but for gauges.
+     * <p>
+     * Convenience method equivalent to incrementing a counter, but for gauges.
      * Note that unlike counters, gauges can also be decremented.
      *
-     * <p>Thread-safe operation.
+     * <p>
+     * Thread-safe operation.
      */
     public void increment() {
         gauge.inc();
@@ -113,7 +123,8 @@ final class PrometheusGaugeAdapter implements Gauge {
     /**
      * Increments the gauge by the specified amount.
      *
-     * <p>Thread-safe operation.
+     * <p>
+     * Thread-safe operation.
      *
      * @param amount the amount to increment (can be negative to decrement)
      */
@@ -124,9 +135,11 @@ final class PrometheusGaugeAdapter implements Gauge {
     /**
      * Decrements the gauge by 1.
      *
-     * <p>Convenience method for decrementing.
+     * <p>
+     * Convenience method for decrementing.
      *
-     * <p>Thread-safe operation.
+     * <p>
+     * Thread-safe operation.
      */
     public void decrement() {
         gauge.dec();
@@ -135,7 +148,8 @@ final class PrometheusGaugeAdapter implements Gauge {
     /**
      * Decrements the gauge by the specified amount.
      *
-     * <p>Thread-safe operation.
+     * <p>
+     * Thread-safe operation.
      *
      * @param amount the amount to decrement (must be non-negative)
      */
@@ -146,14 +160,17 @@ final class PrometheusGaugeAdapter implements Gauge {
     /**
      * Sets the gauge to current Unix timestamp in seconds.
      *
-     * <p>Useful for tracking "last update time" metrics:
+     * <p>
+     * Useful for tracking "last update time" metrics:
+     * 
      * <pre>{@code
      * Gauge lastSync = metrics.gauge("last_sync_time");
      * // ... perform sync ...
      * ((PrometheusGaugeAdapter) lastSync).setToCurrentTime();
      * }</pre>
      *
-     * <p>Thread-safe operation.
+     * <p>
+     * Thread-safe operation.
      */
     public void setToCurrentTime() {
         gauge.setToCurrentTime();

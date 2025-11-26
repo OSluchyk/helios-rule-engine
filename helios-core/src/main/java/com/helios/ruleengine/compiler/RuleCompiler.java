@@ -7,7 +7,9 @@ import com.helios.ruleengine.api.model.RuleDefinition;
 import com.helios.ruleengine.compiler.optimization.SmartIsAnyOfFactorizer;
 import com.helios.ruleengine.runtime.model.Dictionary;
 import com.helios.ruleengine.runtime.model.EngineModel;
-import com.helios.ruleengine.runtime.model.Predicate;
+import com.helios.ruleengine.api.model.Predicate;
+import com.helios.ruleengine.api.model.SelectionStrategy;
+import com.helios.ruleengine.api.model.EngineStats;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
@@ -53,7 +55,7 @@ public class RuleCompiler implements IRuleCompiler {
      * @throws IOException If the rules file cannot be read.
      * @throws CompilationException If the rules are invalid or a compilation error occurs.
      */
-    public EngineModel compile(Path rulesPath, EngineModel.SelectionStrategy strategy)
+    public EngineModel compile(Path rulesPath, SelectionStrategy strategy)
             throws IOException, CompilationException {
         Span span = tracer.spanBuilder("compile-rules").startSpan();
         try (Scope scope = span.makeCurrent()) {
@@ -103,7 +105,7 @@ public class RuleCompiler implements IRuleCompiler {
             // It likely should be "deduplicationRatePercent".
             metadata.put("deduplicationRatePercent", deduplicationRate);
 
-            EngineModel.EngineStats stats = new EngineModel.EngineStats(
+            EngineStats stats = new EngineStats(
                     uniqueCombinations,
                     builder.getPredicateCount(),
                     compilationTime,
@@ -125,7 +127,7 @@ public class RuleCompiler implements IRuleCompiler {
     }
 
     public EngineModel compile(Path rulesPath) throws IOException, CompilationException {
-        return compile(rulesPath, EngineModel.SelectionStrategy.FIRST_MATCH);
+        return compile(rulesPath, SelectionStrategy.FIRST_MATCH);
     }
 
     private void buildDictionaries(List<RuleDefinition> definitions, Dictionary fieldDictionary, Dictionary valueDictionary) {

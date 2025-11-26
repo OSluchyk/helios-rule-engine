@@ -1,5 +1,4 @@
-package com.helios.ruleengine.metrics.impl.prometheus;
-
+package com.helios.ruleengine.infra.metrics.impl.prometheus;
 
 import com.helios.ruleengine.infra.metrics.Counter;
 import com.helios.ruleengine.infra.metrics.Gauge;
@@ -32,12 +31,11 @@ public final class PrometheusMetricsRegistry implements MetricsRegistry {
     @Override
     public Counter counter(String name, String... tags) {
         return counters.computeIfAbsent(name, n -> {
-            io.prometheus.client.Counter promCounter =
-                    io.prometheus.client.Counter.build()
-                            .name(sanitizeName(n))
-                            .help("Auto-generated counter for " + n)
-                            .labelNames(extractLabelNames(tags))
-                            .register(registry);
+            io.prometheus.client.Counter promCounter = io.prometheus.client.Counter.build()
+                    .name(sanitizeName(n))
+                    .help("Auto-generated counter for " + n)
+                    .labelNames(extractLabelNames(tags))
+                    .register(registry);
 
             return new PrometheusCounterAdapter(promCounter, extractLabelValues(tags));
         });
@@ -46,12 +44,11 @@ public final class PrometheusMetricsRegistry implements MetricsRegistry {
     @Override
     public Gauge gauge(String name, String... tags) {
         return gauges.computeIfAbsent(name, n -> {
-            io.prometheus.client.Gauge promGauge =
-                    io.prometheus.client.Gauge.build()
-                            .name(sanitizeName(n))
-                            .help("Auto-generated gauge for " + n)
-                            .labelNames(extractLabelNames(tags))
-                            .register(registry);
+            io.prometheus.client.Gauge promGauge = io.prometheus.client.Gauge.build()
+                    .name(sanitizeName(n))
+                    .help("Auto-generated gauge for " + n)
+                    .labelNames(extractLabelNames(tags))
+                    .register(registry);
 
             return new PrometheusGaugeAdapter(promGauge, extractLabelValues(tags));
         });
@@ -60,13 +57,12 @@ public final class PrometheusMetricsRegistry implements MetricsRegistry {
     @Override
     public Timer timer(String name, String... tags) {
         return timers.computeIfAbsent(name, n -> {
-            io.prometheus.client.Histogram promHistogram =
-                    io.prometheus.client.Histogram.build()
-                            .name(sanitizeName(n) + "_seconds")
-                            .help("Auto-generated timer for " + n)
-                            .buckets(0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0)
-                            .labelNames(extractLabelNames(tags))
-                            .register(registry);
+            io.prometheus.client.Histogram promHistogram = io.prometheus.client.Histogram.build()
+                    .name(sanitizeName(n) + "_seconds")
+                    .help("Auto-generated timer for " + n)
+                    .buckets(0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0)
+                    .labelNames(extractLabelNames(tags))
+                    .register(registry);
 
             return new PrometheusTimerAdapter(promHistogram, extractLabelValues(tags));
         });
