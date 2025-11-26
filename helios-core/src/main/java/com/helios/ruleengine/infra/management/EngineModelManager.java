@@ -2,7 +2,7 @@ package com.helios.ruleengine.infra.management;
 
 import com.helios.ruleengine.api.IEngineModelManager;
 import com.helios.ruleengine.api.exceptions.CompilationException;
-import com.helios.ruleengine.compiler.RuleCompiler;
+import com.helios.ruleengine.api.IRuleCompiler;
 import com.helios.ruleengine.runtime.model.EngineModel;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
@@ -22,17 +22,19 @@ public class EngineModelManager implements IEngineModelManager {
     private static final Logger logger = Logger.getLogger(EngineModelManager.class.getName());
 
     private final Path rulesPath;
-    private final RuleCompiler compiler;
+    private final IRuleCompiler compiler;
     private final AtomicReference<EngineModel> activeModel = new AtomicReference<>();
     private final ScheduledExecutorService monitoringExecutor;
     private final Tracer tracer;
 
     private long lastModifiedTime = -1;
 
-    public EngineModelManager(Path rulesPath, Tracer tracer) throws CompilationException, IOException {
+    public EngineModelManager(Path rulesPath, Tracer tracer, IRuleCompiler compiler)
+            throws CompilationException, IOException {
         this.rulesPath = rulesPath;
         this.tracer = tracer;
-        this.compiler = new RuleCompiler(tracer); // Pass tracer to compiler
+        this.compiler = compiler;
+        this.compiler.setTracer(tracer);
         this.monitoringExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "Rule-File-Monitor");
             t.setDaemon(true);
@@ -83,7 +85,7 @@ public class EngineModelManager implements IEngineModelManager {
             this.lastModifiedTime = modifiedTime;
             span.setAttribute("newModel.uniqueCombinations", newModel.getNumRules());
             logger.info("Successfully reloaded and swapped to new rule model.");
-        } catch (IOException | CompilationException e) {
+        } catch (Exception e) {
             span.recordException(e);
             logger.log(Level.SEVERE, "Failed to compile new rule model. Old model remains active.", e);
         } finally {

@@ -29,6 +29,7 @@
             <groupId>com.helios</groupId>
             <artifactId>helios-compiler</artifactId>
             <version>${project.version}</version>
+            <scope>test</scope>
         </dependency>
 
         <!-- JSON Processing -->
