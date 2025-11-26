@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Helios Rule Engine
  * Licensed under the Apache License, Version 2.0
  */
-package com.helios.ruleengine.infra.server;
+package com.helios.ruleengine.service.server;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.helios.ruleengine.api.model.Event;
