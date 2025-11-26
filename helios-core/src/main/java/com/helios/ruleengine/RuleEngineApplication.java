@@ -1,6 +1,7 @@
 package com.helios.ruleengine;
 
 import com.helios.ruleengine.api.exceptions.CompilationException;
+import com.helios.ruleengine.api.IRuleCompiler;
 import com.helios.ruleengine.infra.management.EngineModelManager;
 import com.helios.ruleengine.infra.server.HttpServer;
 import com.helios.ruleengine.infra.telemetry.TracingService;
@@ -8,6 +9,8 @@ import com.helios.ruleengine.infra.telemetry.TracingService;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.logging.Level;
+import java.util.ServiceLoader;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -38,7 +41,11 @@ public class RuleEngineApplication {
         Path rulesPath = Paths.get(rulesFile);
 
         // Pass the tracer to the manager
-        modelManager = new EngineModelManager(rulesPath, tracingService.getTracer());
+        IRuleCompiler compiler = ServiceLoader.load(IRuleCompiler.class)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("No IRuleCompiler implementation found"));
+
+        modelManager = new EngineModelManager(rulesPath, tracingService.getTracer(), compiler);
         modelManager.start();
 
         httpServer = new HttpServer(port, modelManager, tracingService.getTracer());
@@ -47,8 +54,10 @@ public class RuleEngineApplication {
     }
 
     private void shutdown() {
-        if (modelManager != null) modelManager.shutdown();
-        if (httpServer != null) httpServer.stop(2*60*1000);
+        if (modelManager != null)
+            modelManager.shutdown();
+        if (httpServer != null)
+            httpServer.stop(2 * 60 * 1000);
         logger.info("Rule Engine shutdown complete");
     }
 
