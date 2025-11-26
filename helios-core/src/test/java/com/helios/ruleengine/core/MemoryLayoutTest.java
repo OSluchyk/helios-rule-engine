@@ -1,8 +1,8 @@
 package com.helios.ruleengine.core;
 
+import com.helios.ruleengine.api.model.Predicate;
 import org.junit.jupiter.api.Test;
 import org.openjdk.jol.info.ClassLayout;
-import com.helios.ruleengine.runtime.model.Predicate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

@@ -6,7 +6,7 @@ package com.helios.ruleengine.runtime.operators;
 
 import com.helios.ruleengine.runtime.context.EvaluationContext;
 import com.helios.ruleengine.runtime.model.EngineModel;
-import com.helios.ruleengine.runtime.model.Predicate;
+import com.helios.ruleengine.api.model.Predicate;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
 import it.unimi.dsi.fastutil.ints.IntSet;

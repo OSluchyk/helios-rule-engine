@@ -5,7 +5,10 @@
 package com.helios.ruleengine.runtime.model;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.helios.ruleengine.api.model.EngineStats;
+import com.helios.ruleengine.api.model.Predicate;
 import com.helios.ruleengine.api.model.RuleDefinition;
+import com.helios.ruleengine.api.model.SelectionStrategy;
 import it.unimi.dsi.fastutil.ints.*;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
@@ -15,7 +18,6 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -78,20 +80,6 @@ public final class EngineModel implements Serializable {
     // Kept for backward compatibility or internal wiring
     private final RuleDefinition[] ruleDefinitions;
     private final Int2IntMap familyPriorities;
-
-    public enum SelectionStrategy {
-        ALL_MATCHES,
-        MAX_PRIORITY_PER_FAMILY,
-        FIRST_MATCH
-    }
-
-    public record EngineStats(
-            int uniqueCombinations,
-            int totalPredicates,
-            long compilationTimeNanos,
-            Map<String, Object> metadata
-    ) implements Serializable {
-    }
 
     /**
      * Canonical key for predicate deduplication that ignores weight/selectivity.

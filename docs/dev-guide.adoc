@@ -1086,7 +1086,7 @@ RuleEvaluator evaluator = new RuleEvaluator(model);
 MatchResult result = evaluator.evaluate(event);
 ----
 
-*Event* — represents an event to evaluate.
+*EvaluationContext* — represents an event to evaluate.
 
 [source,java]
 ----

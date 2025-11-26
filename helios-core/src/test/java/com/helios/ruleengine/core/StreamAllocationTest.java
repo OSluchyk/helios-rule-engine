@@ -1,6 +1,8 @@
 package com.helios.ruleengine.core;
 
+import com.helios.ruleengine.api.model.SelectionStrategy;
 import com.helios.ruleengine.compiler.RuleCompiler;
+import com.helios.ruleengine.runtime.context.EventEncoder;
 import com.helios.ruleengine.runtime.evaluation.RuleEvaluator;
 import com.helios.ruleengine.runtime.model.EngineModel;
 import com.helios.ruleengine.runtime.model.Dictionary;
@@ -36,6 +38,7 @@ class StreamAllocationTest {
     private static final Tracer NOOP_TRACER = TracingService.getInstance().getTracer();
     private EngineModel model;
     private RuleEvaluator evaluator;
+    private EventEncoder eventEncoder;
     private static Path tempDir;
     private static boolean threadAllocationsSupported = false;
 
@@ -74,9 +77,12 @@ class StreamAllocationTest {
         Files.writeString(rulesFile, getStreamTestRules());
 
         RuleCompiler compiler = new RuleCompiler(NOOP_TRACER);
-//        model = compiler.compile(rulesFile);
-        model = compiler.compile(rulesFile, EngineModel.SelectionStrategy.ALL_MATCHES);
+        // FIX: Use EngineModel.SelectionStrategy (fully qualified)
+        model = compiler.compile(rulesFile, SelectionStrategy.ALL_MATCHES);
         evaluator = new RuleEvaluator(model, NOOP_TRACER, true);
+
+        // FIX: Create EventEncoder for encoding tests
+        eventEncoder = new EventEncoder(model.getFieldDictionary(), model.getValueDictionary());
     }
 
     @Test
@@ -154,9 +160,10 @@ class StreamAllocationTest {
                 "status", "ACTIVE"
         ));
 
+        // FIX: Use EventEncoder instead of event.getFlattenedAttributes()
         // When - call getFlattenedAttributes multiple times
-        Map<String, Object> flattened1 = event.getFlattenedAttributes();
-        Map<String, Object> flattened2 = event.getFlattenedAttributes();
+        Map<String, Object> flattened1 = eventEncoder.getFlattenedAttributes(event);
+        Map<String, Object> flattened2 = eventEncoder.getFlattenedAttributes(event);
 
         // Then - should return same cached instance (no wrapper allocation)
         assertThat(flattened1).isSameAs(flattened2);
@@ -247,15 +254,13 @@ class StreamAllocationTest {
                 "priority", "HIGH"
         ));
 
-        Dictionary fieldDict = model.getFieldDictionary();
-        Dictionary valueDict = model.getValueDictionary();
-
+        // FIX: Use EventEncoder instead of event.getEncodedAttributes()
         // When - get encoded attributes multiple times
-        var encoded1 = event.getEncodedAttributes(fieldDict, valueDict);
-        var encoded2 = event.getEncodedAttributes(fieldDict, valueDict);
-        var encoded3 = event.getEncodedAttributes(fieldDict, valueDict);
+        var encoded1 = eventEncoder.encode(event);
+        var encoded2 = eventEncoder.encode(event);
+        var encoded3 = eventEncoder.encode(event);
 
-        // Then - should return same cached instance
+        // Then - should return same cached instance (from ThreadLocal buffer)
         assertThat(encoded1).isSameAs(encoded2);
         assertThat(encoded2).isSameAs(encoded3);
 
@@ -285,8 +290,11 @@ class StreamAllocationTest {
 
         // Verify that all expected rules are matched
         assertThat(result.matchedRules()).hasSize(4);
-        List<String> matchedRuleCodes = result.matchedRules().stream().map(match -> match.ruleCode()).collect(Collectors.toList());
-        assertThat(matchedRuleCodes).containsExactlyInAnyOrder("LARGE_AMOUNT", "MEDIUM_AMOUNT", "ACTIVE_STATUS", "HIGH_PRIORITY");
+        List<String> matchedRuleCodes = result.matchedRules().stream()
+                .map(match -> match.ruleCode())
+                .collect(Collectors.toList());
+        assertThat(matchedRuleCodes).containsExactlyInAnyOrder(
+                "LARGE_AMOUNT", "MEDIUM_AMOUNT", "ACTIVE_STATUS", "HIGH_PRIORITY");
 
         System.out.printf("✓ Correctness maintained: matched %d rules%n", result.matchedRules().size());
     }

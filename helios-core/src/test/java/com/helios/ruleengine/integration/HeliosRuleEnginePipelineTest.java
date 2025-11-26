@@ -1,6 +1,7 @@
 package com.helios.ruleengine.integration;
 
 import com.helios.ruleengine.api.exceptions.CompilationException;
+import com.helios.ruleengine.api.model.SelectionStrategy;
 import com.helios.ruleengine.compiler.RuleCompiler;
 import com.helios.ruleengine.runtime.evaluation.RuleEvaluator;
 import com.helios.ruleengine.runtime.model.EngineModel;
@@ -355,7 +356,7 @@ class HeliosRuleEnginePipelineTest {
         Path rulesFile = createRulesFile(dedupTest.rulesJson);
 
         // CRITICAL FIX: Use ALL_MATCHES strategy
-        EngineModel model = new RuleCompiler(TRACER).compile(rulesFile, EngineModel.SelectionStrategy.ALL_MATCHES);
+        EngineModel model = new RuleCompiler(TRACER).compile(rulesFile, SelectionStrategy.ALL_MATCHES);
 
         // Validate deduplication metrics
         Map<String, Object> metadata = model.getStats().metadata();

@@ -1,4 +1,4 @@
-package com.helios.ruleengine.runtime.model;
+package com.helios.ruleengine.api.model;
 
 import com.fasterxml.jackson.annotation.JsonValue;
 
