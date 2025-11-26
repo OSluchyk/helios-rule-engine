@@ -19,6 +19,9 @@
     <modules>
         <module>helios-core</module>
         <module>helios-api</module>
+        <module>helios-compiler</module>
+        <module>helios-evaluator</module>
+        <module>helios-service</module>
     </modules>
 
     <!-- ═══════════════════════════════════════════════════════════════════════════════ -->

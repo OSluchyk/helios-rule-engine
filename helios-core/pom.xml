@@ -25,6 +25,11 @@
             <groupId>com.helios</groupId>
             <artifactId>helios-api</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.helios</groupId>
+            <artifactId>helios-compiler</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
         <!-- JSON Processing -->
         <dependency>
