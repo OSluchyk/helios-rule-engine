@@ -66,11 +66,6 @@ import static java.nio.file.Paths.*;
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
 @State(Scope.Benchmark)
 @Fork(value = 1, jvmArgs = {
-        "-XX:+UnlockExperimentalVMOptions",
-        "-XX:+UseCompactObjectHeaders",
-        "-XX:+UseZGC",
-        "-XX:+ZGenerational",
-        "--add-modules=jdk.incubator.vector",
         "-Xms8g",
         "-Xmx8g",
         "-XX:+AlwaysPreTouch",

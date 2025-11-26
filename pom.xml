@@ -22,6 +22,7 @@
         <module>helios-compiler</module>
         <module>helios-evaluator</module>
         <module>helios-service</module>
+        <module>helios-benchmarks</module>
     </modules>
 
     <!-- ═══════════════════════════════════════════════════════════════════════════════ -->
