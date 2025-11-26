@@ -1,4 +1,4 @@
-package com.helios.ruleengine.infra.cache;
+package com.helios.ruleengine.cache;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;

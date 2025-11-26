@@ -1,4 +1,4 @@
-package com.helios.ruleengine.infra.cache;
+package com.helios.ruleengine.cache;
 
 import java.text.DecimalFormat;
 import java.util.logging.Logger;

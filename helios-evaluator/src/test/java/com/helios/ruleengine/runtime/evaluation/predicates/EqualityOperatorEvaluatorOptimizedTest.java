@@ -2,13 +2,13 @@
  * Copyright (c) 2025 Helios Rule Engine
  * Licensed under the Apache License, Version 2.0
  */
-package com.helios.ruleengine.core.evaluation.predicates;
+package com.helios.ruleengine.runtime.evaluation.predicates;
 
 import com.helios.ruleengine.compiler.RuleCompiler;
 import com.helios.ruleengine.runtime.context.EvaluationContext;
 import com.helios.ruleengine.runtime.model.EngineModel;
-import com.helios.ruleengine.infra.telemetry.TracingService;
 import com.helios.ruleengine.runtime.operators.EqualityOperatorEvaluator;
+import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Tracer;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.*;
  */
 class EqualityOperatorEvaluatorOptimizedTest {
 
-    private static final Tracer tracer = TracingService.getInstance().getTracer();
+    private static final Tracer tracer = OpenTelemetry.noop().getTracer("test");
 
     private RuleCompiler compiler;
     private EngineModel model;

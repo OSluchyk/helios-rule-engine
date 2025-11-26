@@ -1,0 +1,72 @@
+[
+  {
+    "rule_code": "FAMILY_A",
+    "priority": 100,
+    "enabled": true,
+    "description": "High priority rule for top-tier US customers",
+    "conditions": [
+      {"field": "region", "operator": "EQUAL_TO", "value": "US"},
+      {"field": "tier", "operator": "EQUAL_TO", "value": "PLATINUM"}
+    ]
+  },
+  {
+    "rule_code": "FAMILY_A",
+    "priority": 10,
+    "enabled": true,
+    "description": "Generic rule for all US customers, lower priority",
+    "conditions": [
+      {"field": "region", "operator": "EQUAL_TO", "value": "US"}
+    ]
+  },
+  {
+    "rule_code": "LARGE_TRANSACTION",
+    "priority": 80,
+    "enabled": true,
+    "conditions": [
+      {"field": "amount", "operator": "GREATER_THAN", "value": 5000}
+    ]
+  },
+  {
+    "rule_code": "SMALL_TRANSACTION",
+    "priority": 70,
+    "enabled": true,
+    "conditions": [
+      {"field": "amount", "operator": "LESS_THAN", "value": 50}
+    ]
+  },
+  {
+    "rule_code": "MID_RANGE_ORDER",
+    "priority": 60,
+    "enabled": true,
+    "conditions": [
+      {"field": "amount", "operator": "BETWEEN", "value": [100, 500]}
+    ]
+  },
+  {
+    "rule_code": "EU_VAT_CHECK",
+    "priority": 90,
+    "enabled": true,
+    "conditions": [
+      {"field": "country", "operator": "IS_ANY_OF", "value": ["DE", "FR", "ES"]}
+    ]
+  },
+  {
+    "rule_code": "FRAUD_PATTERN",
+    "priority": 200,
+    "enabled": true,
+    "description": "Regex check for suspicious transaction descriptions",
+    "conditions": [
+      {"field": "description", "operator": "REGEX", "value": ".*(cash|transfer).*"}
+    ]
+  },
+  {
+    "rule_code": "CONTAINS_CHECK",
+    "priority": 40,
+    "enabled": true,
+    "description": "Simple contains check for product codes",
+    "conditions": [
+      {"field": "product_code", "operator": "CONTAINS", "value": "PROMO"}
+    ]
+  }
+]
+

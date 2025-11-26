@@ -6,7 +6,7 @@ package com.helios.ruleengine.runtime.evaluation;
 
 import com.helios.ruleengine.api.model.Event;
 import com.helios.ruleengine.api.model.Predicate;
-import com.helios.ruleengine.infra.cache.BaseConditionCache;
+import com.helios.ruleengine.cache.BaseConditionCache;
 import com.helios.ruleengine.runtime.context.EventEncoder;
 import com.helios.ruleengine.runtime.model.EngineModel;
 import it.unimi.dsi.fastutil.ints.*;

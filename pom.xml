@@ -39,6 +39,7 @@
         <roaringbitmap.version>1.3.0</roaringbitmap.version>
         <guava.version>33.5.0-jre</guava.version>
         <xxhash.version>0.16</xxhash.version>
+        <slf4j.version>2.0.9</slf4j.version>
 
         <!-- Caching -->
         <caffeine.version>3.2.2</caffeine.version>
@@ -51,6 +52,7 @@
 
         <!-- Testing -->
         <junit.version>5.10.0</junit.version>
+        <mockito.version>5.7.0</mockito.version>
         <assertj.version>3.24.2</assertj.version>
         <jmh.version>1.37</jmh.version>
         <jol.version>0.17</jol.version>
@@ -105,6 +107,11 @@
                 <groupId>net.openhft</groupId>
                 <artifactId>zero-allocation-hashing</artifactId>
                 <version>${xxhash.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-api</artifactId>
+                <version>${slf4j.version}</version>
             </dependency>
 
             <!-- Caching -->
@@ -168,6 +175,16 @@
                 <groupId>org.assertj</groupId>
                 <artifactId>assertj-core</artifactId>
                 <version>${assertj.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-core</artifactId>
+                <version>${mockito.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-junit-jupiter</artifactId>
+                <version>${mockito.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.openjdk.jmh</groupId>
