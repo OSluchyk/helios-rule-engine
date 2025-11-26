@@ -1,4 +1,4 @@
-package com.helios.ruleengine.infra.cache;
+package com.helios.ruleengine.cache;
 
 import org.roaringbitmap.RoaringBitmap;
 

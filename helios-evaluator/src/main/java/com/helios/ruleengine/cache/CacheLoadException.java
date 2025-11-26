@@ -1,4 +1,4 @@
-package com.helios.ruleengine.infra.cache;
+package com.helios.ruleengine.cache;
 
 class CacheLoadException extends RuntimeException {
     CacheLoadException(String message, Throwable cause) {

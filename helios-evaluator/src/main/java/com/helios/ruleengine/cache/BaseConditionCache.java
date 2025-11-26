@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Helios Rule Engine
  * Licensed under the Apache License, Version 2.0
  */
-package com.helios.ruleengine.infra.cache;
+package com.helios.ruleengine.cache;
 
 import org.roaringbitmap.RoaringBitmap;
 

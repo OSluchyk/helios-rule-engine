@@ -10,7 +10,8 @@ import org.openjdk.jmh.results.format.ResultFormatType;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
-import com.helios.ruleengine.infra.cache.*;
+import com.helios.ruleengine.cache.BaseConditionCache;
+import com.helios.ruleengine.cache.InMemoryBaseConditionCache;
 import com.helios.ruleengine.api.model.Event;
 import com.helios.ruleengine.api.model.MatchResult;
 
@@ -29,36 +30,36 @@ import static org.openjdk.jmh.annotations.Threads.MAX;
  * - P99 < 0.8ms latency
  * - <6GB memory @ 100K rules
  */
-@BenchmarkMode({Mode.Throughput, Mode.SampleTime})
+@BenchmarkMode({ Mode.Throughput, Mode.SampleTime })
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
 @State(Scope.Benchmark)
 @Fork(value = 2, jvmArgs = {
         "-XX:+UnlockExperimentalVMOptions",
-        "-XX:+UseCompactObjectHeaders",  // Java 25 compact headers
-        "-XX:+UseZGC",                   // ZGC for low latency
-        "-XX:+ZGenerational",             // Generational ZGC
-        "-XX:+UseLargePages",            // Large pages for TLB efficiency
+        "-XX:+UseCompactObjectHeaders", // Java 25 compact headers
+        "-XX:+UseZGC", // ZGC for low latency
+        "-XX:+ZGenerational", // Generational ZGC
+        "-XX:+UseLargePages", // Large pages for TLB efficiency
         "--add-modules=jdk.incubator.vector",
         "-Djdk.incubator.vector.VECTOR_ACCESS_OOB_CHECK=0",
-        "-XX:+UseNUMA",                  // NUMA awareness
-        "-XX:MaxInlineLevel=15",         // Aggressive inlining
-        "-XX:InlineSmallCode=2000",      // Larger inline threshold
-        "-Xms8g",                        // Initial heap
-        "-Xmx8g",                        // Max heap
-        "-XX:MaxDirectMemorySize=4g",    // Direct memory for off-heap
-        "-XX:+AlwaysPreTouch",           // Pre-touch pages
-        "-XX:+UseStringDeduplication",   // String deduplication
-        "-Djava.lang.Integer.IntegerCache.high=10000"  // Larger integer cache
+        "-XX:+UseNUMA", // NUMA awareness
+        "-XX:MaxInlineLevel=15", // Aggressive inlining
+        "-XX:InlineSmallCode=2000", // Larger inline threshold
+        "-Xms8g", // Initial heap
+        "-Xmx8g", // Max heap
+        "-XX:MaxDirectMemorySize=4g", // Direct memory for off-heap
+        "-XX:+AlwaysPreTouch", // Pre-touch pages
+        "-XX:+UseStringDeduplication", // String deduplication
+        "-Djava.lang.Integer.IntegerCache.high=10000" // Larger integer cache
 })
 @Warmup(iterations = 10, time = 2)
 @Measurement(iterations = 20, time = 5)
-@Threads(MAX)  // Simulating concurrent load
+@Threads(MAX) // Simulating concurrent load
 public class ProductionBenchmark {
 
-    @Param({"1000", "10000", "50000", "100000"})
+    @Param({ "1000", "10000", "50000", "100000" })
     private int ruleCount;
 
-    @Param({"SIMPLE", "MEDIUM", "COMPLEX", "MIXED"})
+    @Param({ "SIMPLE", "MEDIUM", "COMPLEX", "MIXED" })
     private String workloadType;
 
     private RuleEvaluator evaluator;
@@ -121,7 +122,7 @@ public class ProductionBenchmark {
     @Benchmark
     public MatchResult evaluateSingleEvent() {
         long idx = eventIndex.getAndIncrement();
-        Event event = eventPool.get((int)(idx % eventPool.size()));
+        Event event = eventPool.get((int) (idx % eventPool.size()));
         return evaluator.evaluate(event);
     }
 
@@ -131,7 +132,7 @@ public class ProductionBenchmark {
         // Batch evaluation for better throughput measurement
         for (int i = 0; i < 100; i++) {
             long idx = eventIndex.getAndIncrement();
-            Event event = eventPool.get((int)(idx % eventPool.size()));
+            Event event = eventPool.get((int) (idx % eventPool.size()));
             blackhole.consume(evaluator.evaluate(event));
         }
     }
@@ -145,10 +146,10 @@ public class ProductionBenchmark {
                 // Simple rules with 1-3 conditions
                 for (int i = 0; i < count; i++) {
                     rules.add(String.format("""
-                        {"rule_code":"SIMPLE_%d", "priority":%d, "conditions": [
-                            {"field":"status", "operator":"EQUAL_TO", "value":"ACTIVE"},
-                            {"field":"amount", "operator":"GREATER_THAN", "value":%d}
-                        ]}""", i, i % 100, i % 1000));
+                            {"rule_code":"SIMPLE_%d", "priority":%d, "conditions": [
+                                {"field":"status", "operator":"EQUAL_TO", "value":"ACTIVE"},
+                                {"field":"amount", "operator":"GREATER_THAN", "value":%d}
+                            ]}""", i, i % 100, i % 1000));
                 }
                 break;
 
@@ -156,11 +157,11 @@ public class ProductionBenchmark {
                 // Medium complexity with IS_ANY_OF
                 for (int i = 0; i < count; i++) {
                     rules.add(String.format("""
-                        {"rule_code":"MEDIUM_%d", "priority":%d, "conditions": [
-                            {"field":"country", "operator":"IS_ANY_OF", "value":["US","UK","CA","AU"]},
-                            {"field":"tier", "operator":"IS_ANY_OF", "value":["GOLD","PLATINUM"]},
-                            {"field":"amount", "operator":"BETWEEN", "value":[100,%d]}
-                        ]}""", i, i % 100, 1000 + i % 5000));
+                            {"rule_code":"MEDIUM_%d", "priority":%d, "conditions": [
+                                {"field":"country", "operator":"IS_ANY_OF", "value":["US","UK","CA","AU"]},
+                                {"field":"tier", "operator":"IS_ANY_OF", "value":["GOLD","PLATINUM"]},
+                                {"field":"amount", "operator":"BETWEEN", "value":[100,%d]}
+                            ]}""", i, i % 100, 1000 + i % 5000));
                 }
                 break;
 
@@ -171,14 +172,14 @@ public class ProductionBenchmark {
                     List<String> products = generateProductList(5);
 
                     rules.add(String.format("""
-                        {"rule_code":"COMPLEX_%d", "priority":%d, "conditions": [
-                            {"field":"country", "operator":"IS_ANY_OF", "value":%s},
-                            {"field":"product", "operator":"IS_ANY_OF", "value":%s},
-                            {"field":"status", "operator":"EQUAL_TO", "value":"ACTIVE"},
-                            {"field":"tier", "operator":"IS_ANY_OF", "value":["GOLD","PLATINUM","DIAMOND"]},
-                            {"field":"amount", "operator":"GREATER_THAN", "value":%d},
-                            {"field":"risk_score", "operator":"LESS_THAN", "value":%d}
-                        ]}""",
+                            {"rule_code":"COMPLEX_%d", "priority":%d, "conditions": [
+                                {"field":"country", "operator":"IS_ANY_OF", "value":%s},
+                                {"field":"product", "operator":"IS_ANY_OF", "value":%s},
+                                {"field":"status", "operator":"EQUAL_TO", "value":"ACTIVE"},
+                                {"field":"tier", "operator":"IS_ANY_OF", "value":["GOLD","PLATINUM","DIAMOND"]},
+                                {"field":"amount", "operator":"GREATER_THAN", "value":%d},
+                                {"field":"risk_score", "operator":"LESS_THAN", "value":%d}
+                            ]}""",
                             i, i % 100,
                             toJsonArray(countries),
                             toJsonArray(products),
@@ -193,28 +194,30 @@ public class ProductionBenchmark {
                     if (i % 10 < 6) {
                         // Simple rule
                         rules.add(String.format("""
-                            {"rule_code":"MIX_S_%d", "priority":%d, "conditions": [
-                                {"field":"type", "operator":"EQUAL_TO", "value":"ORDER"},
-                                {"field":"amount", "operator":"GREATER_THAN", "value":%d}
-                            ]}""", i, i % 100, i % 1000));
+                                {"rule_code":"MIX_S_%d", "priority":%d, "conditions": [
+                                    {"field":"type", "operator":"EQUAL_TO", "value":"ORDER"},
+                                    {"field":"amount", "operator":"GREATER_THAN", "value":%d}
+                                ]}""", i, i % 100, i % 1000));
                     } else if (i % 10 < 9) {
                         // Medium rule
                         rules.add(String.format("""
-                            {"rule_code":"MIX_M_%d", "priority":%d, "conditions": [
-                                {"field":"region", "operator":"IS_ANY_OF", "value":["NA","EU","APAC"]},
-                                {"field":"status", "operator":"EQUAL_TO", "value":"ACTIVE"},
-                                {"field":"score", "operator":"BETWEEN", "value":[50,95]}
-                            ]}""", i, i % 100));
+                                {"rule_code":"MIX_M_%d", "priority":%d, "conditions": [
+                                    {"field":"region", "operator":"IS_ANY_OF", "value":["NA","EU","APAC"]},
+                                    {"field":"status", "operator":"EQUAL_TO", "value":"ACTIVE"},
+                                    {"field":"score", "operator":"BETWEEN", "value":[50,95]}
+                                ]}""", i, i % 100));
                     } else {
                         // Complex rule
-                        rules.add(String.format("""
-                            {"rule_code":"MIX_C_%d", "priority":%d, "conditions": [
-                                {"field":"country", "operator":"IS_ANY_OF", "value":["US","UK","DE","FR","JP","CN","IN","BR"]},
-                                {"field":"category", "operator":"IS_ANY_OF", "value":["ELECTRONICS","FASHION","HOME"]},
-                                {"field":"payment", "operator":"IS_ANY_OF", "value":["CARD","PAYPAL","CRYPTO"]},
-                                {"field":"verified", "operator":"EQUAL_TO", "value":true},
-                                {"field":"amount", "operator":"GREATER_THAN", "value":%d}
-                            ]}""", i, i % 100, i % 50000));
+                        rules.add(String.format(
+                                """
+                                        {"rule_code":"MIX_C_%d", "priority":%d, "conditions": [
+                                            {"field":"country", "operator":"IS_ANY_OF", "value":["US","UK","DE","FR","JP","CN","IN","BR"]},
+                                            {"field":"category", "operator":"IS_ANY_OF", "value":["ELECTRONICS","FASHION","HOME"]},
+                                            {"field":"payment", "operator":"IS_ANY_OF", "value":["CARD","PAYPAL","CRYPTO"]},
+                                            {"field":"verified", "operator":"EQUAL_TO", "value":true},
+                                            {"field":"amount", "operator":"GREATER_THAN", "value":%d}
+                                        ]}""",
+                                i, i % 100, i % 50000));
                     }
                 }
                 break;
@@ -228,11 +231,11 @@ public class ProductionBenchmark {
         List<Event> events = new ArrayList<>(size);
         Random random = new Random(42); // Deterministic seed
 
-        String[] countries = {"US", "UK", "CA", "AU", "DE", "FR", "JP", "CN", "IN", "BR"};
-        String[] tiers = {"BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"};
-        String[] statuses = {"ACTIVE", "INACTIVE", "PENDING", "SUSPENDED"};
-        String[] types = {"ORDER", "PAYMENT", "REFUND", "SUBSCRIPTION"};
-        String[] products = {"ELECTRONICS", "FASHION", "HOME", "SPORTS", "BOOKS"};
+        String[] countries = { "US", "UK", "CA", "AU", "DE", "FR", "JP", "CN", "IN", "BR" };
+        String[] tiers = { "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND" };
+        String[] statuses = { "ACTIVE", "INACTIVE", "PENDING", "SUSPENDED" };
+        String[] types = { "ORDER", "PAYMENT", "REFUND", "SUBSCRIPTION" };
+        String[] products = { "ELECTRONICS", "FASHION", "HOME", "SPORTS", "BOOKS" };
 
         for (int i = 0; i < size; i++) {
             Map<String, Object> attrs = new HashMap<>();
@@ -335,8 +338,8 @@ public class ProductionBenchmark {
     }
 
     private List<String> generateCountryList(int size) {
-        String[] all = {"US", "UK", "CA", "AU", "DE", "FR", "JP", "CN", "IN", "BR",
-                "MX", "IT", "ES", "NL", "SE", "NO", "DK", "FI", "PL", "RU"};
+        String[] all = { "US", "UK", "CA", "AU", "DE", "FR", "JP", "CN", "IN", "BR",
+                "MX", "IT", "ES", "NL", "SE", "NO", "DK", "FI", "PL", "RU" };
         List<String> result = new ArrayList<>();
         Random r = new Random();
         for (int i = 0; i < Math.min(size, all.length); i++) {
@@ -346,8 +349,8 @@ public class ProductionBenchmark {
     }
 
     private List<String> generateProductList(int size) {
-        String[] all = {"ELECTRONICS", "FASHION", "HOME", "SPORTS", "BOOKS",
-                "TOYS", "FOOD", "BEAUTY", "AUTO", "GARDEN"};
+        String[] all = { "ELECTRONICS", "FASHION", "HOME", "SPORTS", "BOOKS",
+                "TOYS", "FOOD", "BEAUTY", "AUTO", "GARDEN" };
         List<String> result = new ArrayList<>();
         Random r = new Random();
         for (int i = 0; i < Math.min(size, all.length); i++) {
@@ -401,7 +404,8 @@ public class ProductionBenchmark {
         }
 
         private void printSnapshot() {
-            if (totalEvents == 0) return;
+            if (totalEvents == 0)
+                return;
 
             long elapsed = System.nanoTime() - startTime;
             double throughput = totalEvents * 1_000_000_000.0 / elapsed;
@@ -412,7 +416,8 @@ public class ProductionBenchmark {
         }
 
         public void printReport() {
-            if (latencies.isEmpty()) return;
+            if (latencies.isEmpty())
+                return;
 
             Collections.sort(latencies);
 

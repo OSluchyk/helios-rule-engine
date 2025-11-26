@@ -8,10 +8,10 @@ import com.helios.ruleengine.api.IRuleEvaluator;
 import com.helios.ruleengine.api.model.Event;
 import com.helios.ruleengine.api.model.MatchResult;
 import com.helios.ruleengine.api.model.SelectionStrategy;
-import com.helios.ruleengine.infra.cache.BaseConditionCache;
-import com.helios.ruleengine.infra.cache.CacheConfig;
-import com.helios.ruleengine.infra.cache.CacheFactory;
-import com.helios.ruleengine.infra.telemetry.TracingService;
+import com.helios.ruleengine.cache.BaseConditionCache;
+import com.helios.ruleengine.cache.CacheConfig;
+import com.helios.ruleengine.cache.CacheFactory;
+import io.opentelemetry.api.OpenTelemetry;
 import com.helios.ruleengine.runtime.context.EvaluationContext;
 import com.helios.ruleengine.runtime.context.EventEncoder;
 import com.helios.ruleengine.runtime.model.EngineModel;
@@ -115,7 +115,7 @@ public final class RuleEvaluator implements IRuleEvaluator {
      * Creates a RuleEvaluator with default tracer and no caching.
      */
     public RuleEvaluator(EngineModel model) {
-        this(model, TracingService.getInstance().getTracer(), false);
+        this(model, OpenTelemetry.noop().getTracer("helios-evaluator"), false);
     }
 
     // ════════════════════════════════════════════════════════════════════════════════

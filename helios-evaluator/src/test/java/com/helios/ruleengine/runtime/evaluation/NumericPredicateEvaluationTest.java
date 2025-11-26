@@ -1,9 +1,9 @@
-package com.helios.ruleengine.core.evaluation;
+package com.helios.ruleengine.runtime.evaluation;
 
 import com.helios.ruleengine.api.model.SelectionStrategy;
 import com.helios.ruleengine.compiler.RuleCompiler;
 import com.helios.ruleengine.runtime.model.EngineModel;
-import com.helios.ruleengine.infra.telemetry.TracingService;
+
 import com.helios.ruleengine.api.model.Event;
 import com.helios.ruleengine.api.model.MatchResult;
 import com.helios.ruleengine.runtime.evaluation.RuleEvaluator;
@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("Numeric Predicate Evaluation - Regression Test")
 class NumericPredicateEvaluationTest {
 
-    private static final Tracer NOOP_TRACER = TracingService.getInstance().getTracer();
+    private static final Tracer NOOP_TRACER = io.opentelemetry.api.OpenTelemetry.noop().getTracer("test");
     private static Path tempDir;
 
     @BeforeAll

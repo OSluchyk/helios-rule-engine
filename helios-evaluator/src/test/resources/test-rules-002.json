@@ -1,0 +1,95 @@
+[
+  {
+    "rule_code": "TEST_EQUAL_TO_STATUS",
+    "description": "Test EQUAL_TO operator",
+    "priority": 100,
+    "enabled": true,
+    "conditions": [
+      {
+        "field": "status",
+        "operator": "EQUAL_TO",
+        "value": "ACTIVE"
+      }
+    ]
+  },
+  {
+    "rule_code": "TEST_NOT_EQUAL_TO_STATUS",
+    "description": "Test NOT_EQUAL_TO operator",
+    "priority": 90,
+    "enabled": true,
+    "conditions": [
+      {
+        "field": "status",
+        "operator": "NOT_EQUAL_TO",
+        "value": "INACTIVE"
+      }
+    ]
+  },
+  {
+    "rule_code": "TEST_EQUAL_TO_COUNTRY",
+    "description": "Test EQUAL_TO with country",
+    "priority": 80,
+    "enabled": true,
+    "conditions": [
+      {
+        "field": "country",
+        "operator": "EQUAL_TO",
+        "value": "US"
+      }
+    ]
+  },
+  {
+    "rule_code": "TEST_MULTIPLE_EQUAL_TO",
+    "description": "Test multiple EQUAL_TO predicates",
+    "priority": 70,
+    "enabled": true,
+    "conditions": [
+      {
+        "field": "status",
+        "operator": "EQUAL_TO",
+        "value": "ACTIVE"
+      },
+      {
+        "field": "amount",
+        "operator": "GREATER_THAN",
+        "value": 1000
+      }
+    ]
+  },
+  {
+    "rule_code": "TEST_IS_ANY_OF",
+    "description": "Test IS_ANY_OF operator (expands to EQUAL_TO)",
+    "priority": 60,
+    "enabled": true,
+    "conditions": [
+      {
+        "field": "country",
+        "operator": "IS_ANY_OF",
+        "value": ["US", "CA", "UK"]
+      }
+    ]
+  },
+  {
+    "rule_code": "TEST_MIXED_OPERATORS",
+    "description": "Test mixed operators",
+    "priority": 50,
+    "enabled": true,
+    "conditions": [
+      {
+        "field": "status",
+        "operator": "EQUAL_TO",
+        "value": "ACTIVE"
+      },
+      {
+        "field": "tier",
+        "operator": "NOT_EQUAL_TO",
+        "value": "BASIC"
+      },
+      {
+        "field": "amount",
+        "operator": "LESS_THAN",
+        "value": 5000
+      }
+    ]
+  }
+]

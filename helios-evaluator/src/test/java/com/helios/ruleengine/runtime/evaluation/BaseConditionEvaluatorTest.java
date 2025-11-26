@@ -1,17 +1,17 @@
-package com.helios.ruleengine.core.evaluation;
+package com.helios.ruleengine.runtime.evaluation;
 
 import com.helios.ruleengine.api.exceptions.CompilationException;
 import com.helios.ruleengine.compiler.RuleCompiler;
 import com.helios.ruleengine.runtime.context.EventEncoder;
 import com.helios.ruleengine.runtime.evaluation.BaseConditionEvaluator;
 import com.helios.ruleengine.runtime.model.EngineModel;
-import com.helios.ruleengine.infra.telemetry.TracingService;
+
 import io.opentelemetry.api.trace.Tracer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import com.helios.ruleengine.api.model.Event;
-import com.helios.ruleengine.infra.cache.NoOpCache;
+import com.helios.ruleengine.cache.NoOpCache;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -29,7 +29,7 @@ class BaseConditionEvaluatorTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        tracer = TracingService.getInstance().getTracer();
+        tracer = io.opentelemetry.api.OpenTelemetry.noop().getTracer("test");
         rulesDir = Files.createTempDirectory("base-cond-test-");
     }
 
