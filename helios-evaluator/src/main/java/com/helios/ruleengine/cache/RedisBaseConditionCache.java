@@ -60,7 +60,7 @@ public class RedisBaseConditionCache implements BaseConditionCache {
     private static final String CACHE_PREFIX = "rule_engine:base:";
 
     // Compression magic bytes (2-byte identifier)
-    private static final byte[] COMPRESSION_MAGIC = {(byte) 0x1F, (byte) 0x8B}; // GZIP magic
+    private static final byte[] COMPRESSION_MAGIC = { (byte) 0x1F, (byte) 0x8B }; // GZIP magic
 
     // Redis client and cache map
     private final RedissonClient redisson;
@@ -84,8 +84,9 @@ public class RedisBaseConditionCache implements BaseConditionCache {
     /**
      * Create Redis cache with specified configuration.
      *
-     * @param redisson              Redisson client (shared across cache instances)
-     * @param compressionThreshold  Compress bitmaps larger than this (bytes), 0 to disable
+     * @param redisson             Redisson client (shared across cache instances)
+     * @param compressionThreshold Compress bitmaps larger than this (bytes), 0 to
+     *                             disable
      */
     public RedisBaseConditionCache(RedissonClient redisson, int compressionThreshold) {
         this.redisson = redisson;
@@ -96,8 +97,7 @@ public class RedisBaseConditionCache implements BaseConditionCache {
         logger.info(String.format(
                 "RedisBaseConditionCache initialized: compression=%s, threshold=%d bytes",
                 enableCompression ? "enabled" : "disabled",
-                compressionThreshold
-        ));
+                compressionThreshold));
     }
 
     // ========================================================================
@@ -116,13 +116,13 @@ public class RedisBaseConditionCache implements BaseConditionCache {
      * Performance: ~1-2 ms per call (network + deserialization)
      */
     @Override
-    public CompletableFuture<Optional<CacheEntry>> get(String cacheKey) {
+    public CompletableFuture<Optional<CacheEntry>> get(Object cacheKey) {
         totalRequests.incrementAndGet();
         long startNanos = System.nanoTime();
 
         return CompletableFuture.supplyAsync(() -> {
             try {
-                byte[] serializedData = cacheMap.get(cacheKey);
+                byte[] serializedData = cacheMap.get(cacheKey.toString());
 
                 if (serializedData == null) {
                     misses.incrementAndGet();
@@ -138,9 +138,8 @@ public class RedisBaseConditionCache implements BaseConditionCache {
                 CacheEntry entry = new CacheEntry(
                         result,
                         System.nanoTime(), // Approximate creation time
-                        0,                 // Hit count not tracked
-                        cacheKey
-                );
+                        0, // Hit count not tracked
+                        cacheKey);
 
                 return Optional.of(entry);
 
@@ -166,7 +165,7 @@ public class RedisBaseConditionCache implements BaseConditionCache {
      * Performance: ~1-2 ms per call (serialization + network)
      */
     @Override
-    public CompletableFuture<Void> put(String cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit) {
+    public CompletableFuture<Void> put(Object cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit) {
         long startNanos = System.nanoTime();
 
         return CompletableFuture.runAsync(() -> {
@@ -175,13 +174,12 @@ public class RedisBaseConditionCache implements BaseConditionCache {
                 byte[] serializedData = serializeRoaringBitmap(result);
 
                 // Store in Redis with TTL
-                cacheMap.put(cacheKey, serializedData, ttl, timeUnit);
+                cacheMap.put(cacheKey.toString(), serializedData, ttl, timeUnit);
 
                 if (logger.isLoggable(Level.FINE)) {
                     logger.fine(String.format(
                             "Cached entry: key=%s, size=%d bytes, cardinality=%d, ttl=%d %s",
-                            cacheKey, serializedData.length, result.getCardinality(), ttl, timeUnit
-                    ));
+                            cacheKey, serializedData.length, result.getCardinality(), ttl, timeUnit));
                 }
 
             } catch (Exception e) {
@@ -202,17 +200,22 @@ public class RedisBaseConditionCache implements BaseConditionCache {
      * Performance: ~1-3 ms for typical batch sizes (10-100 keys)
      */
     @Override
-    public CompletableFuture<Map<String, CacheEntry>> getBatch(Iterable<String> cacheKeys) {
+    public CompletableFuture<Map<Object, CacheEntry>> getBatch(Iterable<Object> cacheKeys) {
         totalRequests.incrementAndGet();
         long startNanos = System.nanoTime();
 
         return CompletableFuture.supplyAsync(() -> {
-            Map<String, CacheEntry> results = new HashMap<>();
+            Map<Object, CacheEntry> results = new HashMap<>();
 
             try {
                 // Convert to set for Redis MGET
                 Set<String> keySet = new HashSet<>();
-                cacheKeys.forEach(keySet::add);
+                Map<String, Object> keyMapping = new HashMap<>();
+                for (Object key : cacheKeys) {
+                    String strKey = key.toString();
+                    keySet.add(strKey);
+                    keyMapping.put(strKey, key);
+                }
 
                 if (keySet.isEmpty()) {
                     return results;
@@ -229,9 +232,8 @@ public class RedisBaseConditionCache implements BaseConditionCache {
                                 bitmap,
                                 System.nanoTime(),
                                 0,
-                                entry.getKey()
-                        );
-                        results.put(entry.getKey(), cacheEntry);
+                                keyMapping.get(entry.getKey()));
+                        results.put(keyMapping.get(entry.getKey()), cacheEntry);
                         hits.incrementAndGet();
 
                     } catch (Exception e) {
@@ -268,7 +270,7 @@ public class RedisBaseConditionCache implements BaseConditionCache {
      * @return Future that completes when all entries are stored
      */
     @Override
-    public CompletableFuture<Void> warmUp(Map<String, RoaringBitmap> entries) {
+    public CompletableFuture<Void> warmUp(Map<Object, RoaringBitmap> entries) {
         if (entries.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }
@@ -279,11 +281,11 @@ public class RedisBaseConditionCache implements BaseConditionCache {
             int successCount = 0;
             int errorCount = 0;
 
-            for (Map.Entry<String, RoaringBitmap> entry : entries.entrySet()) {
+            for (Map.Entry<Object, RoaringBitmap> entry : entries.entrySet()) {
                 try {
                     byte[] serializedData = serializeRoaringBitmap(entry.getValue());
                     // Use default TTL for warm-up entries (could be configurable)
-                    cacheMap.put(entry.getKey(), serializedData, 10, TimeUnit.MINUTES);
+                    cacheMap.put(entry.getKey().toString(), serializedData, 10, TimeUnit.MINUTES);
                     successCount++;
 
                 } catch (Exception e) {
@@ -295,8 +297,7 @@ public class RedisBaseConditionCache implements BaseConditionCache {
 
             logger.info(String.format(
                     "Cache warm-up complete: success=%d, errors=%d",
-                    successCount, errorCount
-            ));
+                    successCount, errorCount));
         });
     }
 
@@ -307,10 +308,10 @@ public class RedisBaseConditionCache implements BaseConditionCache {
      * @return Future that completes when invalidation is done
      */
     @Override
-    public CompletableFuture<Void> invalidate(String cacheKey) {
+    public CompletableFuture<Void> invalidate(Object cacheKey) {
         return CompletableFuture.runAsync(() -> {
             try {
-                cacheMap.fastRemove(cacheKey);
+                cacheMap.fastRemove(cacheKey.toString());
                 evictions.incrementAndGet();
 
                 if (logger.isLoggable(Level.FINE)) {
@@ -378,8 +379,7 @@ public class RedisBaseConditionCache implements BaseConditionCache {
                 currentSize,
                 hitRate,
                 avgGetTime,
-                avgPutTime
-        );
+                avgPutTime);
     }
 
     // ========================================================================
@@ -457,8 +457,7 @@ public class RedisBaseConditionCache implements BaseConditionCache {
             double ratio = 100.0 * (1.0 - (double) compressed.length / data.length);
             logger.fine(String.format(
                     "Compressed: %d -> %d bytes (%.1f%% savings)",
-                    data.length, compressed.length, ratio
-            ));
+                    data.length, compressed.length, ratio));
         }
 
         return compressed;
@@ -511,14 +510,15 @@ public class RedisBaseConditionCache implements BaseConditionCache {
      * Provides fluent API for setting up Redis connection and cache parameters.
      *
      * Example usage:
+     * 
      * <pre>{@code
      * RedisBaseConditionCache cache = new RedisBaseConditionCache.Builder()
-     *     .redisAddress("redis://redis-prod:6379")
-     *     .password("secret")
-     *     .connectionPoolSize(64)
-     *     .compressionThreshold(2048)
-     *     .useCluster(true)
-     *     .build();
+     *         .redisAddress("redis://redis-prod:6379")
+     *         .password("secret")
+     *         .connectionPoolSize(64)
+     *         .compressionThreshold(2048)
+     *         .useCluster(true)
+     *         .build();
      * }</pre>
      */
     public static class Builder {
@@ -595,8 +595,7 @@ public class RedisBaseConditionCache implements BaseConditionCache {
 
                 logger.info(String.format(
                         "Configuring Redis Cluster: address=%s, poolSize=%d, minIdle=%d, timeout=%dms",
-                        redisAddress, connectionPoolSize, connectionMinimumIdleSize, timeout
-                ));
+                        redisAddress, connectionPoolSize, connectionMinimumIdleSize, timeout));
 
             } else {
                 config.useSingleServer()
@@ -608,8 +607,7 @@ public class RedisBaseConditionCache implements BaseConditionCache {
 
                 logger.info(String.format(
                         "Configuring Redis Single Server: address=%s, poolSize=%d, minIdle=%d, timeout=%dms",
-                        redisAddress, connectionPoolSize, connectionMinimumIdleSize, timeout
-                ));
+                        redisAddress, connectionPoolSize, connectionMinimumIdleSize, timeout));
             }
 
             RedissonClient redisson = Redisson.create(config);
@@ -627,4 +625,3 @@ public class RedisBaseConditionCache implements BaseConditionCache {
         }
     }
 }
-

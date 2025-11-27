@@ -29,18 +29,24 @@ import java.util.logging.Logger;
  *
  * Adaptive cache that dynamically resizes based on hit rate metrics.
  *
- * <p>Drop-in replacement for {@link CaffeineBaseConditionCache} with automatic tuning.
- * Now stores RoaringBitmap directly, eliminating conversion overhead at cache boundaries.
+ * <p>
+ * Drop-in replacement for {@link CaffeineBaseConditionCache} with automatic
+ * tuning.
+ * Now stores RoaringBitmap directly, eliminating conversion overhead at cache
+ * boundaries.
  *
- * <p><b>Key Benefits of RoaringBitmap:</b>
+ * <p>
+ * <b>Key Benefits of RoaringBitmap:</b>
  * <ul>
- *   <li>40-60% memory reduction vs BitSet for sparse rule sets</li>
- *   <li>Zero conversion overhead (native storage format)</li>
- *   <li>Faster iteration for sparse bitmaps</li>
- *   <li>Immutable - no defensive copying needed</li>
+ * <li>40-60% memory reduction vs BitSet for sparse rule sets</li>
+ * <li>Zero conversion overhead (native storage format)</li>
+ * <li>Faster iteration for sparse bitmaps</li>
+ * <li>Immutable - no defensive copying needed</li>
  * </ul>
  *
- * <p><b>Integration Example:</b>
+ * <p>
+ * <b>Integration Example:</b>
+ * 
  * <pre>{@code
  * // 1. Generate key using FastCacheKeyGenerator
  * String cacheKey = FastCacheKeyGenerator.generateKey(eventAttrs, predicateIds, count);
@@ -58,15 +64,18 @@ import java.util.logging.Logger;
  * }
  * }</pre>
  *
- * <p><b>Thread Safety:</b>
+ * <p>
+ * <b>Thread Safety:</b>
  * <ul>
- *   <li>All reads are lock-free (StampedLock optimistic reads)</li>
- *   <li>Writes (resize operations) use exclusive lock</li>
- *   <li>Cache reference is volatile for happens-before visibility</li>
- *   <li>RoaringBitmap immutability eliminates concurrent modification issues</li>
+ * <li>All reads are lock-free (StampedLock optimistic reads)</li>
+ * <li>Writes (resize operations) use exclusive lock</li>
+ * <li>Cache reference is volatile for happens-before visibility</li>
+ * <li>RoaringBitmap immutability eliminates concurrent modification issues</li>
  * </ul>
  *
- * <p><b>Adaptive Sizing Algorithm:</b>
+ * <p>
+ * <b>Adaptive Sizing Algorithm:</b>
+ * 
  * <pre>
  * Every 30 seconds (configurable):
  *   If hit rate < 70% AND memory available → double size (max 10M)
@@ -77,34 +86,37 @@ import java.util.logging.Logger;
  *   - Recent GC activity
  * </pre>
  *
- * <p><b>Performance Characteristics:</b>
+ * <p>
+ * <b>Performance Characteristics:</b>
  * <ul>
- *   <li>Read latency: O(1) + ~3ns overhead (optimistic lock)</li>
- *   <li>Write latency: O(n) for cache rebuild during resize (infrequent)</li>
- *   <li>Memory: 2x peak during resize (old + new cache, ~100ms duration)</li>
- *   <li>Resize overhead: ~5-10ms per 100K entries</li>
+ * <li>Read latency: O(1) + ~3ns overhead (optimistic lock)</li>
+ * <li>Write latency: O(n) for cache rebuild during resize (infrequent)</li>
+ * <li>Memory: 2x peak during resize (old + new cache, ~100ms duration)</li>
+ * <li>Resize overhead: ~5-10ms per 100K entries</li>
  * </ul>
  *
- * <p><b>Production Tuning:</b>
+ * <p>
+ * <b>Production Tuning:</b>
+ * 
  * <pre>
  * // Development (small dataset, aggressive adaptation)
  * cache = new AdaptiveCaffeineCache.Builder()
- *     .initialMaxSize(10_000)
- *     .minCacheSize(1_000)
- *     .maxCacheSize(100_000)
- *     .tuningInterval(15, TimeUnit.SECONDS)
- *     .build();
+ *         .initialMaxSize(10_000)
+ *         .minCacheSize(1_000)
+ *         .maxCacheSize(100_000)
+ *         .tuningInterval(15, TimeUnit.SECONDS)
+ *         .build();
  *
  * // Production (large dataset, conservative adaptation)
  * cache = new AdaptiveCaffeineCache.Builder()
- *     .initialMaxSize(500_000)
- *     .minCacheSize(100_000)
- *     .maxCacheSize(5_000_000)
- *     .lowHitRateThreshold(0.70)
- *     .highHitRateThreshold(0.95)
- *     .tuningInterval(60, TimeUnit.SECONDS)
- *     .recordStats(true)
- *     .build();
+ *         .initialMaxSize(500_000)
+ *         .minCacheSize(100_000)
+ *         .maxCacheSize(5_000_000)
+ *         .lowHitRateThreshold(0.70)
+ *         .highHitRateThreshold(0.95)
+ *         .tuningInterval(60, TimeUnit.SECONDS)
+ *         .recordStats(true)
+ *         .build();
  * </pre>
  *
  * @author Platform Engineering Team
@@ -119,9 +131,9 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
     // ================================================================
 
     private static final long MIN_CACHE_SIZE = 10_000L;
-    private static final long MAX_CACHE_SIZE = 10_000_000L;  // 10M entries
-    private static final double LOW_HIT_RATE_THRESHOLD = 0.70;   // 70%
-    private static final double HIGH_HIT_RATE_THRESHOLD = 0.95;  // 95%
+    private static final long MAX_CACHE_SIZE = 10_000_000L; // 10M entries
+    private static final double LOW_HIT_RATE_THRESHOLD = 0.70; // 70%
+    private static final double HIGH_HIT_RATE_THRESHOLD = 0.95; // 95%
     private static final Duration TUNING_INTERVAL = Duration.ofSeconds(30);
     private static final Duration DEFAULT_TTL = Duration.ofMinutes(5);
 
@@ -133,12 +145,13 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
     // ================================================================
 
     /**
-     * ✅ P0-A FIX: Changed from Cache<String, BitSet> to Cache<String, RoaringBitmap>
+     * ✅ P0-A FIX: Changed from Cache<String, BitSet> to Cache<String,
+     * RoaringBitmap>
      *
      * Current cache instance. Replaced atomically during resize.
      * Uses String keys from FastCacheKeyGenerator.
      */
-    private volatile Cache<String, RoaringBitmap> cache;
+    private volatile Cache<Object, RoaringBitmap> cache;
 
     /**
      * Current maximum cache size.
@@ -214,28 +227,24 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
                     new ThreadFactoryBuilder()
                             .setNameFormat("adaptive-cache-tuner-%d")
                             .setDaemon(true)
-                            .build()
-            );
+                            .build());
 
             tuner.scheduleAtFixedRate(
                     this::performAdaptiveTuning,
                     tuningInterval.toSeconds(),
                     tuningInterval.toSeconds(),
-                    TimeUnit.SECONDS
-            );
+                    TimeUnit.SECONDS);
 
             logger.info(String.format(
                     "AdaptiveCaffeineCache initialized: maxSize=%d, ttl=%dms, adaptive=true, " +
                             "minSize=%d, maxSize=%d, tuningInterval=%ds",
                     builder.initialMaxSize, defaultTtlMillis,
-                    minCacheSize, maxCacheSize, tuningInterval.toSeconds()
-            ));
+                    minCacheSize, maxCacheSize, tuningInterval.toSeconds()));
         } else {
             this.tuner = null;
             logger.info(String.format(
                     "AdaptiveCaffeineCache initialized: maxSize=%d, ttl=%dms, adaptive=false",
-                    builder.initialMaxSize, defaultTtlMillis
-            ));
+                    builder.initialMaxSize, defaultTtlMillis));
         }
     }
 
@@ -246,16 +255,17 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
     /**
      * ✅ P0-A FIX: Get operation using RoaringBitmap
      *
-     * CHANGED: Returns RoaringBitmap directly (no defensive copy needed - immutable)
+     * CHANGED: Returns RoaringBitmap directly (no defensive copy needed -
+     * immutable)
      *
      * Thread-safety: Lock-free optimistic read for zero contention
      * Performance: O(1) Caffeine lookup + ~3ns for optimistic lock validation
      */
     @Override
-    public CompletableFuture<Optional<CacheEntry>> get(String cacheKey) {
+    public CompletableFuture<Optional<CacheEntry>> get(Object cacheKey) {
         // FAST PATH: Optimistic read (no lock contention)
         long stamp = resizeLock.tryOptimisticRead();
-        Cache<String, RoaringBitmap> currentCache = this.cache;
+        Cache<Object, RoaringBitmap> currentCache = this.cache;
 
         if (!resizeLock.validate(stamp)) {
             // Rare: Resize happened during read, retry with read lock
@@ -277,11 +287,10 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
         // ✅ NO DEFENSIVE COPY NEEDED - RoaringBitmap is immutable
         // This eliminates ~200ns overhead per cache hit vs BitSet
         CacheEntry entry = new CacheEntry(
-                result,              // Direct reference (safe - immutable)
+                result, // Direct reference (safe - immutable)
                 System.nanoTime(),
-                0,                   // Caffeine doesn't track per-entry hit count
-                cacheKey
-        );
+                0, // Caffeine doesn't track per-entry hit count
+                cacheKey);
 
         return CompletableFuture.completedFuture(Optional.of(entry));
     }
@@ -295,10 +304,10 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
      * Performance: O(1) Caffeine insert + ~3ns for optimistic lock validation
      */
     @Override
-    public CompletableFuture<Void> put(String cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit) {
+    public CompletableFuture<Void> put(Object cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit) {
         // FAST PATH: Optimistic read
         long stamp = resizeLock.tryOptimisticRead();
-        Cache<String, RoaringBitmap> currentCache = this.cache;
+        Cache<Object, RoaringBitmap> currentCache = this.cache;
 
         if (!resizeLock.validate(stamp)) {
             stamp = resizeLock.readLock();
@@ -321,10 +330,10 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
      * Optimized to use Caffeine's bulk API.
      */
     @Override
-    public CompletableFuture<Map<String, CacheEntry>> getBatch(Iterable<String> cacheKeys) {
+    public CompletableFuture<Map<Object, CacheEntry>> getBatch(Iterable<Object> cacheKeys) {
         // FAST PATH: Optimistic read
         long stamp = resizeLock.tryOptimisticRead();
-        Cache<String, RoaringBitmap> currentCache = this.cache;
+        Cache<Object, RoaringBitmap> currentCache = this.cache;
 
         if (!resizeLock.validate(stamp)) {
             stamp = resizeLock.readLock();
@@ -335,19 +344,18 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
             }
         }
 
-        Map<String, CacheEntry> results = new HashMap<>();
+        Map<Object, CacheEntry> results = new HashMap<>();
         long currentTimeNanos = System.nanoTime();
 
         // Batch retrieve from Caffeine
-        for (String key : cacheKeys) {
+        for (Object key : cacheKeys) {
             RoaringBitmap bitmap = currentCache.getIfPresent(key);
             if (bitmap != null) {
                 results.put(key, new CacheEntry(
-                        bitmap,          // ✅ Direct reference (immutable)
+                        bitmap, // ✅ Direct reference (immutable)
                         currentTimeNanos,
                         0,
-                        key
-                ));
+                        key));
             }
         }
 
@@ -360,7 +368,7 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
      * CHANGED: Accepts Map<String, RoaringBitmap> instead of Map<String, BitSet>
      */
     @Override
-    public CompletableFuture<Void> warmUp(Map<String, RoaringBitmap> entries) {
+    public CompletableFuture<Void> warmUp(Map<Object, RoaringBitmap> entries) {
         if (entries.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }
@@ -369,7 +377,7 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
 
         // FAST PATH: Optimistic read
         long stamp = resizeLock.tryOptimisticRead();
-        Cache<String, RoaringBitmap> currentCache = this.cache;
+        Cache<Object, RoaringBitmap> currentCache = this.cache;
 
         if (!resizeLock.validate(stamp)) {
             stamp = resizeLock.readLock();
@@ -385,8 +393,7 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
 
         logger.info(String.format(
                 "Cache warm-up complete: %d entries loaded, estimated size: %d",
-                entries.size(), currentCache.estimatedSize()
-        ));
+                entries.size(), currentCache.estimatedSize()));
 
         return CompletableFuture.completedFuture(null);
     }
@@ -395,10 +402,10 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
      * Invalidate specific cache entry.
      */
     @Override
-    public CompletableFuture<Void> invalidate(String cacheKey) {
+    public CompletableFuture<Void> invalidate(Object cacheKey) {
         // FAST PATH: Optimistic read
         long stamp = resizeLock.tryOptimisticRead();
-        Cache<String, RoaringBitmap> currentCache = this.cache;
+        Cache<Object, RoaringBitmap> currentCache = this.cache;
 
         if (!resizeLock.validate(stamp)) {
             stamp = resizeLock.readLock();
@@ -444,9 +451,9 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
                 stats.missCount(),
                 stats.evictionCount(),
                 cache.estimatedSize(),
-                stats.hitRate()*100, //Convert to percentage (e.g., 0.99 -> 99.0)
-                (long) stats.averageLoadPenalty(),  // Cast double to long
-                0  // Put time not tracked by Caffeine
+                stats.hitRate() * 100, // Convert to percentage (e.g., 0.99 -> 99.0)
+                (long) stats.averageLoadPenalty(), // Cast double to long
+                0 // Put time not tracked by Caffeine
         );
     }
 
@@ -479,8 +486,7 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
             if (logger.isLoggable(Level.FINE)) {
                 logger.fine(String.format(
                         "[AdaptiveTuning] Current state: size=%d, entries=%d, hitRate=%.2f%%, memory=%.1f%%",
-                        currentSize, estimatedEntries, hitRate * 100, memoryUsage * 100
-                ));
+                        currentSize, estimatedEntries, hitRate * 100, memoryUsage * 100));
             }
 
             // Decision: Should we resize?
@@ -505,8 +511,7 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
             if (newSize != null && !newSize.equals(currentSize)) {
                 logger.info(String.format(
                         "[AdaptiveTuning] Triggering resize: %d → %d (hitRate=%.1f%%, memory=%.1f%%)",
-                        currentSize, newSize, hitRate * 100, memoryUsage * 100
-                ));
+                        currentSize, newSize, hitRate * 100, memoryUsage * 100));
                 performResize(newSize);
             }
 
@@ -528,8 +533,8 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
         long stamp = resizeLock.writeLock();
 
         try {
-            Cache<String, RoaringBitmap> oldCache = this.cache;
-            Cache<String, RoaringBitmap> newCache = buildCache(newMax);
+            Cache<Object, RoaringBitmap> oldCache = this.cache;
+            Cache<Object, RoaringBitmap> newCache = buildCache(newMax);
 
             // Migrate hot entries (Caffeine handles eviction automatically)
             // ✅ Direct migration - no conversion needed
@@ -549,8 +554,7 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
                     newCache.estimatedSize(),
                     newMax,
                     duration,
-                    oldCache.stats().hitRate() * 100
-            ));
+                    oldCache.stats().hitRate() * 100));
 
         } catch (Exception e) {
             logger.log(Level.SEVERE, "Error during cache resize", e);
@@ -566,9 +570,9 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
     /**
      * ✅ P0-A FIX: Builds Caffeine cache with RoaringBitmap support
      *
-     * CHANGED: Returns Cache<String, RoaringBitmap>
+     * CHANGED: Returns Cache<Object, RoaringBitmap>
      */
-    private Cache<String, RoaringBitmap> buildCache(long maxSize) {
+    private Cache<Object, RoaringBitmap> buildCache(long maxSize) {
         Caffeine<Object, Object> builder = Caffeine.newBuilder()
                 .maximumSize(maxSize)
                 .expireAfterWrite(this.defaultTtlMillis, TimeUnit.MILLISECONDS)
@@ -612,8 +616,7 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
             CacheMetrics metrics = getMetrics();
             logger.info(String.format(
                     "[AdaptiveCache] Shutdown complete - Final stats: %s",
-                    metrics.format()
-            ));
+                    metrics.format()));
         }
     }
 
@@ -635,8 +638,7 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
                 caffStats.missCount(),
                 resizeCount.get(),
                 lastResizeTimeMillis.get(),
-                adaptiveSizingEnabled
-        );
+                adaptiveSizingEnabled);
     }
 
     /**
@@ -650,16 +652,14 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
             long missCount,
             long resizeCount,
             long lastResizeTimeMillis,
-            boolean adaptiveEnabled
-    ) {
+            boolean adaptiveEnabled) {
         @Override
         public String toString() {
             return String.format(
                     "AdaptiveStats{maxSize=%d, currentSize=%d, hitRate=%.1f%%, " +
                             "hits=%d, misses=%d, resizes=%d, adaptive=%s}",
                     maxSize, currentSize, hitRate * 100,
-                    hitCount, missCount, resizeCount, adaptiveEnabled
-            );
+                    hitCount, missCount, resizeCount, adaptiveEnabled);
         }
     }
 
@@ -781,21 +781,18 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
             if (initialMaxSize < minCacheSize || initialMaxSize > maxCacheSize) {
                 throw new IllegalArgumentException(String.format(
                         "initialMaxSize (%d) must be between minCacheSize (%d) and maxCacheSize (%d)",
-                        initialMaxSize, minCacheSize, maxCacheSize
-                ));
+                        initialMaxSize, minCacheSize, maxCacheSize));
             }
 
             if (lowHitRateThreshold >= highHitRateThreshold) {
                 throw new IllegalArgumentException(String.format(
                         "lowHitRateThreshold (%.2f) must be < highHitRateThreshold (%.2f)",
-                        lowHitRateThreshold, highHitRateThreshold
-                ));
+                        lowHitRateThreshold, highHitRateThreshold));
             }
 
             if (enableAdaptiveSizing && !recordStats) {
                 throw new IllegalArgumentException(
-                        "recordStats must be true when enableAdaptiveSizing is true"
-                );
+                        "recordStats must be true when enableAdaptiveSizing is true");
             }
 
             return new AdaptiveCaffeineCache(this);

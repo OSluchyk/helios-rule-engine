@@ -27,17 +27,17 @@ import static org.assertj.core.api.Assertions.*;
  *
  * BEFORE (BitSet):
  * BaseConditionCache cache = new CaffeineBaseConditionCache.Builder()
- *     .maxSize(100_000)
- *     .build();
+ * .maxSize(100_000)
+ * .build();
  * BitSet result = new BitSet();
  * result.set(42);
  * cache.put(key, result, 5, TimeUnit.MINUTES);
  *
  * AFTER (RoaringBitmap):
  * BaseConditionCache cache = new AdaptiveCaffeineCache.Builder()
- *     .initialMaxSize(100_000)
- *     .enableAdaptiveSizing(true)
- *     .build();
+ * .initialMaxSize(100_000)
+ * .enableAdaptiveSizing(true)
+ * .build();
  * RoaringBitmap result = new RoaringBitmap();
  * result.add(42);
  * cache.put(key, result, 5, TimeUnit.MINUTES);
@@ -78,14 +78,13 @@ class AdaptiveCaffeineCacheIntegrationTest {
         eventAttrs.put(1, Integer.valueOf(1500));
         eventAttrs.put(2, "US");
 
-        int[] predicateIds = {0, 1, 2};
+        int[] predicateIds = { 0, 1, 2 };
 
         // Generate key using FastCacheKeyGenerator
         String cacheKey = FastCacheKeyGenerator.generateKey(
                 eventAttrs,
                 predicateIds,
-                3
-        );
+                3);
 
         // Verify key format (16-char Base64-like)
         assertThat(cacheKey).hasSize(16);
@@ -121,7 +120,7 @@ class AdaptiveCaffeineCacheIntegrationTest {
     @DisplayName("✅ Implements all BaseConditionCache methods with RoaringBitmap")
     void implementsBaseConditionCacheInterface() {
         // Verify it's a drop-in replacement
-        BaseConditionCache baseCache = cache;  // Upcast to interface
+        BaseConditionCache baseCache = cache; // Upcast to interface
 
         String key = "test_key";
 
@@ -157,9 +156,9 @@ class AdaptiveCaffeineCacheIntegrationTest {
         // Simulate 1000 evaluations with 100 unique base condition sets
         for (int i = 0; i < 1000; i++) {
             Int2ObjectMap<Object> eventAttrs = new Int2ObjectOpenHashMap<>();
-            eventAttrs.put(0, "value_" + (i % 100));  // 100 unique patterns
+            eventAttrs.put(0, "value_" + (i % 100)); // 100 unique patterns
 
-            int[] predicateIds = {0};
+            int[] predicateIds = { 0 };
             String cacheKey = FastCacheKeyGenerator.generateKey(eventAttrs, predicateIds, 1);
 
             Optional<BaseConditionCache.CacheEntry> cached = cache.get(cacheKey).join();
@@ -179,7 +178,7 @@ class AdaptiveCaffeineCacheIntegrationTest {
         // - First 100 are misses
         // - Remaining 900 are hits
         // Expected hit rate: 90%
-        assertThat(metrics.hitRate()).isGreaterThan(0.85);  // >85% hit rate
+        assertThat(metrics.hitRate()).isGreaterThan(0.85); // >85% hit rate
 
         System.out.println("Cache metrics: " + metrics.format());
     }
@@ -219,7 +218,6 @@ class AdaptiveCaffeineCacheIntegrationTest {
                 // else: This is a HIT
             }
 
-
             // Check updated stats
             AdaptiveCaffeineCache.AdaptiveStats stats = smallCache.getAdaptiveStats();
 
@@ -227,8 +225,8 @@ class AdaptiveCaffeineCacheIntegrationTest {
             // All assertions will now pass.
             assertThat(stats.currentSize()).isGreaterThan(0);
             assertThat(stats.hitRate() / 100.0).isBetween(0.0, 1.0); // Fix from last time
-            assertThat(stats.hitCount()).isGreaterThan(0);          // This will now be 100
-            assertThat(stats.missCount()).isGreaterThan(0);         // This will now be 100
+            assertThat(stats.hitCount()).isGreaterThan(0); // This will now be 100
+            assertThat(stats.missCount()).isGreaterThan(0); // This will now be 100
 
             System.out.println("Adaptive stats: " + stats);
 
@@ -294,7 +292,7 @@ class AdaptiveCaffeineCacheIntegrationTest {
     @Test
     @DisplayName("✅ Supports batch operations efficiently")
     void supportsBatchOperations() {
-        List<String> keys = new ArrayList<>();
+        List<Object> keys = new ArrayList<>();
 
         // Insert 10 entries
         for (int i = 0; i < 10; i++) {
@@ -309,11 +307,11 @@ class AdaptiveCaffeineCacheIntegrationTest {
         }
 
         // Batch get
-        Map<String, BaseConditionCache.CacheEntry> results = cache.getBatch(keys).join();
+        Map<Object, BaseConditionCache.CacheEntry> results = cache.getBatch(keys).join();
 
         assertThat(results).hasSize(10);
         for (int i = 0; i < 10; i++) {
-            String key = keys.get(i);
+            String key = (String) keys.get(i);
             assertThat(results).containsKey(key);
 
             RoaringBitmap bitmap = results.get(key).result();
@@ -331,15 +329,15 @@ class AdaptiveCaffeineCacheIntegrationTest {
     void collectsDetailedMetrics() {
         // Perform some operations
         for (int i = 0; i < 100; i++) {
-            String key = "metric_test_" + (i % 10);  // 10 unique keys
+            String key = "metric_test_" + (i % 10); // 10 unique keys
 
-            cache.get(key).join();  // Will miss first time
+            cache.get(key).join(); // Will miss first time
 
             RoaringBitmap value = new RoaringBitmap();
             value.add(i);
             cache.put(key, value, 5, TimeUnit.MINUTES).join();
 
-            cache.get(key).join();  // Will hit
+            cache.get(key).join(); // Will hit
         }
 
         // Check metrics
@@ -381,7 +379,7 @@ class AdaptiveCaffeineCacheIntegrationTest {
         testCache.shutdown();
 
         // Verify idempotent
-        testCache.shutdown();  // Should not throw
+        testCache.shutdown(); // Should not throw
     }
 
     // ================================================================
@@ -391,7 +389,7 @@ class AdaptiveCaffeineCacheIntegrationTest {
     @Test
     @DisplayName("✅ Supports cache warm-up with RoaringBitmap")
     void supportsWarmUp() {
-        Map<String, RoaringBitmap> precomputedEntries = new HashMap<>();
+        Map<Object, RoaringBitmap> precomputedEntries = new HashMap<>();
 
         for (int i = 0; i < 100; i++) {
             String key = "warmup_key_" + i;
@@ -417,7 +415,7 @@ class AdaptiveCaffeineCacheIntegrationTest {
 
         // All should be cache hits
         BaseConditionCache.CacheMetrics metrics = cache.getMetrics();
-        assertThat(metrics.hitRate()).isEqualTo(100.0);  // 100% hit rate
+        assertThat(metrics.hitRate()).isEqualTo(100.0); // 100% hit rate
     }
 
     // ================================================================
@@ -507,7 +505,7 @@ class AdaptiveCaffeineCacheIntegrationTest {
         // BitSet would use ~125KB (1,000,000 bits / 8 = 125,000 bytes)
         int serializedSize = retrieved.serializedSizeInBytes();
         System.out.println("Sparse bitmap serialized size: " + serializedSize + " bytes");
-        assertThat(serializedSize).isLessThan(100);  // Very efficient!
+        assertThat(serializedSize).isLessThan(100); // Very efficient!
     }
 
     // ================================================================

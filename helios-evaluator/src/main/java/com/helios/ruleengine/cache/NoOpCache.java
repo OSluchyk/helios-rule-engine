@@ -12,49 +12,57 @@ import java.util.logging.Logger;
 /**
  * No-operation cache implementation that doesn't actually cache anything.
  *
- * <p>This implementation is useful for:
+ * <p>
+ * This implementation is useful for:
  * <ul>
- *   <li><b>Testing:</b> Measure performance without caching overhead</li>
- *   <li><b>Benchmarking:</b> Establish baseline metrics</li>
- *   <li><b>Debugging:</b> Disable caching to isolate issues</li>
- *   <li><b>Development:</b> Simplify testing with predictable behavior</li>
+ * <li><b>Testing:</b> Measure performance without caching overhead</li>
+ * <li><b>Benchmarking:</b> Establish baseline metrics</li>
+ * <li><b>Debugging:</b> Disable caching to isolate issues</li>
+ * <li><b>Development:</b> Simplify testing with predictable behavior</li>
  * </ul>
  *
- * <p><b>Behavior:</b>
+ * <p>
+ * <b>Behavior:</b>
  * <ul>
- *   <li>All {@code get()} operations return {@code Optional.empty()} (cache miss)</li>
- *   <li>All {@code put()} operations complete immediately without storing</li>
- *   <li>All operations return pre-completed futures (no blocking)</li>
- *   <li>Metrics track request counts but always show 0% hit rate</li>
+ * <li>All {@code get()} operations return {@code Optional.empty()} (cache
+ * miss)</li>
+ * <li>All {@code put()} operations complete immediately without storing</li>
+ * <li>All operations return pre-completed futures (no blocking)</li>
+ * <li>Metrics track request counts but always show 0% hit rate</li>
  * </ul>
  *
- * <p><b>Performance Characteristics:</b>
+ * <p>
+ * <b>Performance Characteristics:</b>
  * <ul>
- *   <li>Get latency: ~1ns (immediate return)</li>
- *   <li>Put latency: ~1ns (no-op)</li>
- *   <li>Memory overhead: ~100 bytes (metrics only)</li>
- *   <li>Thread safety: Fully concurrent (lock-free)</li>
+ * <li>Get latency: ~1ns (immediate return)</li>
+ * <li>Put latency: ~1ns (no-op)</li>
+ * <li>Memory overhead: ~100 bytes (metrics only)</li>
+ * <li>Thread safety: Fully concurrent (lock-free)</li>
  * </ul>
  *
- * <p><b>Usage Example:</b>
+ * <p>
+ * <b>Usage Example:</b>
+ * 
  * <pre>{@code
  * // Disable caching for testing
  * CacheConfig config = CacheConfig.builder()
- *     .cacheType(CacheConfig.CacheType.NO_OP)
- *     .build();
+ *         .cacheType(CacheConfig.CacheType.NO_OP)
+ *         .build();
  *
  * BaseConditionCache cache = CacheFactory.create(config);
  *
  * // All operations are no-ops
- * cache.put("key", bitSet, 5, TimeUnit.MINUTES);  // No-op
- * Optional<CacheEntry> result = cache.get("key").join();  // Always empty
+ * cache.put("key", bitSet, 5, TimeUnit.MINUTES); // No-op
+ * Optional<CacheEntry> result = cache.get("key").join(); // Always empty
  *
  * // Metrics show all misses
  * CacheMetrics metrics = cache.getMetrics();
  * assert metrics.hitRate() == 0.0;
  * }</pre>
  *
- * <p><b>Comparison with Other Implementations:</b>
+ * <p>
+ * <b>Comparison with Other Implementations:</b>
+ * 
  * <pre>
  * InMemory:  get=50ns, put=100ns, memory=200B/entry, hitRate=40-50%
  * Caffeine:  get=70ns, put=150ns, memory=80B/entry,  hitRate=75-85%
@@ -72,14 +80,13 @@ public class NoOpCache implements BaseConditionCache {
     private static final Logger logger = Logger.getLogger(NoOpCache.class.getName());
 
     // Pre-completed futures for zero-latency operations
-    private static final CompletableFuture<Optional<CacheEntry>> EMPTY_RESULT =
-            CompletableFuture.completedFuture(Optional.empty());
+    private static final CompletableFuture<Optional<CacheEntry>> EMPTY_RESULT = CompletableFuture
+            .completedFuture(Optional.empty());
 
-    private static final CompletableFuture<Void> VOID_RESULT =
-            CompletableFuture.completedFuture(null);
+    private static final CompletableFuture<Void> VOID_RESULT = CompletableFuture.completedFuture(null);
 
-    private static final CompletableFuture<Map<String, CacheEntry>> EMPTY_MAP_RESULT =
-            CompletableFuture.completedFuture(Collections.emptyMap());
+    private static final CompletableFuture<Map<Object, CacheEntry>> EMPTY_MAP_RESULT = CompletableFuture
+            .completedFuture(Collections.emptyMap());
 
     // Metrics tracking (request counts only)
     private volatile long requestCount = 0;
@@ -100,23 +107,24 @@ public class NoOpCache implements BaseConditionCache {
     // ========================================================================
 
     @Override
-    public CompletableFuture<Optional<CacheEntry>> get(String cacheKey) {
+    public CompletableFuture<Optional<CacheEntry>> get(Object cacheKey) {
         requestCount++;
         missCount++;
         return EMPTY_RESULT;
     }
 
     @Override
-    public CompletableFuture<Void> put(String cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit) {
+    public CompletableFuture<Void> put(Object cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit) {
         putCount++;
         return VOID_RESULT;
     }
 
     @Override
-    public CompletableFuture<Map<String, CacheEntry>> getBatch(Iterable<String> cacheKeys) {
+    public CompletableFuture<Map<Object, CacheEntry>> getBatch(Iterable<Object> cacheKeys) {
         // Count requests
         long count = 0;
-        for (String key : cacheKeys) {
+        for (@SuppressWarnings("unused")
+        Object ignored : cacheKeys) {
             count++;
         }
         requestCount += count;
@@ -126,14 +134,14 @@ public class NoOpCache implements BaseConditionCache {
     }
 
     @Override
-    public CompletableFuture<Void> warmUp(Map<String, RoaringBitmap> entries) {
+    public CompletableFuture<Void> warmUp(Map<Object, RoaringBitmap> entries) {
         // No-op: warmup doesn't store anything
         logger.fine("NoOpCache.warmUp() called with " + entries.size() + " entries (ignored)");
         return VOID_RESULT;
     }
 
     @Override
-    public CompletableFuture<Void> invalidate(String cacheKey) {
+    public CompletableFuture<Void> invalidate(Object cacheKey) {
         // No-op: nothing to invalidate
         return VOID_RESULT;
     }
@@ -155,8 +163,7 @@ public class NoOpCache implements BaseConditionCache {
                 0L,
                 0.0,
                 0L,
-                0L
-        );
+                0L);
     }
 
     // ========================================================================
@@ -202,8 +209,7 @@ public class NoOpCache implements BaseConditionCache {
         public String toString() {
             return String.format(
                     "NoOpStats{requests=%d, misses=%d, puts=%d, hitRate=0.0%%}",
-                    requestCount, missCount, putCount
-            );
+                    requestCount, missCount, putCount);
         }
     }
 

@@ -22,14 +22,14 @@ import java.util.logging.Logger;
  *
  * USAGE:
  * Replace:
- *   new InMemoryBaseConditionCache.Builder().maxSize(10000).build()
+ * new InMemoryBaseConditionCache.Builder().maxSize(10000).build()
  * With:
- *   new CaffeineBaseConditionCache.Builder().maxSize(100000).build()
+ * new CaffeineBaseConditionCache.Builder().maxSize(100000).build()
  */
 public class CaffeineBaseConditionCache implements BaseConditionCache {
     private static final Logger logger = Logger.getLogger(CaffeineBaseConditionCache.class.getName());
 
-    private final Cache<String, RoaringBitmap> cache;
+    private final Cache<Object, RoaringBitmap> cache;
     private final long defaultTtlMillis;
     private final boolean statsEnabled;
 
@@ -64,12 +64,11 @@ public class CaffeineBaseConditionCache implements BaseConditionCache {
 
         logger.info(String.format(
                 "CaffeineBaseConditionCache initialized: maxSize=%d, ttl=%dms, stats=%b",
-                builder.maxSize, defaultTtlMillis, builder.recordStats
-        ));
+                builder.maxSize, defaultTtlMillis, builder.recordStats));
     }
 
     @Override
-    public CompletableFuture<Optional<CacheEntry>> get(String cacheKey) {
+    public CompletableFuture<Optional<CacheEntry>> get(Object cacheKey) {
         RoaringBitmap result = cache.getIfPresent(cacheKey);
 
         if (result == null) {
@@ -80,32 +79,31 @@ public class CaffeineBaseConditionCache implements BaseConditionCache {
                 result.clone(),
                 System.nanoTime(),
                 0,
-                cacheKey
-        );
+                cacheKey);
 
         return CompletableFuture.completedFuture(Optional.of(entry));
     }
 
     @Override
-    public CompletableFuture<Void> put(String cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit) {
+    @SuppressWarnings("null")
+    public CompletableFuture<Void> put(Object cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit) {
         RoaringBitmap cloned = result.clone();
         cache.put(cacheKey, cloned);
         return CompletableFuture.completedFuture(null);
     }
 
     @Override
-    public CompletableFuture<Map<String, CacheEntry>> getBatch(Iterable<String> cacheKeys) {
-        Map<String, CacheEntry> results = new HashMap<>();
+    public CompletableFuture<Map<Object, CacheEntry>> getBatch(Iterable<Object> cacheKeys) {
+        Map<Object, CacheEntry> results = new HashMap<>();
 
-        for (String key : cacheKeys) {
+        for (Object key : cacheKeys) {
             RoaringBitmap result = cache.getIfPresent(key);
             if (result != null) {
                 CacheEntry entry = new CacheEntry(
                         result.clone(),
                         System.nanoTime(),
                         0,
-                        key
-                );
+                        key);
                 results.put(key, entry);
             }
         }
@@ -114,7 +112,7 @@ public class CaffeineBaseConditionCache implements BaseConditionCache {
     }
 
     @Override
-    public CompletableFuture<Void> invalidate(String cacheKey) {
+    public CompletableFuture<Void> invalidate(Object cacheKey) {
         cache.invalidate(cacheKey);
         return CompletableFuture.completedFuture(null);
     }
@@ -131,14 +129,14 @@ public class CaffeineBaseConditionCache implements BaseConditionCache {
         CacheStats stats = statsEnabled ? cache.stats() : CacheStats.empty();
 
         // Convert all double values to long as required by CacheMetrics
-        long hitRate = (long) (stats.hitRate() * 100);  // Convert 0.75 → 75
+        long hitRate = (long) (stats.hitRate() * 100); // Convert 0.75 → 75
         long requestCount = stats.requestCount();
         long hitCount = stats.hitCount();
         long missCount = stats.missCount();
         long evictionCount = stats.evictionCount();
         long size = cache.estimatedSize();
         long avgLoadPenalty = (long) Math.round(stats.averageLoadPenalty());
-        long avgPutLatency = 0L;  // Not tracked by Caffeine
+        long avgPutLatency = 0L; // Not tracked by Caffeine
 
         return new CacheMetrics(
                 hitRate,
@@ -148,8 +146,7 @@ public class CaffeineBaseConditionCache implements BaseConditionCache {
                 evictionCount,
                 size,
                 avgLoadPenalty,
-                avgPutLatency
-        );
+                avgPutLatency);
     }
 
     /**

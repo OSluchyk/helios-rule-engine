@@ -38,10 +38,10 @@ public class InMemoryBaseConditionCache implements BaseConditionCache {
     private static final Logger logger = Logger.getLogger(InMemoryBaseConditionCache.class.getName());
 
     // ✅ P0-A: Cache storage with RoaringBitmap values
-    private final ConcurrentHashMap<String, InternalEntry> cache;
+    private final ConcurrentHashMap<Object, InternalEntry> cache;
 
     // LRU tracking using a concurrent linked queue
-    private final ConcurrentLinkedDeque<String> lruQueue;
+    private final ConcurrentLinkedDeque<Object> lruQueue;
 
     // Configuration
     private final int maxSize;
@@ -62,7 +62,7 @@ public class InMemoryBaseConditionCache implements BaseConditionCache {
      * ✅ P0-A: Internal entry with RoaringBitmap result
      */
     private static class InternalEntry {
-        final RoaringBitmap result;  // ✅ Changed from BitSet to RoaringBitmap
+        final RoaringBitmap result; // ✅ Changed from BitSet to RoaringBitmap
         final long createTimeNanos;
         final long ttlMillis;
         final LongAdder hitCount;
@@ -78,13 +78,12 @@ public class InMemoryBaseConditionCache implements BaseConditionCache {
             return (System.nanoTime() - createTimeNanos) > TimeUnit.MILLISECONDS.toNanos(ttlMillis);
         }
 
-        CacheEntry toCacheEntry(String key) {
+        CacheEntry toCacheEntry(Object key) {
             return new CacheEntry(
                     result.clone(), // ✅ Return defensive copy (fast clone)
                     createTimeNanos,
                     hitCount.sum(),
-                    key
-            );
+                    key);
         }
     }
 
@@ -107,24 +106,21 @@ public class InMemoryBaseConditionCache implements BaseConditionCache {
             // Run cleanup every 60 seconds
             cleanupExecutor.scheduleAtFixedRate(
                     this::cleanupExpired,
-                    60, 60, TimeUnit.SECONDS
-            );
+                    60, 60, TimeUnit.SECONDS);
 
             logger.info(String.format(
                     "InMemoryBaseConditionCache initialized: maxSize=%d, ttl=%dms, cleanup=enabled",
-                    maxSize, defaultTtlMillis
-            ));
+                    maxSize, defaultTtlMillis));
         } else {
             this.cleanupExecutor = null;
             logger.info(String.format(
                     "InMemoryBaseConditionCache initialized: maxSize=%d, ttl=%dms, cleanup=disabled",
-                    maxSize, defaultTtlMillis
-            ));
+                    maxSize, defaultTtlMillis));
         }
     }
 
     @Override
-    public CompletableFuture<Optional<CacheEntry>> get(String cacheKey) {
+    public CompletableFuture<Optional<CacheEntry>> get(Object cacheKey) {
         long startTime = System.nanoTime();
         totalRequests.increment();
 
@@ -166,7 +162,7 @@ public class InMemoryBaseConditionCache implements BaseConditionCache {
     }
 
     @Override
-    public CompletableFuture<Void> put(String cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit) {
+    public CompletableFuture<Void> put(Object cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit) {
         long startTime = System.nanoTime();
 
         long ttlMillis = timeUnit.toMillis(ttl);
@@ -181,7 +177,7 @@ public class InMemoryBaseConditionCache implements BaseConditionCache {
 
         // Update LRU
         lruQueue.remove(cacheKey); // Remove if exists
-        lruQueue.offer(cacheKey);  // Add to end
+        lruQueue.offer(cacheKey); // Add to end
 
         long elapsed = System.nanoTime() - startTime;
         totalPutTimeNanos.addAndGet(elapsed);
@@ -190,18 +186,17 @@ public class InMemoryBaseConditionCache implements BaseConditionCache {
         if (logger.isLoggable(Level.FINE)) {
             logger.fine(String.format(
                     "Cached entry: key=%s, cardinality=%d, ttl=%dms",
-                    cacheKey, result.getCardinality(), ttlMillis
-            ));
+                    cacheKey, result.getCardinality(), ttlMillis));
         }
 
         return CompletableFuture.completedFuture(null);
     }
 
     @Override
-    public CompletableFuture<Map<String, CacheEntry>> getBatch(Iterable<String> cacheKeys) {
-        Map<String, CacheEntry> results = new HashMap<>();
+    public CompletableFuture<Map<Object, CacheEntry>> getBatch(Iterable<Object> cacheKeys) {
+        Map<Object, CacheEntry> results = new HashMap<>();
 
-        for (String key : cacheKeys) {
+        for (Object key : cacheKeys) {
             Optional<CacheEntry> entry = get(key).join();
             entry.ifPresent(e -> results.put(key, e));
         }
@@ -210,7 +205,7 @@ public class InMemoryBaseConditionCache implements BaseConditionCache {
     }
 
     @Override
-    public CompletableFuture<Void> invalidate(String cacheKey) {
+    public CompletableFuture<Void> invalidate(Object cacheKey) {
         InternalEntry removed = cache.remove(cacheKey);
         if (removed != null) {
             lruQueue.remove(cacheKey);
@@ -247,15 +242,14 @@ public class InMemoryBaseConditionCache implements BaseConditionCache {
                 cache.size(),
                 total > 0 ? (double) hitCount / total : 0.0,
                 gets > 0 ? totalGetTimeNanos.get() / gets : 0,
-                puts > 0 ? totalPutTimeNanos.get() / puts : 0
-        );
+                puts > 0 ? totalPutTimeNanos.get() / puts : 0);
     }
 
     /**
      * Evict the least recently used entry.
      */
     private void evictLRU() {
-        String lruKey = lruQueue.poll();
+        Object lruKey = lruQueue.poll();
         if (lruKey != null) {
             cache.remove(lruKey);
             evictions.increment();
@@ -271,17 +265,17 @@ public class InMemoryBaseConditionCache implements BaseConditionCache {
      */
     private void cleanupExpired() {
         int cleaned = 0;
-        List<String> toRemove = new ArrayList<>();
+        List<Object> toRemove = new ArrayList<>();
 
         // Identify expired entries
-        for (Map.Entry<String, InternalEntry> entry : cache.entrySet()) {
+        for (Map.Entry<Object, InternalEntry> entry : cache.entrySet()) {
             if (entry.getValue().isExpired()) {
                 toRemove.add(entry.getKey());
             }
         }
 
         // Remove expired entries
-        for (String key : toRemove) {
+        for (Object key : toRemove) {
             if (cache.remove(key) != null) {
                 lruQueue.remove(key);
                 evictions.increment();
