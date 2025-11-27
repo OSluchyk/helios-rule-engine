@@ -1,0 +1,42 @@
+= Helios Evaluator Module
+:toc: macro
+:toc-title:
+
+The `helios-evaluator` module contains the high-performance runtime engine responsible for matching events against the compiled rule set. It is optimized for low latency and high throughput.
+
+toc::[]
+
+== 1. Architecture
+
+The evaluation process is designed to minimize object allocation and maximize CPU cache locality.
+
+=== 1.1. Rule Evaluator
+The `RuleEvaluator` is the main entry point. It orchestrates the evaluation flow:
+1.  **Event Encoding**: The incoming `Event` (Map-based) is flattened into an integer-array based representation using the `EventEncoder`. This avoids expensive Map lookups during evaluation.
+2.  **Condition Evaluation**: Each unique condition in the `EngineModel` is evaluated against the encoded event.
+3.  **Bitwise Aggregation**: Results of conditions are aggregated using bitwise operations to determine which rules are satisfied.
+
+=== 1.2. Caching Strategy
+Performance is heavily boosted by the `BaseConditionCache`.
+*   **Concept**: Many rules share the same conditions (e.g., `country == "US"`).
+*   **Implementation**: The result of evaluating a condition for a specific value is cached.
+*   **RoaringBitmap**: We use RoaringBitmaps to efficiently store sets of rule IDs that match a condition. This allows for extremely fast set intersection/union operations to find matching rules.
+
+=== 1.3. Evaluation Context
+To support thread-safety without locking, we use `EvaluationContext`.
+*   **ScopedValue**: We leverage Java's `ScopedValue` (or ThreadLocal) to reuse context objects (buffers, intermediate arrays) across evaluations on the same thread.
+*   **Zero Allocation**: This reuse strategy eliminates per-request allocation for internal data structures, reducing GC pressure.
+
+== 2. Key Components
+
+*   **`RuleEvaluator`**: Implements `IRuleEvaluator`.
+*   **`BaseConditionEvaluator`**: Handles the evaluation of individual predicates.
+*   **`EventEncoder`**: Converts `Event` objects to optimized internal arrays.
+*   **`EqualityOperatorEvaluator`**: Specialized evaluator for equality checks, using O(1) hash lookups.
+*   **`InMemoryBaseConditionCache`**: Default cache implementation using Caffeine and RoaringBitmap.
+
+== 3. Performance Characteristics
+
+*   **Latency**: Designed for sub-millisecond latency (P99 < 1ms).
+*   **Throughput**: Capable of processing 100k+ events/second on standard hardware.
+*   **Memory**: Efficient memory layout using primitive arrays and dictionary encoding.
