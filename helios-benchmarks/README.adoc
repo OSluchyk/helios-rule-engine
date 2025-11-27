@@ -1,0 +1,41 @@
+= Helios Benchmarks Module
+:toc: macro
+:toc-title:
+
+The `helios-benchmarks` module contains performance tests using JMH (Java Microbenchmark Harness). It is critical for verifying that the rule engine meets its latency and throughput targets.
+
+toc::[]
+
+== 1. Overview
+
+This module is isolated from the core logic to ensure that benchmarking dependencies (JMH) do not pollute the production classpath. It tests the engine under various scenarios:
+*   **Cold Start**: Evaluation performance immediately after initialization.
+*   **Warmup**: Performance after the JVM JIT compiler has optimized the hot paths.
+*   **Throughput**: Maximum events processed per second.
+*   **Latency**: Distribution of processing times (P50, P99, P99.9).
+
+== 2. Benchmarks
+
+=== 2.1. `SimpleBenchmark`
+A general-purpose benchmark that simulates a realistic workload.
+*   **Scenarios**: Mixed rule complexity, varying cache states (COLD, WARM, HOT).
+*   **Metrics**: Throughput (ops/sec) and Sample Time (latency).
+
+=== 2.2. `ProductionBenchmark`
+A more rigorous benchmark designed to mimic production traffic patterns, including:
+*   High cardinality fields.
+*   Large rule sets (thousands of rules).
+*   Concurrent evaluation (multi-threaded).
+
+== 3. Running Benchmarks
+
+The module is configured to build a self-contained executable JAR for running benchmarks.
+
+[source,bash]
+----
+# Build the benchmarks
+mvn clean install -pl helios-benchmarks -am
+
+# Run a specific benchmark
+java -jar helios-benchmarks/target/benchmarks.jar SimpleBenchmark -f 1 -wi 5 -i 5
+----
