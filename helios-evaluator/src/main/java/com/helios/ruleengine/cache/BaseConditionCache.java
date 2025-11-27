@@ -14,8 +14,10 @@ import java.util.concurrent.TimeUnit;
 /**
  * ✅ P0-A FIX: Updated to use RoaringBitmap instead of BitSet
  *
- * Abstraction for base condition caching to support both in-memory and distributed implementations.
- * This interface enables evaluation result caching for static predicate sets, reducing redundant
+ * Abstraction for base condition caching to support both in-memory and
+ * distributed implementations.
+ * This interface enables evaluation result caching for static predicate sets,
+ * reducing redundant
  * predicate evaluations by 90%+ for typical workloads.
  * <p>
  * Design principles:
@@ -34,11 +36,10 @@ public interface BaseConditionCache {
      * CHANGED: result field from BitSet to RoaringBitmap
      */
     record CacheEntry(
-            RoaringBitmap result,  // ✅ Changed from BitSet to RoaringBitmap
+            RoaringBitmap result, // ✅ Changed from BitSet to RoaringBitmap
             long createTimeNanos,
             long hitCount,
-            String cacheKey
-    ) {
+            Object cacheKey) {
         public boolean isExpired(long ttlMillis) {
             return (System.nanoTime() - createTimeNanos) > TimeUnit.MILLISECONDS.toNanos(ttlMillis);
         }
@@ -47,10 +48,11 @@ public interface BaseConditionCache {
     /**
      * Get cached evaluation result for a base condition set.
      *
-     * @param cacheKey Unique key identifying the base condition set + event attributes
+     * @param cacheKey Unique key identifying the base condition set + event
+     *                 attributes
      * @return Optional containing the cached result if present and valid
      */
-    CompletableFuture<Optional<CacheEntry>> get(String cacheKey);
+    CompletableFuture<Optional<CacheEntry>> get(Object cacheKey);
 
     /**
      * ✅ P0-A FIX: Store evaluation result in cache with TTL using RoaringBitmap
@@ -63,7 +65,7 @@ public interface BaseConditionCache {
      * @param timeUnit Unit for TTL
      * @return Future that completes when the value is stored
      */
-    CompletableFuture<Void> put(String cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit);
+    CompletableFuture<Void> put(Object cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit);
 
     /**
      * Batch get operation for multiple cache keys.
@@ -72,14 +74,15 @@ public interface BaseConditionCache {
      * @param cacheKeys Collection of cache keys to retrieve
      * @return Map of cache keys to their entries (missing keys won't be in map)
      */
-    CompletableFuture<Map<String, CacheEntry>> getBatch(Iterable<String> cacheKeys);
+    CompletableFuture<Map<Object, CacheEntry>> getBatch(Iterable<Object> cacheKeys);
 
     /**
      * ✅ P0-A FIX: Warm up cache with pre-computed entries using RoaringBitmap
      *
-     * CHANGED: entries parameter from Map<String, BitSet> to Map<String, RoaringBitmap>
+     * CHANGED: entries parameter from Map<String, BitSet> to Map<String,
+     * RoaringBitmap>
      */
-    default CompletableFuture<Void> warmUp(Map<String, RoaringBitmap> entries) {
+    default CompletableFuture<Void> warmUp(Map<Object, RoaringBitmap> entries) {
         return CompletableFuture.completedFuture(null);
     }
 
@@ -89,7 +92,7 @@ public interface BaseConditionCache {
      * @param cacheKey Key to invalidate
      * @return Future that completes when invalidation is done
      */
-    CompletableFuture<Void> invalidate(String cacheKey);
+    CompletableFuture<Void> invalidate(Object cacheKey);
 
     /**
      * Clear entire cache. Use with caution in production.
@@ -116,13 +119,11 @@ public interface BaseConditionCache {
             long currentSize,
             double hitRate,
             long avgGetTimeNanos,
-            long avgPutTimeNanos
-    ) {
+            long avgPutTimeNanos) {
         public String format() {
             return String.format(
                     "Cache Metrics: requests=%d, hits=%d (%.1f%%), misses=%d, evictions=%d, size=%d",
-                    totalRequests, hits, hitRate * 100, misses, evictions, currentSize
-            );
+                    totalRequests, hits, hitRate * 100, misses, evictions, currentSize);
         }
     }
 }

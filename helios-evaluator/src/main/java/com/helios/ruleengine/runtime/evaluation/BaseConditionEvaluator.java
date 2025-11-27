@@ -7,6 +7,7 @@ package com.helios.ruleengine.runtime.evaluation;
 import com.helios.ruleengine.api.model.Event;
 import com.helios.ruleengine.api.model.Predicate;
 import com.helios.ruleengine.cache.BaseConditionCache;
+import com.helios.ruleengine.cache.CacheKey;
 import com.helios.ruleengine.runtime.context.EventEncoder;
 import com.helios.ruleengine.runtime.model.EngineModel;
 import it.unimi.dsi.fastutil.ints.*;
@@ -55,11 +56,11 @@ public class BaseConditionEvaluator {
     // P2-A: FNV-1a hash constants for high-quality distribution
     private static final long FNV_OFFSET_BASIS = 0xcbf29ce484222325L;
     private static final long FNV_PRIME = 0x100000001b3L;
+    private static final long PRIME64_1 = 0x9E3779B185EBCA87L;
 
     private final EngineModel model;
     private final BaseConditionCache cache;
     private final Map<Integer, BaseConditionSet> baseConditionSets;
-    private final Int2ObjectMap<RoaringBitmap> setToRules;
 
     // Rules with no static base conditions (must always be evaluated)
     private final RoaringBitmap rulesWithNoBaseConditions;
@@ -166,7 +167,6 @@ public class BaseConditionEvaluator {
         this.model = model;
         this.cache = cache;
         this.baseConditionSets = new HashMap<>();
-        this.setToRules = new Int2ObjectOpenHashMap<>();
         this.rulesWithNoBaseConditions = new RoaringBitmap();
 
         buildBaseConditionSets();
@@ -216,9 +216,10 @@ public class BaseConditionEvaluator {
         }
 
         // Generate cache key and check cache
-        String cacheKey = generateCacheKey(encodedAttrs, applicableSets);
+        CacheKey cacheKey = generateCacheKey(encodedAttrs, applicableSets);
 
-        return cache.get(cacheKey).thenCompose(cached -> {
+        @SuppressWarnings("null") // The cache.get().thenCompose() chain handles nulls appropriately
+        CompletableFuture<EvaluationResult> future = cache.get(cacheKey).thenCompose(cached -> {
             if (cached.isPresent()) {
                 cacheHits++;
                 RoaringBitmap result = cached.get().result();
@@ -236,6 +237,7 @@ public class BaseConditionEvaluator {
                 return evaluateAndCache(event, encoder, applicableSets, cacheKey, startTime);
             }
         });
+        return future;
     }
 
     /**
@@ -406,7 +408,7 @@ public class BaseConditionEvaluator {
             Event event,
             EventEncoder encoder,
             List<BaseConditionSet> sets,
-            String cacheKey,
+            CacheKey cacheKey,
             long startTime) {
 
         // Start with rules that have no base conditions
@@ -467,27 +469,30 @@ public class BaseConditionEvaluator {
     // CACHE KEY GENERATION
     // ════════════════════════════════════════════════════════════════════════════════
 
-    private String generateCacheKey(Int2ObjectMap<Object> encodedAttrs, List<BaseConditionSet> sets) {
+    private CacheKey generateCacheKey(Int2ObjectMap<Object> encodedAttrs, List<BaseConditionSet> sets) {
         // Use FNV-1a hash for fast, high-quality key generation
-        long hash = FNV_OFFSET_BASIS;
+        long hash1 = FNV_OFFSET_BASIS;
+        long hash2 = FNV_OFFSET_BASIS ^ PRIME64_1; // Second hash for collision resistance
 
         // Include relevant attribute values
         for (BaseConditionSet set : sets) {
-            hash ^= set.predicateSetHash;
-            hash *= FNV_PRIME;
-
             for (int predId : set.sortedPredicateIds) {
                 Predicate pred = model.getPredicate(predId);
                 if (pred != null) {
                     int fieldId = pred.fieldId();
                     Object value = encodedAttrs.get(fieldId);
-                    hash ^= hashValue(value);
-                    hash *= FNV_PRIME;
+                    long vHash = hashValue(value);
+
+                    hash1 ^= vHash;
+                    hash1 *= FNV_PRIME;
+
+                    hash2 ^= vHash;
+                    hash2 *= FNV_PRIME;
                 }
             }
         }
 
-        return String.format("%016x", hash);
+        return new CacheKey(hash1, hash2);
     }
 
     // ════════════════════════════════════════════════════════════════════════════════
