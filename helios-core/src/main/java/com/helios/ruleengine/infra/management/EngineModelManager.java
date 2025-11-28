@@ -40,7 +40,9 @@ public class EngineModelManager implements IEngineModelManager {
             t.setDaemon(true);
             return t;
         });
-        loadModel(); // Initial load
+
+        reloadModelInternal(); // Initial load, fail fast
+
     }
 
     public EngineModel getEngineModel() {
@@ -77,6 +79,14 @@ public class EngineModelManager implements IEngineModelManager {
     }
 
     private void loadModel() {
+        try {
+            reloadModelInternal();
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Failed to compile new rule model. Old model remains active.", e);
+        }
+    }
+
+    private void reloadModelInternal() throws CompilationException, IOException {
         Span span = tracer.spanBuilder("load-new-model").startSpan();
         try (Scope scope = span.makeCurrent()) {
             long modifiedTime = Files.getLastModifiedTime(rulesPath).toMillis();
@@ -85,9 +95,12 @@ public class EngineModelManager implements IEngineModelManager {
             this.lastModifiedTime = modifiedTime;
             span.setAttribute("newModel.uniqueCombinations", newModel.getNumRules());
             logger.info("Successfully reloaded and swapped to new rule model.");
+        } catch (IOException | RuntimeException e) {
+            span.recordException(e);
+            throw e;
         } catch (Exception e) {
             span.recordException(e);
-            logger.log(Level.SEVERE, "Failed to compile new rule model. Old model remains active.", e);
+            throw new RuntimeException("Unexpected error during rule reload", e);
         } finally {
             span.end();
         }

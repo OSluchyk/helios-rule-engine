@@ -236,7 +236,7 @@
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>${maven-surefire-plugin.version}</version>
                     <configuration>
-                        <argLine>--add-modules=jdk.incubator.vector -Djol.magicFieldOffset=true</argLine>
+                        <argLine>-Dnet.bytebuddy.experimental=true --add-modules jdk.incubator.vector -Djol.magicFieldOffset=true</argLine>
                         <includes>
                             <include>**/*Test.java</include>
                             <include>**/*Tests.java</include>

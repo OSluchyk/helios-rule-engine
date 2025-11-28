@@ -20,7 +20,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Optimized equality operator evaluator for EQUAL_TO and NOT_EQUAL_TO predicates.
+ * Optimized equality operator evaluator for EQUAL_TO and NOT_EQUAL_TO
+ * predicates.
  *
  * PERFORMANCE OPTIMIZATIONS:
  *
@@ -71,7 +72,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * PERFORMANCE IMPACT:
  * - EQUAL_TO evaluation: O(N) → O(1) per field
  * - Average comparisons: N → 1-3 (depending on selectivity distribution)
- * - Initialization cost: ~10-50ms for 100K predicates (amortized over millions of evaluations)
+ * - Initialization cost: ~10-50ms for 100K predicates (amortized over millions
+ * of evaluations)
  * - Memory overhead: ~16-32 bytes per predicate (negligible)
  *
  * @author Google L5 Engineering Standards
@@ -96,7 +98,6 @@ public final class EqualityOperatorEvaluator {
     private final AtomicLong fastPathHits = new AtomicLong(0);
     // --- FIX END ---
 
-
     public EqualityOperatorEvaluator(EngineModel model) {
         this.model = model;
         this.fieldEvaluators = new ConcurrentHashMap<>();
@@ -104,10 +105,13 @@ public final class EqualityOperatorEvaluator {
     }
 
     /**
-     * Pre-compile field-specific evaluators for all fields with equality predicates.
+     * Pre-compile field-specific evaluators for all fields with equality
+     * predicates.
      *
-     * This initialization step trades upfront compilation time for massive runtime savings.
-     * For each field, we build specialized data structures optimized for that field's
+     * This initialization step trades upfront compilation time for massive runtime
+     * savings.
+     * For each field, we build specialized data structures optimized for that
+     * field's
      * specific predicate distribution.
      */
     private void initializeEvaluators() {
@@ -128,11 +132,12 @@ public final class EqualityOperatorEvaluator {
     /**
      * Evaluate EQUAL_TO and NOT_EQUAL_TO predicates for a given field and value.
      *
-     * OPTIMIZATION: Uses pre-compiled FieldEvaluator with O(1) hash lookups for EQUAL_TO
+     * OPTIMIZATION: Uses pre-compiled FieldEvaluator with O(1) hash lookups for
+     * EQUAL_TO
      * instead of O(N) linear scan through all predicates.
      */
     public void evaluateEquality(int fieldId, Object eventValue,
-                                 EvaluationContext ctx, IntSet eligiblePredicateIds) {
+            EvaluationContext ctx, IntSet eligiblePredicateIds) {
         // --- FIX START ---
         // Changed from totalEvaluations++ to totalEvaluations.incrementAndGet()
         // to ensure atomic increment in a concurrent environment.
@@ -167,7 +172,8 @@ public final class EqualityOperatorEvaluator {
         // Array of [predicateId, value] pairs for cache-friendly sequential access
         private final NotEqualPredicate[] notEqualPredicates;
 
-        // Fast path: If field has exactly 1 predicate, store it here for direct evaluation
+        // Fast path: If field has exactly 1 predicate, store it here for direct
+        // evaluation
         private final SinglePredicateCache singlePredicateCache;
 
         FieldEvaluator(int fieldId, List<Predicate> equalityPredicates) {
@@ -198,7 +204,8 @@ public final class EqualityOperatorEvaluator {
         /**
          * Build value→predicateIds map for EQUAL_TO predicates.
          *
-         * This enables O(1) lookup: Given event value, find all predicates that check for it.
+         * This enables O(1) lookup: Given event value, find all predicates that check
+         * for it.
          *
          * Example:
          * - Predicate P1: country == "US"
@@ -253,8 +260,7 @@ public final class EqualityOperatorEvaluator {
                 array[i] = new NotEqualPredicate(
                         model.getPredicateId(p),
                         p.value(),
-                        p.selectivity()
-                );
+                        p.selectivity());
             }
 
             return array;
@@ -266,7 +272,8 @@ public final class EqualityOperatorEvaluator {
          * EXECUTION FLOW:
          * 1. Fast path: Single predicate? Direct evaluation
          * 2. EQUAL_TO: Hash lookup for exact value matches (O(1))
-         * 3. NOT_EQUAL_TO: Sequential scan with selectivity ordering (early termination)
+         * 3. NOT_EQUAL_TO: Sequential scan with selectivity ordering (early
+         * termination)
          */
         void evaluate(Object eventValue, EvaluationContext ctx, IntSet eligiblePredicateIds) {
             // Fast path: Single predicate field
@@ -287,7 +294,7 @@ public final class EqualityOperatorEvaluator {
          * Skips all map lookups and iteration overhead.
          */
         private void evaluateSinglePredicate(Object eventValue, EvaluationContext ctx,
-                                             IntSet eligiblePredicateIds) {
+                IntSet eligiblePredicateIds) {
             int predId = singlePredicateCache.predicateId;
 
             // Check eligibility
@@ -325,13 +332,14 @@ public final class EqualityOperatorEvaluator {
          *
          * This replaces the original O(N) linear scan:
          * BEFORE: for (predicate : allPredicates) { if (value.equals(pred.value)) ... }
-         * AFTER:  predicateIds = valueMap.get(value); for (id : predicateIds) ...
+         * AFTER: predicateIds = valueMap.get(value); for (id : predicateIds) ...
          *
-         * Complexity: O(N) → O(K) where K = number of predicates for this specific value
+         * Complexity: O(N) → O(K) where K = number of predicates for this specific
+         * value
          * Typical K << N (e.g., K=1-3, N=100-1000)
          */
         private void evaluateEqualTo(Object eventValue, EvaluationContext ctx,
-                                     IntSet eligiblePredicateIds) {
+                IntSet eligiblePredicateIds) {
             // O(1) hash lookup: Get all predicate IDs that check for this value
             IntList matchingPredicateIds = equalToValueMap.get(eventValue);
             if (matchingPredicateIds == null || matchingPredicateIds.isEmpty()) {
@@ -361,13 +369,14 @@ public final class EqualityOperatorEvaluator {
         /**
          * Evaluate NOT_EQUAL_TO predicates with selectivity-based ordering.
          *
-         * OPTIMIZATION: High selectivity predicates first (rare matches, likely to fail).
+         * OPTIMIZATION: High selectivity predicates first (rare matches, likely to
+         * fail).
          * This enables early termination when combined with eligibility filtering.
          *
          * Average case: Check 1-3 predicates instead of all N predicates.
          */
         private void evaluateNotEqualTo(Object eventValue, EvaluationContext ctx,
-                                        IntSet eligiblePredicateIds) {
+                IntSet eligiblePredicateIds) {
             for (NotEqualPredicate pred : notEqualPredicates) {
                 // Apply eligibility filter (early termination opportunity)
                 if (eligiblePredicateIds != null && !eligiblePredicateIds.contains(pred.predicateId)) {
@@ -376,6 +385,8 @@ public final class EqualityOperatorEvaluator {
 
                 // Evaluate NOT_EQUAL_TO
                 boolean matched = !Objects.equals(eventValue, pred.value);
+                // System.out.println("DEBUG: NOT_EQUAL_TO predId=" + pred.predicateId + "
+                // value=" + pred.value + " eventValue=" + eventValue + " matched=" + matched);
                 ctx.incrementPredicatesEvaluatedCount();
 
                 if (matched) {
@@ -413,8 +424,8 @@ public final class EqualityOperatorEvaluator {
     private record NotEqualPredicate(
             int predicateId,
             Object value,
-            float selectivity
-    ) {}
+            float selectivity) {
+    }
 
     /**
      * Get performance metrics for monitoring.
@@ -428,8 +439,7 @@ public final class EqualityOperatorEvaluator {
                 equalToMatches.get(),
                 notEqualToMatches.get(),
                 fastPathHits.get(),
-                fieldEvaluators.size()
-        );
+                fieldEvaluators.size());
         // --- FIX END ---
     }
 
@@ -438,6 +448,6 @@ public final class EqualityOperatorEvaluator {
             long equalToMatches,
             long notEqualToMatches,
             long fastPathHits,
-            int compiledFields
-    ) {}
+            int compiledFields) {
+    }
 }
