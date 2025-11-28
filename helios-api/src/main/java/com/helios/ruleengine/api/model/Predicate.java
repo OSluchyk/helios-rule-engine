@@ -8,7 +8,8 @@ import java.util.regex.Pattern;
 
 /**
  * Represents an immutable, atomic condition within the compiled engine.
- * It uses dictionary-encoded integer IDs for fields and (where applicable) values.
+ * It uses dictionary-encoded integer IDs for fields and (where applicable)
+ * values.
  *
  * Weight and selectivity are metadata calculated at compile time
  * to guide runtime evaluation optimizations.
@@ -19,8 +20,7 @@ public record Predicate(
         Object value,
         Pattern pattern, // Pre-compiled regex pattern, null for other operators
         float weight,
-        float selectivity
-) {
+        float selectivity) {
 
     public enum Operator {
         EQUAL_TO, NOT_EQUAL_TO,
@@ -32,11 +32,13 @@ public record Predicate(
 
         /**
          * Safely converts a string to an Operator enum.
+         * 
          * @param text The operator string (e.g., "EQUAL_TO").
          * @return The corresponding Operator, or null if not found.
          */
         public static Operator fromString(String text) {
-            if (text == null) return null;
+            if (text == null)
+                return null;
             try {
                 return Operator.valueOf(text.toUpperCase());
             } catch (IllegalArgumentException e) {
@@ -101,7 +103,8 @@ public record Predicate(
             case CONTAINS -> (eventValue instanceof String) && ((String) eventValue).contains((String) value);
             case REGEX -> (eventValue instanceof String) && pattern.matcher((String) eventValue).matches();
             case GREATER_THAN, LESS_THAN, BETWEEN -> evaluateNumeric(eventValue);
-            // Other operators (IS_ANY_OF, etc.) are handled by the evaluator logic
+            case IS_ANY_OF -> (value instanceof List) && ((List<?>) value).contains(eventValue);
+            case IS_NONE_OF -> (value instanceof List) && !((List<?>) value).contains(eventValue);
             default -> false;
         };
     }
@@ -110,7 +113,8 @@ public record Predicate(
      * Placeholder numeric evaluation.
      */
     private boolean evaluateNumeric(Object eventValue) {
-        if (!(eventValue instanceof Number)) return false;
+        if (!(eventValue instanceof Number))
+            return false;
         double eventDouble = ((Number) eventValue).doubleValue();
 
         return switch (operator) {
@@ -133,8 +137,10 @@ public record Predicate(
      */
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o)
+            return true;
+        if (o == null || getClass() != o.getClass())
+            return false;
         Predicate that = (Predicate) o;
         return fieldId == that.fieldId &&
                 operator == that.operator &&

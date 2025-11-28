@@ -47,7 +47,8 @@ public class RuleCompiler implements IRuleCompiler {
      * The compilation process involves several key steps:
      * 1. Loading and parsing the JSON rule definitions.
      * 2. Validating the syntax and logic of each rule.
-     * 3. Applying compile-time optimizations, such as factoring common IS_ANY_OF subsets
+     * 3. Applying compile-time optimizations, such as factoring common IS_ANY_OF
+     * subsets
      * to improve predicate sharing and deduplication.
      * 4. Building dictionaries to encode string fields and values into integers.
      * 5. Profiling rule selectivity to optimize runtime evaluation order.
@@ -55,10 +56,11 @@ public class RuleCompiler implements IRuleCompiler {
      * deduplicating identical combinations, and creating the inverted index.
      *
      * @param rulesPath Path to the JSON rules file.
-     * @param strategy The selection strategy (e.g., FIRST_MATCH) for the engine.
+     * @param strategy  The selection strategy (e.g., FIRST_MATCH) for the engine.
      * @return A compiled, executable EngineModel.
-     * @throws IOException If the rules file cannot be read.
-     * @throws CompilationException If the rules are invalid or a compilation error occurs.
+     * @throws IOException          If the rules file cannot be read.
+     * @throws CompilationException If the rules are invalid or a compilation error
+     *                              occurs.
      */
     public EngineModel compile(Path rulesPath, SelectionStrategy strategy)
             throws IOException, CompilationException {
@@ -88,7 +90,8 @@ public class RuleCompiler implements IRuleCompiler {
 
             SelectivityProfile profile = profileSelectivity(factoredRules, fieldDictionary, valueDictionary);
 
-            EngineModel.Builder builder = buildCoreModelWithDeduplication(factoredRules, profile, fieldDictionary, valueDictionary);
+            EngineModel.Builder builder = buildCoreModelWithDeduplication(factoredRules, profile, fieldDictionary,
+                    valueDictionary);
 
             long compilationTime = System.nanoTime() - startTime;
             span.setAttribute("compilationTimeMs", TimeUnit.NANOSECONDS.toMillis(compilationTime));
@@ -97,8 +100,9 @@ public class RuleCompiler implements IRuleCompiler {
             int logicalRuleCount = validRules.size(); // Report count *before* factorization
             int totalExpandedCombinations = builder.getTotalExpandedCombinations();
             int uniqueCombinations = builder.getUniqueCombinationCount();
-            double deduplicationRate = totalExpandedCombinations > 0 ?
-                    (1.0 - (double) uniqueCombinations / totalExpandedCombinations) * 100 : 0;
+            double deduplicationRate = totalExpandedCombinations > 0
+                    ? (1.0 - (double) uniqueCombinations / totalExpandedCombinations) * 100
+                    : 0;
 
             metadata.put("logicalRules", logicalRuleCount);
             metadata.put("totalExpandedCombinations", totalExpandedCombinations);
@@ -114,8 +118,7 @@ public class RuleCompiler implements IRuleCompiler {
                     uniqueCombinations,
                     builder.getPredicateCount(),
                     compilationTime,
-                    metadata
-            );
+                    metadata);
 
             return builder.withStats(stats)
                     .withFieldDictionary(fieldDictionary)
@@ -140,21 +143,26 @@ public class RuleCompiler implements IRuleCompiler {
         return compile(rulesPath, SelectionStrategy.FIRST_MATCH);
     }
 
-    private void buildDictionaries(List<RuleDefinition> definitions, Dictionary fieldDictionary, Dictionary valueDictionary) {
+    private void buildDictionaries(List<RuleDefinition> definitions, Dictionary fieldDictionary,
+            Dictionary valueDictionary) {
         Span span = tracer.spanBuilder("build-dictionaries").startSpan();
         try (Scope scope = span.makeCurrent()) {
             for (RuleDefinition def : definitions) {
-                if (def.conditions() == null) continue;
+                if (def.conditions() == null)
+                    continue;
 
                 for (RuleDefinition.Condition cond : def.conditions()) {
-                    if (cond.field() == null) continue;
+                    if (cond.field() == null)
+                        continue;
 
                     // Encode field name (uppercase and normalize)
                     fieldDictionary.encode(cond.field().toUpperCase().replace('-', '_'));
 
-                    if (cond.operator() == null) continue;
+                    if (cond.operator() == null)
+                        continue;
                     Predicate.Operator op = Predicate.Operator.fromString(cond.operator());
-                    if (op == null) continue;
+                    if (op == null)
+                        continue;
 
                     // Encode ALL string values, uppercasing them for case-insensitive matching
                     if (cond.value() instanceof List) {
@@ -189,16 +197,19 @@ public class RuleCompiler implements IRuleCompiler {
     }
 
     private EngineModel.Builder buildCoreModelWithDeduplication(List<RuleDefinition> definitions,
-                                                                SelectivityProfile profile,
-                                                                Dictionary fieldDictionary,
-                                                                Dictionary valueDictionary) {
+            SelectivityProfile profile,
+            Dictionary fieldDictionary,
+            Dictionary valueDictionary) {
         Span span = tracer.spanBuilder("build-core-model").startSpan();
         try (Scope scope = span.makeCurrent()) {
             EngineModel.Builder builder = new EngineModel.Builder();
             for (RuleDefinition def : definitions) {
-                if (!def.enabled()) continue; // Skip disabled rules
-                List<List<Predicate>> combinations = generatePredicateCombinations(def, profile, fieldDictionary, valueDictionary);
-                if (combinations.isEmpty()) continue;
+                if (!def.enabled())
+                    continue; // Skip disabled rules
+                List<List<Predicate>> combinations = generatePredicateCombinations(def, profile, fieldDictionary,
+                        valueDictionary);
+                if (combinations.isEmpty())
+                    continue;
 
                 for (List<Predicate> combination : combinations) {
                     List<Integer> predicateIds = combination.stream()
@@ -224,8 +235,10 @@ public class RuleCompiler implements IRuleCompiler {
      * impossible-to-match rule logic.
      * <p>
      * Detects:
-     * 1. Multiple different EQUAL_TO values on same field (e.g., status == "A" AND status == "B")
-     * 2. IS_ANY_OF operators with no overlap on same field (e.g., country IN [US] AND country IN [CA])
+     * 1. Multiple different EQUAL_TO values on same field (e.g., status == "A" AND
+     * status == "B")
+     * 2. IS_ANY_OF operators with no overlap on same field (e.g., country IN [US]
+     * AND country IN [CA])
      * 3. BETWEEN with inverted range [max, min] (e.g., amount BETWEEN 100 AND 50)
      * 4. Numeric range contradictions (e.g., x > 1000 AND x < 500)
      */
@@ -245,7 +258,7 @@ public class RuleCompiler implements IRuleCompiler {
                     .collect(Collectors.toList());
 
             if (equalToValues.size() > 1) {
-                return true;  // Multiple different EQUAL_TO values = contradiction
+                return true; // Multiple different EQUAL_TO values = contradiction
             }
 
             // Check IS_ANY_OF with no overlap
@@ -260,7 +273,7 @@ public class RuleCompiler implements IRuleCompiler {
                     intersection.retainAll(isAnyOfSets.get(i));
                 }
                 if (intersection.isEmpty()) {
-                    return true;  // No overlap = contradiction
+                    return true; // No overlap = contradiction
                 }
             }
 
@@ -272,7 +285,7 @@ public class RuleCompiler implements IRuleCompiler {
                         double min = ((Number) range.get(0)).doubleValue();
                         double max = ((Number) range.get(1)).doubleValue();
                         if (min > max) {
-                            return true;  // Inverted range = contradiction
+                            return true; // Inverted range = contradiction
                         }
                     }
                 }
@@ -280,13 +293,14 @@ public class RuleCompiler implements IRuleCompiler {
 
             // Check numeric range contradictions
             // Track the tightest bounds for each direction
-            Double minGT = null;   // Minimum value from GREATER_THAN (>)
-            Double minGTE = null;  // Minimum value from GREATER_THAN_OR_EQUAL (≥)
-            Double maxLT = null;   // Maximum value from LESS_THAN (<)
-            Double maxLTE = null;  // Maximum value from LESS_THAN_OR_EQUAL (≤)
+            Double minGT = null; // Minimum value from GREATER_THAN (>)
+            Double minGTE = null; // Minimum value from GREATER_THAN_OR_EQUAL (≥)
+            Double maxLT = null; // Maximum value from LESS_THAN (<)
+            Double maxLTE = null; // Maximum value from LESS_THAN_OR_EQUAL (≤)
 
             for (RuleDefinition.Condition cond : fieldConds) {
-                if (cond.value() == null || !(cond.value() instanceof Number)) continue;
+                if (cond.value() == null || !(cond.value() instanceof Number))
+                    continue;
                 double val = ((Number) cond.value()).doubleValue();
 
                 String operator = cond.operator().toUpperCase();
@@ -330,7 +344,8 @@ public class RuleCompiler implements IRuleCompiler {
 
     /**
      * Generates all predicate combinations for a single rule definition.
-     * This method is responsible for handling the "expansion" of IS_ANY_OF operators.
+     * This method is responsible for handling the "expansion" of IS_ANY_OF
+     * operators.
      *
      * Example: A rule with { status == "A", country IN [US, CA] }
      *
@@ -343,9 +358,9 @@ public class RuleCompiler implements IRuleCompiler {
      * Each of these combinations is then registered with the EngineModel builder.
      */
     private List<List<Predicate>> generatePredicateCombinations(RuleDefinition def,
-                                                                SelectivityProfile profile,
-                                                                Dictionary fieldDictionary,
-                                                                Dictionary valueDictionary) {
+            SelectivityProfile profile,
+            Dictionary fieldDictionary,
+            Dictionary valueDictionary) {
         if (def.conditions() == null || def.conditions().isEmpty()) {
             return new ArrayList<>();
         }
@@ -359,11 +374,13 @@ public class RuleCompiler implements IRuleCompiler {
         List<List<Predicate>> expandablePredicates = new ArrayList<>();
 
         for (RuleDefinition.Condition cond : def.conditions()) {
-            if (cond.field() == null || cond.operator() == null) continue;
+            if (cond.field() == null || cond.operator() == null)
+                continue;
 
             int fieldId = fieldDictionary.getId(cond.field().toUpperCase().replace('-', '_'));
             Predicate.Operator operator = Predicate.Operator.fromString(cond.operator());
-            if (operator == null) continue;
+            if (operator == null)
+                continue;
 
             // Calculate selectivity and weight for runtime optimization
             float selectivity = profile.calculateSelectivity(fieldId, operator, cond.value());
@@ -381,10 +398,25 @@ public class RuleCompiler implements IRuleCompiler {
                         processedValue = valueDictionary.getId(((String) v).toUpperCase());
                     }
                     // Create an EQUAL_TO predicate for each value in the list
-                    expanded.add(new Predicate(fieldId, Predicate.Operator.EQUAL_TO, processedValue, null, weight, selectivity));
+                    expanded.add(new Predicate(fieldId, Predicate.Operator.EQUAL_TO, processedValue, null, weight,
+                            selectivity));
                 }
                 if (!expanded.isEmpty()) {
                     expandablePredicates.add(expanded);
+                }
+            } else if (operator == Predicate.Operator.IS_NONE_OF && cond.value() instanceof List) {
+                // IS_NONE_OF is expanded into multiple NOT_EQUAL_TO predicates (AND logic)
+                List<?> values = (List<?>) cond.value();
+                for (Object v : values) {
+                    Object processedValue = v;
+                    if (v instanceof String) {
+                        processedValue = valueDictionary.getId(((String) v).toUpperCase());
+                    }
+                    // Add each value as a separate NOT_EQUAL_TO static predicate
+                    // We use the same weight/selectivity as the original IS_NONE_OF for now,
+                    // though technically each NOT_EQUAL_TO might have different stats.
+                    staticPredicates.add(new Predicate(fieldId, Predicate.Operator.NOT_EQUAL_TO, processedValue, null,
+                            weight, selectivity));
                 }
             } else {
                 // This is a "static" predicate.
@@ -413,7 +445,8 @@ public class RuleCompiler implements IRuleCompiler {
 
                 // Pre-compile regex patterns
                 Pattern pattern = (operator == Predicate.Operator.REGEX && cond.value() instanceof String)
-                        ? Pattern.compile((String) cond.value()) : null;
+                        ? Pattern.compile((String) cond.value())
+                        : null;
 
                 staticPredicates.add(new Predicate(fieldId, operator, predicateValue, pattern, weight, selectivity));
             }
@@ -425,7 +458,8 @@ public class RuleCompiler implements IRuleCompiler {
 
         if (expandedParts.isEmpty()) {
             // No expandable predicates, just add the static list
-            if (!staticPredicates.isEmpty()) combinations.add(staticPredicates);
+            if (!staticPredicates.isEmpty())
+                combinations.add(staticPredicates);
         } else {
             // Add static predicates to each expanded combination
             for (List<Predicate> expanded : expandedParts) {
@@ -442,12 +476,14 @@ public class RuleCompiler implements IRuleCompiler {
      */
     private List<List<Predicate>> generateCombinations(List<List<Predicate>> lists) {
         List<List<Predicate>> result = new ArrayList<>();
-        if (lists.isEmpty()) return result;
+        if (lists.isEmpty())
+            return result;
         generateCombinationsRecursive(lists, 0, new ArrayList<>(), result);
         return result;
     }
 
-    private void generateCombinationsRecursive(List<List<Predicate>> lists, int index, List<Predicate> current, List<List<Predicate>> result) {
+    private void generateCombinationsRecursive(List<List<Predicate>> lists, int index, List<Predicate> current,
+            List<List<Predicate>> result) {
         if (index == lists.size()) {
             result.add(new ArrayList<>(current));
             return;
@@ -466,7 +502,8 @@ public class RuleCompiler implements IRuleCompiler {
 
     private List<RuleDefinition> loadRules(Path rulesPath) throws IOException {
         String content = Files.readString(rulesPath);
-        return objectMapper.readValue(content, objectMapper.getTypeFactory().constructCollectionType(List.class, RuleDefinition.class));
+        return objectMapper.readValue(content,
+                objectMapper.getTypeFactory().constructCollectionType(List.class, RuleDefinition.class));
     }
 
     /**
@@ -479,11 +516,13 @@ public class RuleCompiler implements IRuleCompiler {
      * - Checking for null or duplicate rule_codes.
      * - Ensuring conditions, fields, and operators are not null.
      * - Validating operator names.
-     * - Validating value types required by specific operators (e.g., IS_ANY_OF, BETWEEN).
+     * - Validating value types required by specific operators (e.g., IS_ANY_OF,
+     * BETWEEN).
      * - Validating REGEX patterns for syntax.
      *
      * It also canonizes field names (to_uppercase, replace '-' with '_')
-     * and logs warnings for potential contradictions (which are fully checked later).
+     * and logs warnings for potential contradictions (which are fully checked
+     * later).
      */
     private List<RuleDefinition> validateAndCanonize(List<RuleDefinition> definitions) throws CompilationException {
         if (definitions == null || definitions.isEmpty()) {
@@ -527,66 +566,79 @@ public class RuleCompiler implements IRuleCompiler {
                 }
 
                 if (cond.operator() == null) {
-                    throw new CompilationException("Rule '" + def.ruleCode() + "' condition " + j + " has null operator");
+                    throw new CompilationException(
+                            "Rule '" + def.ruleCode() + "' condition " + j + " has null operator");
                 }
 
                 // Validate operator
                 Predicate.Operator operator = Predicate.Operator.fromString(cond.operator());
                 if (operator == null) {
-                    throw new CompilationException("Rule '" + def.ruleCode() + "' has unknown operator: " + cond.operator());
+                    throw new CompilationException(
+                            "Rule '" + def.ruleCode() + "' has unknown operator: " + cond.operator());
                 }
 
                 // Validate value based on operator
-                if (cond.value() == null && operator != Predicate.Operator.IS_NULL && operator != Predicate.Operator.IS_NOT_NULL) {
-                    throw new CompilationException("Rule '" + def.ruleCode() + "' condition " + j + " has null value for operator " + operator);
+                if (cond.value() == null && operator != Predicate.Operator.IS_NULL
+                        && operator != Predicate.Operator.IS_NOT_NULL) {
+                    throw new CompilationException("Rule '" + def.ruleCode() + "' condition " + j
+                            + " has null value for operator " + operator);
                 }
 
                 // Validate IS_ANY_OF and IS_NONE_OF
                 if (operator == Predicate.Operator.IS_ANY_OF || operator == Predicate.Operator.IS_NONE_OF) {
                     if (!(cond.value() instanceof List)) {
-                        throw new CompilationException("Rule '" + def.ruleCode() + "' operator " + operator + " requires array value");
+                        throw new CompilationException(
+                                "Rule '" + def.ruleCode() + "' operator " + operator + " requires array value");
                     }
                     List<?> list = (List<?>) cond.value();
                     if (list.isEmpty()) {
-                        throw new CompilationException("Rule '" + def.ruleCode() + "' operator " + operator + " cannot have empty array value.");
+                        throw new CompilationException("Rule '" + def.ruleCode() + "' operator " + operator
+                                + " cannot have empty array value.");
                     }
                 }
 
                 if (operator == Predicate.Operator.BETWEEN) {
                     if (!(cond.value() instanceof List)) {
-                        throw new CompilationException("Rule '" + def.ruleCode() + "' BETWEEN operator requires array value");
+                        throw new CompilationException(
+                                "Rule '" + def.ruleCode() + "' BETWEEN operator requires array value");
                     }
                     List<?> list = (List<?>) cond.value();
                     if (list.size() != 2) {
-                        throw new CompilationException("Rule '" + def.ruleCode() + "' BETWEEN operator requires exactly 2 values, got " + list.size());
+                        throw new CompilationException("Rule '" + def.ruleCode()
+                                + "' BETWEEN operator requires exactly 2 values, got " + list.size());
                     }
                     // Check for inverted range
                     if (list.get(0) instanceof Number && list.get(1) instanceof Number) {
                         double min = ((Number) list.get(0)).doubleValue();
                         double max = ((Number) list.get(1)).doubleValue();
                         if (min > max) {
-                            logger.warning("Rule '" + def.ruleCode() + "' has inverted BETWEEN range: [" + min + ", " + max + "]");
+                            logger.warning("Rule '" + def.ruleCode() + "' has inverted BETWEEN range: [" + min + ", "
+                                    + max + "]");
                         }
                     }
                 }
 
                 // Validate numeric operators
-                if (operator == Predicate.Operator.GREATER_THAN || operator == Predicate.Operator.GREATER_THAN_OR_EQUAL ||
+                if (operator == Predicate.Operator.GREATER_THAN || operator == Predicate.Operator.GREATER_THAN_OR_EQUAL
+                        ||
                         operator == Predicate.Operator.LESS_THAN || operator == Predicate.Operator.LESS_THAN_OR_EQUAL) {
                     if (cond.value() != null && !(cond.value() instanceof Number)) {
-                        throw new CompilationException("Rule '" + def.ruleCode() + "' numeric operator " + operator + " requires numeric value, got: " + cond.value().getClass().getSimpleName());
+                        throw new CompilationException("Rule '" + def.ruleCode() + "' numeric operator " + operator
+                                + " requires numeric value, got: " + cond.value().getClass().getSimpleName());
                     }
                 }
 
                 // Validate regex pattern
                 if (operator == Predicate.Operator.REGEX) {
                     if (!(cond.value() instanceof String)) {
-                        throw new CompilationException("Rule '" + def.ruleCode() + "' REGEX operator requires string value");
+                        throw new CompilationException(
+                                "Rule '" + def.ruleCode() + "' REGEX operator requires string value");
                     }
                     try {
                         Pattern.compile((String) cond.value());
                     } catch (PatternSyntaxException e) {
-                        throw new CompilationException("Rule '" + def.ruleCode() + "' has invalid regex pattern: " + e.getMessage());
+                        throw new CompilationException(
+                                "Rule '" + def.ruleCode() + "' has invalid regex pattern: " + e.getMessage());
                     }
                 }
 
@@ -604,8 +656,7 @@ public class RuleCompiler implements IRuleCompiler {
                     canonizedConditions,
                     def.priority(),
                     def.description(),
-                    def.enabled()
-            ));
+                    def.enabled()));
         }
 
         return validated;
@@ -632,7 +683,8 @@ public class RuleCompiler implements IRuleCompiler {
                     .collect(Collectors.toList());
 
             if (equalToValues.size() > 1) {
-                logger.warning("Rule '" + ruleCode + "' has contradictory EQUAL_TO conditions on field '" + entry.getKey() + "': " + equalToValues);
+                logger.warning("Rule '" + ruleCode + "' has contradictory EQUAL_TO conditions on field '"
+                        + entry.getKey() + "': " + equalToValues);
             }
 
             // Check for IS_ANY_OF with no overlapping values
@@ -647,16 +699,17 @@ public class RuleCompiler implements IRuleCompiler {
                     intersection.retainAll(isAnyOfSets.get(i));
                 }
                 if (intersection.isEmpty()) {
-                    logger.warning("Rule '" + ruleCode + "' has contradictory IS_ANY_OF conditions on field '" + entry.getKey() + "' with no overlapping values");
+                    logger.warning("Rule '" + ruleCode + "' has contradictory IS_ANY_OF conditions on field '"
+                            + entry.getKey() + "' with no overlapping values");
                 }
             }
         }
     }
 
-    private SelectivityProfile profileSelectivity(List<RuleDefinition> definitions, Dictionary fieldDictionary, Dictionary valueDictionary) {
+    private SelectivityProfile profileSelectivity(List<RuleDefinition> definitions, Dictionary fieldDictionary,
+            Dictionary valueDictionary) {
         return new SelectivityProfile(definitions, fieldDictionary, valueDictionary);
     }
-
 
     /**
      * Profiles the selectivity (how "rare" a predicate is) and cost
@@ -667,22 +720,26 @@ public class RuleCompiler implements IRuleCompiler {
      */
     public static class SelectivityProfile {
         private final Int2IntOpenHashMap fieldCounts;
-        // private final Map<String, Integer> valueCounts; // Not currently used, but kept for future profiling
+        // private final Map<String, Integer> valueCounts; // Not currently used, but
+        // kept for future profiling
         private final int totalRules;
 
-        public SelectivityProfile(List<RuleDefinition> definitions, Dictionary fieldDictionary, Dictionary valueDictionary) {
+        public SelectivityProfile(List<RuleDefinition> definitions, Dictionary fieldDictionary,
+                Dictionary valueDictionary) {
             this.fieldCounts = new Int2IntOpenHashMap();
             // this.valueCounts = new HashMap<>(); // Disabled for now
             this.totalRules = definitions.size();
 
             for (RuleDefinition def : definitions) {
-                if (def.conditions() == null) continue;
+                if (def.conditions() == null)
+                    continue;
                 for (RuleDefinition.Condition cond : def.conditions()) {
-                    if (cond.field() == null) continue;
+                    if (cond.field() == null)
+                        continue;
                     int fieldId = fieldDictionary.getId(cond.field().toUpperCase().replace('-', '_'));
                     fieldCounts.addTo(fieldId, 1);
                     // if (cond.value() != null) {
-                    //    valueCounts.merge(String.valueOf(cond.value()), 1, Integer::sum);
+                    // valueCounts.merge(String.valueOf(cond.value()), 1, Integer::sum);
                     // }
                 }
             }
@@ -697,7 +754,8 @@ public class RuleCompiler implements IRuleCompiler {
          * modified by a heuristic for the operator type.
          */
         public float calculateSelectivity(int fieldId, Predicate.Operator operator, Object value) {
-            if (operator == null) return 0.5f;
+            if (operator == null)
+                return 0.5f;
 
             // Base selectivity on how many rules use this field
             int fieldCount = fieldCounts.getOrDefault(fieldId, 1);
@@ -709,7 +767,10 @@ public class RuleCompiler implements IRuleCompiler {
                 case GREATER_THAN, LESS_THAN -> baseSelectivity * 0.3f;
                 case GREATER_THAN_OR_EQUAL, LESS_THAN_OR_EQUAL -> baseSelectivity * 0.35f;
                 case IS_ANY_OF, IS_NONE_OF ->
-                        baseSelectivity * (value instanceof List ? ((List<?>) value).size() * 0.15f : 0.2f); // Less selective as list size grows
+                    baseSelectivity * (value instanceof List ? ((List<?>) value).size() * 0.15f : 0.2f); // Less
+                                                                                                         // selective as
+                                                                                                         // list size
+                                                                                                         // grows
                 case CONTAINS, STARTS_WITH, ENDS_WITH -> baseSelectivity * 0.4f;
                 case REGEX -> baseSelectivity * 0.5f; // Assumed low selectivity
                 case IS_NULL, IS_NOT_NULL -> baseSelectivity * 0.05f; // Assumed very high selectivity
@@ -722,7 +783,8 @@ public class RuleCompiler implements IRuleCompiler {
          * A simple EQUAL_TO is cheap (1.0), while a REGEX is very expensive (10.0).
          */
         public float getCost(Predicate.Operator operator) {
-            if (operator == null) return 1.0f;
+            if (operator == null)
+                return 1.0f;
 
             return switch (operator) {
                 // Cheapest operations

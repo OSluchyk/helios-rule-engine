@@ -31,11 +31,17 @@ A more rigorous benchmark designed to mimic production traffic patterns, includi
 
 The module is configured to build a self-contained executable JAR for running benchmarks.
 
+[IMPORTANT]
+====
+This project requires **Java 25** (Preview) to run, as it uses advanced features. Ensure your `JAVA_HOME` points to a Java 25 installation, or use the provided `run.sh` script which attempts to locate it.
+====
+
 [source,bash]
 ----
-# Build the benchmarks
-mvn clean install -pl helios-benchmarks -am
+# Build and run benchmarks using the helper script (Recommended)
+./helios-benchmarks/run.sh
 
-# Run a specific benchmark
+# Manual execution (requires Java 25)
+mvn clean package -pl helios-benchmarks -am -DskipTests
 java -jar helios-benchmarks/target/benchmarks.jar SimpleBenchmark -f 1 -wi 5 -i 5
 ----
