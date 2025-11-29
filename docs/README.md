@@ -16,6 +16,7 @@
 ## Operations
 - [Troubleshooting](runbooks/troubleshooting.md) - Common issues and fixes.
 - [Monitoring](runbooks/monitoring.adoc) - Metrics and alerts.
+- [Cache Operations](runbooks/cache-operations.md) - Cache monitoring and troubleshooting.
 
 ## Reference
 - [API Reference](api-reference.md) - Javadoc and usage examples.

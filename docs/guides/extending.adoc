@@ -1,0 +1,92 @@
+= Extending Helios Rule Engine
+
+The Helios Rule Engine is designed to be extensible in specific areas to accommodate custom business requirements. This guide outlines how to extend the engine by adding new operators, implementing custom compilers, and configuring caching.
+
+== 1. Adding New Operators
+
+Adding a new operator involves modifying the core `Predicate` definition and the runtime evaluation logic.
+
+=== Step 1: Update the `Operator` Enum
+Modify `com.helios.ruleengine.api.model.Predicate.Operator` to include your new operator type.
+
+[source,java]
+----
+public enum Operator {
+    // ... existing operators ...
+    MY_CUSTOM_OPERATOR; // Add your new operator here
+}
+----
+
+=== Step 2: Implement Evaluation Logic
+Update `com.helios.ruleengine.runtime.operators.PredicateEvaluator` (or the relevant type-specific evaluator) to handle the new operator.
+
+[source,java]
+----
+public boolean evaluate(Predicate predicate, Object eventValue) {
+    return switch (predicate.operator()) {
+        // ... existing cases ...
+        case MY_CUSTOM_OPERATOR -> myCustomLogic(eventValue, predicate.value());
+        default -> false;
+    };
+}
+----
+
+=== Step 3: Update Compiler Validation (Optional)
+If your operator requires specific validation (e.g., it only works with Strings), update `com.helios.ruleengine.core.compiler.RuleValidator` to enforce these constraints during compilation.
+
+== 2. Custom Rule Compiler
+
+The `helios-core` module uses Java's `ServiceLoader` mechanism to discover and load the `IRuleCompiler` implementation. This allows you to swap out the default JSON compiler with a custom one (e.g., for a different rule format like YAML or XML).
+
+=== Step 1: Implement `IRuleCompiler`
+Create a class that implements `com.helios.ruleengine.api.IRuleCompiler`.
+
+[source,java]
+----
+public class MyCustomCompiler implements IRuleCompiler {
+    @Override
+    public EngineModel compile(Path source) {
+        // Your custom parsing and compilation logic
+        return new EngineModel(...);
+    }
+}
+----
+
+=== Step 2: Register the Service
+Create a file named `META-INF/services/com.helios.ruleengine.api.IRuleCompiler` and add the fully qualified name of your implementation class.
+
+[source]
+----
+com.mycompany.rules.MyCustomCompiler
+----
+
+== 3. Custom Caching Strategy
+
+You can implement a custom `BaseConditionCache` to store base condition results in a different backend (e.g., Memcached, Hazelcast).
+
+=== Step 1: Implement `BaseConditionCache`
+Implement the `com.helios.ruleengine.cache.BaseConditionCache` interface.
+
+[source,java]
+----
+public class MyDistributedCache implements BaseConditionCache {
+    @Override
+    public RoaringBitmap get(Object key) {
+        // Retrieve from external cache
+    }
+    
+    @Override
+    public void put(Object key, RoaringBitmap value) {
+        // Store in external cache
+    }
+}
+----
+
+=== Step 2: Inject into `RuleEvaluator`
+Pass your custom cache instance to the `RuleEvaluator` constructor.
+
+[source,java]
+----
+BaseConditionCache myCache = new MyDistributedCache(config);
+RuleEvaluator evaluator = new RuleEvaluator(model, myCache, true);
+----
