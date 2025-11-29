@@ -1,12 +1,8 @@
-= Helios Benchmarks Module
-:toc: macro
-:toc-title:
+# Helios Benchmarks Module
 
 The `helios-benchmarks` module contains performance tests using JMH (Java Microbenchmark Harness). It is critical for verifying that the rule engine meets its latency and throughput targets.
 
-toc::[]
-
-== 1. Overview
+## 1. Overview
 
 This module is isolated from the core logic to ensure that benchmarking dependencies (JMH) do not pollute the production classpath. It tests the engine under various scenarios:
 *   **Cold Start**: Evaluation performance immediately after initialization.
@@ -14,34 +10,31 @@ This module is isolated from the core logic to ensure that benchmarking dependen
 *   **Throughput**: Maximum events processed per second.
 *   **Latency**: Distribution of processing times (P50, P99, P99.9).
 
-== 2. Benchmarks
+## 2. Benchmarks
 
-=== 2.1. `SimpleBenchmark`
+### 2.1. `SimpleBenchmark`
 A general-purpose benchmark that simulates a realistic workload.
 *   **Scenarios**: Mixed rule complexity, varying cache states (COLD, WARM, HOT).
 *   **Metrics**: Throughput (ops/sec) and Sample Time (latency).
 
-=== 2.2. `ProductionBenchmark`
+### 2.2. `ProductionBenchmark`
 A more rigorous benchmark designed to mimic production traffic patterns, including:
 *   High cardinality fields.
 *   Large rule sets (thousands of rules).
 *   Concurrent evaluation (multi-threaded).
 
-== 3. Running Benchmarks
+## 3. Running Benchmarks
 
 The module is configured to build a self-contained executable JAR for running benchmarks.
 
-[IMPORTANT]
-====
-This project requires **Java 25** (Preview) to run, as it uses advanced features. Ensure your `JAVA_HOME` points to a Java 25 installation, or use the provided `run.sh` script which attempts to locate it.
-====
+> [!IMPORTANT]
+> This project requires **Java 25** (Preview) to run, as it uses advanced features. Ensure your `JAVA_HOME` points to a Java 25 installation, or use the provided `run.sh` script which attempts to locate it.
 
-[source,bash]
-----
+```bash
 # Build and run benchmarks using the helper script (Recommended)
 ./helios-benchmarks/run.sh
 
 # Manual execution (requires Java 25)
 mvn clean package -pl helios-benchmarks -am -DskipTests
 java -jar helios-benchmarks/target/benchmarks.jar SimpleBenchmark -f 1 -wi 5 -i 5
-----
+```

@@ -1,30 +1,32 @@
 // File: src/main/java/com/google/ruleengine/model/RuleDefinition.java
 package com.helios.ruleengine.api.model;
 
-
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
 
 /**
  * JSON representation of a rule for deserialization.
- * This is a simple Data Transfer Object (DTO) used only for loading.
+ *
+ * <p>
+ * This is a simple Data Transfer Object (DTO) used during the loading phase
+ * to map JSON rule definitions into Java objects before compilation.
+ * It is <b>not</b> used during runtime evaluation.
  */
 public record RuleDefinition(
         @JsonProperty("rule_code") String ruleCode,
         @JsonProperty("conditions") List<Condition> conditions,
         @JsonProperty("priority") Integer priority,
         @JsonProperty("description") String description,
-        @JsonProperty("enabled") Boolean enabled
-) {
+        @JsonProperty("enabled") Boolean enabled) {
     /**
      * DTO for a single condition.
      */
     public record Condition(
             @JsonProperty("field") String field,
             @JsonProperty("operator") String operator,
-            @JsonProperty("value") Object value
-    ) {}
+            @JsonProperty("value") Object value) {
+    }
 
     // Default values for optional fields
 

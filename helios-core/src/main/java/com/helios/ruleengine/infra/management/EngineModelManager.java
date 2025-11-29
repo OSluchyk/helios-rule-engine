@@ -23,6 +23,16 @@ public class EngineModelManager implements IEngineModelManager {
 
     private final Path rulesPath;
     private final IRuleCompiler compiler;
+
+    /**
+     * Holds the currently active engine model.
+     * <p>
+     * <b>Performance Note:</b>
+     * This reference is updated atomically. Readers (evaluators) always see a
+     * consistent snapshot
+     * of the model without needing locks, ensuring zero overhead for reads even
+     * during updates.
+     */
     private final AtomicReference<EngineModel> activeModel = new AtomicReference<>();
     private final ScheduledExecutorService monitoringExecutor;
     private final Tracer tracer;

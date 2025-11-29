@@ -44,9 +44,9 @@ public final class EngineModel implements Serializable {
     private final Int2ObjectMap<RoaringBitmap> invertedIndex; // Map[predicateId -> Bitmap(combinationIds)]
 
     // --- Rule & Combination Data (Structure-of-Arrays) ---
-    private final int[] predicateCounts;    // Map[combinationId -> count]
-    private final int[] priorities;         // Map[combinationId -> priority (of first rule)]
-    private final String[] ruleCodes;       // Map[combinationId -> ruleCode (of first rule)]
+    private final int[] predicateCounts; // Map[combinationId -> count]
+    private final int[] priorities; // Map[combinationId -> priority (of first rule)]
+    private final String[] ruleCodes; // Map[combinationId -> ruleCode (of first rule)]
     private final IntList[] combinationToPredicateIds; // Map[combinationId -> List[predicateId]]
 
     // --- Deduplication & Multi-Rule Mapping ---
@@ -92,8 +92,7 @@ public final class EngineModel implements Serializable {
             int fieldId,
             Predicate.Operator operator,
             Object value,
-            Pattern pattern
-    ) implements Serializable {
+            Pattern pattern) implements Serializable {
         static PredicateKey from(Predicate p) {
             return new PredicateKey(p.fieldId(), p.operator(), p.value(), p.pattern());
         }
@@ -142,6 +141,7 @@ public final class EngineModel implements Serializable {
      * Gets the shared, model-specific cache for eligible predicate sets.
      * This cache is thread-safe and shared across all RuleEvaluator instances
      * using this model.
+     * 
      * @return The Caffeine cache instance.
      */
     public com.github.benmanes.caffeine.cache.Cache<RoaringBitmap, IntSet> getEligiblePredicateSetCache() {
@@ -154,19 +154,99 @@ public final class EngineModel implements Serializable {
 
     // --- Public Accessors ---
 
-    public int getNumRules() { return predicateCounts.length; }
-    public Dictionary getFieldDictionary() { return fieldDictionary; }
-    public Dictionary getValueDictionary() { return valueDictionary; }
-    public Predicate[] getUniquePredicates() { return uniquePredicates; }
-    public Int2ObjectMap<RoaringBitmap> getInvertedIndex() { return invertedIndex; }
-    public EngineStats getStats() { return stats; }
-    public List<Predicate> getSortedPredicates() { return sortedPredicates; }
-    public float getFieldMinWeight(int fieldId) { return fieldMinWeights.get(fieldId); }
-    public SelectionStrategy getSelectionStrategy() { return selectionStrategy; }
-    public RuleDefinition[] getRuleDefinitions() { return ruleDefinitions; }
-    public Int2IntMap getFamilyPriorities() { return familyPriorities; }
-    public Int2ObjectMap<List<Predicate>> getFieldToPredicates() { return fieldToPredicates; }
+    /**
+     * @return The total number of unique combinations (physical rules) in the
+     *         model.
+     */
+    public int getNumRules() {
+        return predicateCounts.length;
+    }
 
+    /**
+     * @return The dictionary used for encoding field names.
+     */
+    public Dictionary getFieldDictionary() {
+        return fieldDictionary;
+    }
+
+    /**
+     * @return The dictionary used for encoding string values.
+     */
+    public Dictionary getValueDictionary() {
+        return valueDictionary;
+    }
+
+    /**
+     * @return The array of all unique predicates in the system.
+     */
+    public Predicate[] getUniquePredicates() {
+        return uniquePredicates;
+    }
+
+    /**
+     * @return The inverted index mapping predicate IDs to affected combination IDs.
+     */
+    public Int2ObjectMap<RoaringBitmap> getInvertedIndex() {
+        return invertedIndex;
+    }
+
+    /**
+     * @return Statistics about the compiled model (e.g., deduplication rate).
+     */
+    public EngineStats getStats() {
+        return stats;
+    }
+
+    /**
+     * @return All predicates sorted by evaluation cost (cheapest first).
+     */
+    public List<Predicate> getSortedPredicates() {
+        return sortedPredicates;
+    }
+
+    /**
+     * @param fieldId The dictionary ID of the field.
+     * @return The minimum weight of any predicate associated with this field.
+     */
+    public float getFieldMinWeight(int fieldId) {
+        return fieldMinWeights.get(fieldId);
+    }
+
+    /**
+     * @return The strategy used to select which rules to return when multiple
+     *         match.
+     */
+    public SelectionStrategy getSelectionStrategy() {
+        return selectionStrategy;
+    }
+
+    /**
+     * @return Legacy rule definitions (deprecated).
+     */
+    public RuleDefinition[] getRuleDefinitions() {
+        return ruleDefinitions;
+    }
+
+    /**
+     * @return Legacy family priorities (deprecated).
+     */
+    public Int2IntMap getFamilyPriorities() {
+        return familyPriorities;
+    }
+
+    /**
+     * @return Map of field ID to list of predicates for that field.
+     */
+    public Int2ObjectMap<List<Predicate>> getFieldToPredicates() {
+        return fieldToPredicates;
+    }
+
+    /**
+     * Retrieves a predicate by its unique ID.
+     *
+     * @param id The predicate ID.
+     * @return The Predicate object, or null if ID is invalid.
+     */
     public Predicate getPredicate(int id) {
         return (id >= 0 && id < uniquePredicates.length) ? uniquePredicates[id] : null;
     }
@@ -174,6 +254,9 @@ public final class EngineModel implements Serializable {
     /**
      * Get the ID of a predicate.
      * Uses a canonical key (without weight/selectivity) for lookup.
+     *
+     * @param p The predicate to look up.
+     * @return The predicate ID, or -1 if not found.
      */
     public int getPredicateId(Predicate p) {
         PredicateKey key = PredicateKey.from(p);
@@ -182,19 +265,48 @@ public final class EngineModel implements Serializable {
 
     // --- SoA Data Accessors ---
 
-    public int[] getPredicateCounts() { return predicateCounts; }
-    public int[] getPriorities() { return priorities; }
-    public IntList getCombinationPredicateIds(int combinationId) { return combinationToPredicateIds[combinationId]; }
+    /**
+     * @return Array of predicate counts per combination.
+     */
+    public int[] getPredicateCounts() {
+        return predicateCounts;
+    }
+
+    /**
+     * @return Array of priorities per combination.
+     */
+    public int[] getPriorities() {
+        return priorities;
+    }
+
+    /**
+     * @param combinationId The combination ID.
+     * @return List of predicate IDs required for this combination.
+     */
+    public IntList getCombinationPredicateIds(int combinationId) {
+        return combinationToPredicateIds[combinationId];
+    }
 
     // Backward compatible - returns *first* rule code
-    public String getCombinationRuleCode(int combinationId) { return ruleCodes[combinationId]; }
-    public int getCombinationPriority(int combinationId) { return priorities[combinationId]; }
-    public int getCombinationPredicateCount(int combinationId) { return predicateCounts[combinationId]; }
+    public String getCombinationRuleCode(int combinationId) {
+        return ruleCodes[combinationId];
+    }
+
+    public int getCombinationPriority(int combinationId) {
+        return priorities[combinationId];
+    }
+
+    public int getCombinationPredicateCount(int combinationId) {
+        return predicateCounts[combinationId];
+    }
 
     /**
      * Gets the complete list of rule codes associated with a combination ID.
      * This is necessary for ALL_MATCHES strategies where a combination
      * was deduplicated across multiple rules.
+     *
+     * @param combinationId The combination ID.
+     * @return List of rule codes.
      */
     public List<String> getCombinationRuleCodes(int combinationId) {
         if (combinationRuleCodes != null && combinationId < combinationRuleCodes.length
@@ -208,6 +320,9 @@ public final class EngineModel implements Serializable {
     /**
      * Gets the complete list of priorities associated with a combination ID,
      * corresponding to the rule codes from `getCombinationRuleCodes`.
+     *
+     * @param combinationId The combination ID.
+     * @return List of priorities.
      */
     public List<Integer> getCombinationPrioritiesAll(int combinationId) {
         if (combinationPriorities != null && combinationId < combinationPriorities.length
@@ -368,8 +483,7 @@ public final class EngineModel implements Serializable {
                         new ArrayList<>(), // Conditions are not preserved here
                         priority != null ? priority : 0,
                         description != null ? description : "",
-                        true
-                );
+                        true);
             }
             // --- End Legacy ---
         }
@@ -478,7 +592,8 @@ public final class EngineModel implements Serializable {
 
             for (int combinationId = 0; combinationId < numCombinations; combinationId++) {
                 IntList predicateIds = idToCombinationMap.get(combinationId);
-                if (predicateIds == null) continue;
+                if (predicateIds == null)
+                    continue;
 
                 // For each predicate in the combination, add this combination's
                 // ID to that predicate's bitmap in the inverted index.
@@ -519,8 +634,7 @@ public final class EngineModel implements Serializable {
             if (numCombinations > 0 && invertedIndex.isEmpty()) {
                 throw new IllegalStateException(
                         "Inverted index is empty but model has " + numCombinations +
-                                " combinations. This indicates a build error."
-                );
+                                " combinations. This indicates a build error.");
             }
 
             // Check 2: All combinations must have at least one predicate
@@ -529,8 +643,7 @@ public final class EngineModel implements Serializable {
                 if (predicateCounts[i] == 0) {
                     throw new IllegalStateException(
                             "Combination " + i + " has zero predicates. " +
-                                    "This should not happen after compilation."
-                    );
+                                    "This should not happen after compilation.");
                 }
             }
 
@@ -539,8 +652,7 @@ public final class EngineModel implements Serializable {
                 if (ruleCodes[i] == null) {
                     throw new IllegalStateException(
                             "Combination " + i + " has null rule code. " +
-                                    "This indicates a registration error."
-                    );
+                                    "This indicates a registration error.");
                 }
             }
         }
