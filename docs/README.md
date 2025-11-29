@@ -5,6 +5,7 @@
 - [Rule Authoring](guides/rule-authoring.md) - How to write effective rules.
 - [Performance Tuning](guides/performance-tuning.md) - Optimizing for scale.
 - [Extending Helios](guides/extending.adoc) - Adding custom operators and features.
+- [Configuration](guides/configuration.md) - Application properties and environment variables.
 
 ## Architecture
 - [Overview](architecture/README.adoc) - High-level design and core concepts.

@@ -48,3 +48,24 @@ EngineModelManager manager = new EngineModelManager(path, tracer);
 manager.start();
 EngineModel currentModel = manager.getEngineModel();
 ```
+
+## Caching API
+
+### `BaseConditionCache`
+The core interface for caching base condition evaluation results.
+
+### `CacheConfig`
+Configuration object for the cache.
+*   `type`: `IN_MEMORY`, `REDIS`, `ADAPTIVE`, `NO_OP`
+*   `maxSize`: Maximum number of entries (for in-memory)
+*   `redisAddress`: Redis connection string
+*   `redisPoolSize`: Connection pool size
+
+### `CacheFactory`
+Factory for creating cache instances based on `CacheConfig`.
+
+### Implementations
+*   **`InMemoryBaseConditionCache`**: High-performance, ConcurrentHashMap-based cache.
+*   **`RedisBaseConditionCache`**: Distributed cache using Redis (supports clustering).
+*   **`AdaptiveCaffeineCache`**: Self-tuning in-memory cache using Caffeine's Window TinyLfu policy.
+*   **`NoOpCache`**: Disables caching.
