@@ -1,0 +1,28 @@
+# Helios Rule Engine: Architecture Overview
+
+Helios is a lightweight, extensible rule engine for event-driven systems, optimized for low-latency evaluation (sub-ms per rule) and high throughput (10k+ events/sec). Built in Java 25, it leverages immutable data structures for thread-safety and pluggable interfaces for customization.
+
+## Key Components
+- **Event Model**: Immutable records (Java 25) representing inputs (e.g., transactions).
+- **Rule Set**: Pluggable conditions and actions, stored as POJOs or JSON.
+- **Engine Core**: Handles compilation, caching, and evaluation.
+- **Integrations**: Hooks for Kafka, Spring Boot, or custom streams.
+
+## High-Level Design
+The system follows a pipeline: Ingestion → Compilation → Evaluation → Action.
+
+```plantuml
+@startuml
+skinparam monochrome true
+actor "Event Source" as ES
+participant "Ingestion Layer" as IL
+participant "Compiler" as C
+participant "Evaluator" as E
+participant "Action Sink" as AS
+
+ES -> IL: Emit Event
+IL -> C: Parse & Compile Rules
+C -> E: Load Compiled Rules
+IL -> E: Evaluate Event
+E -> AS: Trigger Actions
+@enduml

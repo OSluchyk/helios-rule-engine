@@ -31,21 +31,31 @@ import java.util.concurrent.CompletableFuture;
  * High-performance rule evaluator using counter-based matching.
  *
  * <h2>Architecture</h2>
- * <p>This evaluator implements the {@link IRuleEvaluator} interface and accepts
- * clean API {@link Event} objects. Internally, it converts events to an optimized
- * representation using dictionary encoding and evaluates against compiled rules.
+ * <p>
+ * This evaluator implements the {@link IRuleEvaluator} interface and accepts
+ * clean API {@link Event} objects. Internally, it converts events to an
+ * optimized
+ * representation using dictionary encoding and evaluates against compiled
+ * rules.
  *
  * <h2>Key Optimizations</h2>
  * <ul>
- *   <li><b>ScopedValue Context:</b> Thread-safe evaluation context via Java 21+ ScopedValue</li>
- *   <li><b>ThreadLocal Pooling:</b> Zero-allocation evaluation through object pooling</li>
- *   <li><b>Counter-Based Matching:</b> O(touched) complexity with 99%+ skip rate</li>
- *   <li><b>RoaringBitmap:</b> Compressed bitmap operations for rule filtering</li>
- *   <li><b>Base Condition Caching:</b> 95%+ cache hit rate for static predicates</li>
+ * <li><b>ScopedValue Context:</b> Thread-safe evaluation context via Java 21+
+ * ScopedValue</li>
+ * <li><b>ThreadLocal Pooling:</b> Zero-allocation evaluation through object
+ * pooling</li>
+ * <li><b>Counter-Based Matching:</b> O(touched) complexity with 99%+ skip
+ * rate</li>
+ * <li><b>RoaringBitmap:</b> Compressed bitmap operations for rule
+ * filtering</li>
+ * <li><b>Base Condition Caching:</b> 95%+ cache hit rate for static
+ * predicates</li>
  * </ul>
  *
  * <h2>Thread Safety</h2>
- * <p>This class is fully thread-safe. Multiple threads can call {@link #evaluate(Event)}
+ * <p>
+ * This class is fully thread-safe. Multiple threads can call
+ * {@link #evaluate(Event)}
  * concurrently on the same instance.
  */
 public final class RuleEvaluator implements IRuleEvaluator {
@@ -125,7 +135,16 @@ public final class RuleEvaluator implements IRuleEvaluator {
     /**
      * {@inheritDoc}
      *
-     * <p>Evaluates an API Event against all compiled rules using counter-based matching.
+     * <p>
+     * Evaluates an API Event against all compiled rules using counter-based
+     * matching.
+     *
+     * <p>
+     * <b>Performance Note (Hot Path):</b>
+     * This method is the entry point for the "hot path" of the rule engine.
+     * It is designed to be zero-allocation (via {@link #contextPool}) and
+     * lock-free.
+     * Any changes here must be carefully benchmarked to avoid regression.
      */
     @Override
     public MatchResult evaluate(Event event) {
@@ -168,8 +187,8 @@ public final class RuleEvaluator implements IRuleEvaluator {
 
             // Step 1: Base condition evaluation (if enabled)
             if (baseConditionEvaluator != null) {
-                CompletableFuture<BaseConditionEvaluator.EvaluationResult> baseFuture =
-                        baseConditionEvaluator.evaluateBaseConditions(event, eventEncoder);
+                CompletableFuture<BaseConditionEvaluator.EvaluationResult> baseFuture = baseConditionEvaluator
+                        .evaluateBaseConditions(event, eventEncoder);
                 BaseConditionEvaluator.EvaluationResult baseResult = baseFuture.get();
 
                 eligibleRulesRoaring = baseResult.matchingRulesRoaring;
@@ -226,8 +245,7 @@ public final class RuleEvaluator implements IRuleEvaluator {
                         mutable.getRuleId(),
                         mutable.getRuleCode(),
                         mutable.getPriority(),
-                        mutable.getDescription()
-                ));
+                        mutable.getDescription()));
             }
 
             long evaluationTime = System.nanoTime() - startTime;
@@ -243,8 +261,7 @@ public final class RuleEvaluator implements IRuleEvaluator {
                     matchedRules,
                     evaluationTime,
                     ctx.getPredicatesEvaluated(),
-                    matchedRules.size()
-            );
+                    matchedRules.size());
 
         } catch (Exception e) {
             evaluationSpan.recordException(e);
@@ -270,8 +287,7 @@ public final class RuleEvaluator implements IRuleEvaluator {
         List<Integer> fieldIds = new ArrayList<>(encodedAttributes.keySet());
         fieldIds.sort((a, b) -> Float.compare(
                 model.getFieldMinWeight(a),
-                model.getFieldMinWeight(b)
-        ));
+                model.getFieldMinWeight(b)));
 
         // Evaluate predicates field by field
         for (int fieldId : fieldIds) {
@@ -315,7 +331,8 @@ public final class RuleEvaluator implements IRuleEvaluator {
 
         for (int predId : truePredicates) {
             RoaringBitmap affectedRules = model.getInvertedIndex().get(predId);
-            if (affectedRules == null) continue;
+            if (affectedRules == null)
+                continue;
 
             if (eligibleRulesRoaring != null) {
                 RoaringBitmap intersection = RoaringBitmap.and(affectedRules, eligibleRulesRoaring);

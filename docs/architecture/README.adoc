@@ -1,0 +1,345 @@
+[%hardbreaks]
+High Performance Rule Engine for Production Scale
+Document Type: Technical Requirements & Proposed Architecture
+Version: 1.0 (Lossless reorganization)
+Target Scale: 10K–100K logical rules; 10–100M combinations
+Target Performance: 15–20M events/min; P99 < 0.8 ms
+Proposed Stack: Java 25 LTS; GCP Cloud Run; Pub/Sub; RoaringBitmap; Vector API
+1. Executive Summary
+This document specifies a next generation high performance rule engine for production workloads containing 10K–100K logical rules that expand to tens of millions of combinations. The design centers on condition factoring and aggressive deduplication so we can embrace complex business rules instead of rejecting them with arbitrary limits.
+Core idea
+•	No explicit OR operators in rule definitions. Rules are AND only; all OR like logic is expressed by IS_ANY_OF (and similar IN style operators).
+•	Smart IS_ANY_OF factoring: materialize alternative domains once, reuse base condition results, and only expand when necessary with post expansion deduplication.
+•	Shared predicate evaluation via an inverted index and bitmap driven execution to reach sub millisecond latency at scale.
+Headline targets
+•	Throughput: 15–20M events/min
+•	Latency: P99 < 0.8 ms @ 100K rules
+•	Memory: Sub linear growth; <4–6 GB per 100K rules depending on features
+•	Operations: Zero downtime updates; distributed caching; blue green deploys
+
+2. Scope, Goals, and Non Goals
+Goals
+•	Handle large rule sets (10K–100K logical rules) with high overlap and many enumerations.
+•	Achieve deterministic compilation outputs for identical inputs.
+•	Keep runtime latency nearly constant as rule counts grow via factoring + deduplication.
+•	Provide robust observability, zero downtime updates, and safe migration.
+Non Goals
+•	Supporting explicit boolean OR in authoring (superseded by IS_ANY_OF).
+•	Accepting unbounded regex-heavy predicates without strength reduction.
+•	Maintaining per instance in memory caches as the only cache (a distributed cache is required for effectiveness).
+
+3. Key Technical Decisions
+•	AND Only Logic: All authoring forbids explicit OR; represent OR semantics through IS_ANY_OF.
+•	Smart IS_ANY_OF Factoring: Optimize shared subsets across rules to minimize redundancy and expansion.
+•	Condition Factoring: Separate static predicates from dynamic ones; evaluate static once per event set and cache results.
+•	Post Expansion Deduplication: Share identical predicate sets across families and rules.
+•	Inverted Index + Bitmaps: Predicate→rule posting lists with adaptive bitmap representations (dense bit arrays, sorted int arrays for ultra sparse, RoaringBitmap for balanced).
+•	Vectorized Evaluation & Compact Layout: Structure of Arrays (SoA) data layout; vectorization groups; counter based matching.
+•	Distributed Cache: External low latency cache (e.g., Redis) for base condition results.
+•	Zero Downtime: Blue green rule set rollover.
+
+4. Core Concepts & Terminology
+•	Predicate: Atomic condition evaluating to true/false (e.g., amount > 1000, status == "ACTIVE").
+•	Logical Rule: User defined rule supporting enumerations via IS_ANY_OF (no explicit OR authoring).
+•	DNF Expansion: Internal transformation converting IS_ANY_OF alternatives into AND only combinations when necessary.
+•	Rule Family: Collection of expanded rules from a single logical rule (carries family priority).
+•	Individual Rule: Single AND only rule with a unique ruleId.
+•	Posting List: Inverted index mapping predicate→set of rules (bitmap/array).
+•	Selection Strategy: Post match selection (e.g., ALL_MATCHES, PER_FAMILY_MAX_PRIORITY, TOP_K).
+•	Condition Factoring: Separate static predicates from enumerations; evaluate/cached once per unique set.
+•	Deduplication: Identify identical predicate sets and share them across rules.
+Diagram (conceptual)
+graph TD
+LR[Logical Rule\nAND-only authoring\nOR via IS_ANY_OF] --> RF[Rule Family]
+RF --> IR[Individual Rules (AND-only)]
+IR --> P[Predicates]
+
+5. Architecture Overview
+At compile time, rules pass through Validation → Predicate Registry → (Selective) DNF Expansion → Inverted Index Construction → Execution Plan Generation. At runtime, events go through Normalization → Base Condition Evaluation (cached) → Predicate Evaluation → Counter Update → Match Detection → Selection using SoA memory layout and adaptive bitmaps.
+
+6. Compilation Pipeline (Phases 1–5)
+Phase 1 — Validation & Canonicalization
+•	Schema validation: Enforce AND only structure, unique codes, valid operators (EQUAL_TO, IS_ANY_OF, GREATER_THAN, LESS_THAN, BETWEEN, CONTAINS, REGEX), and type safety.
+•	Contradiction detection: Identify impossible rules (e.g., field == A AND field == B).
+•	Match all prevention: Reject empty conditions without event type.
+•	Canonicalization: Normalize field names (UPPER_SNAKE), operators, trim string values.
+•	Dictionary generation: field→fieldId, value→valueId for 4–20× memory compression.
+•	Constant folding: Precompute static expressions.
+Output: Validated, normalized rule set + compression dictionaries.
+Phase 2 — Predicate Registration & Optimization
+•	Extraction: Identify all unique atomic predicates across rules; assign IDs [0..P).
+•	Smart IS_ANY_OF factoring: Find common subsets for a field across rules; represent once and reuse.
+•	CSE: Deduplicate identical predicates; evaluate once per event.
+•	Weight calculation: Order by cost × (1 − selectivity); estimate selectivity via profiling.
+•	Strength reduction: Convert IS_ANY_OF(1) → EQUAL_TO; replace regex with simpler ops; use dictionary to turn strings into ints.
+•	Vectorization groups: Cluster predicates by field for vector evaluation.
+Output: Optimized predicate registry with weights and vectorization groupings.
+Smart IS_ANY_OF Factoring
+This technique is a core optimization that drastically reduces redundancy. The compiler analyzes all IS_ANY_OF conditions for a given field across the entire rule set to find common subsets.
+Example:
+•	Rule 1: ... AND state IS_ANY_OF [CA, TX]
+•	Rule 2: ... AND state IS_ANY_OF [CA, WA, TX, FL]
+The compiler identifies the common subset [CA, TX] (Predicate P1) and the remainder [WA, FL] (Predicate P2), and internally represents Rule 2 as needing P1 OR P2, which is then handled by the DNF expansion. This ensures P1 is evaluated only once.
+
+Phase 3 — DNF Expansion (Selective)
+•	OR detection: Detect IS_ANY_OF on the same attribute within a logical rule.
+•	Cartesian generation: Expand combinations up to configured limits when necessary.
+•	Family assignment: Deterministic familyId from rule code hash; preserve priority.
+•	Redundancy elimination: Remove duplicate combinations post expansion.
+•	Expansion tracking: Record factors for capacity planning.
+Output: Expanded AND only rules grouped by family.
+Phase 4 — Inverted Index Construction
+•	Posting lists: Build predicate→rules mappings for O(1) lookups.
+•	Adaptive representation:
+o	Dense (>50%): bit array (1 bit per rule).
+o	Ultra sparse (<32 rules): sorted int array.
+o	Balanced: RoaringBitmap with RLE.
+•	Pre computed stats: Cardinalities, selectivity, density metrics.
+•	Memory layout: 64 byte alignment; co occurrence grouping; compression.
+Output: Optimized inverted index with stats.
+Phase 5 — Execution Plan Generation
+•	Ordering: Sort predicates by weight; identify fast path always true skips.
+•	Stages: Vectorized groups → speculative stages → standard sequential.
+•	Memory planning: Hot/warm/cold segregation; NUMA aware layout; pre allocation of counters and touched lists.
+Output: Final plan with memory layout and evaluation strategy.
+
+7. Runtime Engine Design
+Data Layout: SoA over AoS
+•	Problem (AoS): Scanning many rule objects wastes cache on unused fields.
+•	Solution (SoA): Contiguous arrays for counters, needs, priorities, families → 16× cache density, strong prefetching, ~95% memory bandwidth reduction.
+Memory tiers
+•	Hot: counters, needs, touched lists (L1/L2).
+•	Warm: priorities, family IDs (L3).
+•	Cold: predicate lists, metadata (main memory).
+Distributed Caching Strategy
+•	Base condition results are cached in an external low latency cache (e.g., Redis). Per instance caches alone have low hit ratios.
+Evaluation Pipeline (per event)
+1.	Normalization: Convert strings to dictionary IDs; apply defaults/validation.
+2.	Base Condition Evaluation (NEW): Evaluate static sets once per unique set; cache and reuse across families (typical reduction: 1000 rules → 100 base sets).
+3.	Predicate Evaluation: Deduplicated predicates in weight order; skip already evaluated; vectorize grouped predicates.
+4.	Counter Update: Update only rules passing base conditions; use iterators per posting type; maintain touched list for O(touched) resets.
+5.	Match Detection: Compare counter vs needs for touched rules only; combine with expansion results.
+6.	Selection: Apply strategy (ALL_MATCHES, PER_FAMILY_MAX_PRIORITY, TOP_K).
+Expected performance
+•	Latency: fast path <80 ns for factored subsets; <1 ms full evaluation.
+•	Memory: 70% reduction from deduplication; 50% fewer predicate evaluations via base condition caching.
+•	Cache: L1/L2 hit rate ≈ 98%+.
+
+8. Data Structures & Memory Layout
+Recommended factored storage
+•	Base Condition Set
+o	setId: u32
+o	staticPredicates: array
+o	affectedFamilies: RoaringBitmap
+o	resultCache: BitSet (evaluation results)
+•	Expanded Combination
+o	combinationId: u32
+o	parentFamilyId: u32
+o	predicates: array
+o	dedupSignature: u64
+•	Deduplicated Predicate Set
+o	predicateSetId: u32
+o	uniquePredicates: sorted array
+o	ruleRefs: RoaringBitmap
+o	evaluationCounter: u8
+•	Rule Mapping
+o	ruleId: u32
+o	baseConditionSetId: u32
+o	expandedCombinationId: u32
+o	familyId: u32
+o	priority: i32
+Predicate format
+•	id: u32; field: int (dictionary encoded); operator: enum; value: union (int64, stringId, array);
+•	weight: f32; selectivity: f32; category: enum (STATIC, VARIABLE); dedupSignature: u64
+Bitmap representations
+•	Dense: bit array (1 bit/rule).
+•	Ultra sparse: sorted int array.
+•	Balanced: RoaringBitmap (with run length encoding).
+
+9. Performance Requirements & Targets
+Scale
+•	Logical rules: 10K–100K
+•	Total combinations after expansion: 10–100M (then 90–96% reduction to ~1–10M unique via dedup)
+Throughput & Latency
+•	15–20M events/min (vectorization + caching)
+•	P99 < 0.8 ms @ 100K rules; P50 < 0.15 ms (target 95% cache hit for base sets)
+Memory
+•	<4 GB per 100K rules (aggressive dedup; compact headers; SoA)
+CPU & Cache
+•	90%+ CPU efficiency; working set <100 MB (fits in L3).
+
+10. Optimizations & Adaptive Tuning
+Adaptive runtime optimization (every ~100K events)
+•	Track expansion factors (p50/p95/p99/max) vs estimates.
+•	Measure dedup effectiveness (unique/total).
+•	Reorder predicates by observed selectivity.
+•	Morph bitmaps as density changes.
+•	Tune base cache size by hit rates.
+Memory management strategy
+•	Off heap: store large bitmaps in direct memory.
+•	Memory mapped: immutable rule data files; OS paging.
+•	Object pooling: thread local working sets; pre allocated buffers.
+•	NUMA aware: data distribution + thread affinity.
+•	Tiered caching: hot data via soft refs; warm via weak refs.
+Java 25 optimizations (see Appendix B)
+•	Compact object headers: 64 bit headers (vs 96–128) → 40–60% per object memory reduction; more objects fit in L2.
+•	Scoped Values: replacement for ThreadLocal; 15–30% concurrency gains; automatic cleanup; better with virtual threads.
+•	Vector API w/ Float16: target 2× numeric throughput; ~50% lower memory bandwidth; improved CPU utilization.
+•	JFR CPU time profiling: lower overhead (~5%) and kernel accurate timings.
+
+11. Deployment Configuration
+Cloud Run (recommended)
+•	CPU: 8 cores (throttling disabled).
+•	Memory: 16 GB (12 GB heap; 4 GB direct).
+•	Concurrency: 100 reqs (batching benefits).
+•	Environment: Gen2; startup CPU boost.
+JVM (Java 25)
+•	GC: Generational ZGC (<5 ms pauses).
+•	Headers: Compact object headers (enable by default).
+•	NUMA: NUMA aware allocation; large pages.
+•	Inlining: Aggressive (512 byte threshold).
+•	Vector API: Enable Float16 intrinsics.
+•	Profiling: JFR CPU time for prod.
+
+12. Observability & Monitoring
+Core metrics
+•	Events processed; rule matches; predicate evaluations.
+•	Matching duration histogram.
+•	Predicate selectivity; bitmap density.
+•	Cache hit rate; vectorization speedup.
+•	Epoch version; rule count; memory use.
+Scale aware metrics
+•	Logical vs expanded counts; expansion distributions.
+•	Dedup effectiveness (unique/total).
+•	Memory per million combinations.
+•	Cache efficiency vs rule count.
+•	Predicates evaluated per event (target <1000).
+•	Compilation time per 10K rules.
+Alerts
+•	Expansion factor >10,000 (any rule).
+•	Dedup rate <60%.
+•	Memory growth >100 MB / 10K rules.
+•	Compilation >10 s / 10K rules.
+•	Cache hit <90%.
+Profiling
+•	Continuous focus on dedup hotspots, expansion bottlenecks, and allocation patterns.
+
+13. Testing & Load Scenarios
+Production scale tests
+•	Baseline: 10K rules; 1M combinations; 100K events/min.
+•	Scale: 50K rules; 5M combinations; 500K events/min.
+•	Stress: 100K rules; 10M combinations; 1M events/min.
+Complexity tests
+•	Simple: 10K rules; <10 combos each.
+•	Complex: 1K rules; 1,000–10,000 combos.
+•	Mixed: 60% simple; 30% medium; 10% complex.
+Dedup efficiency
+•	High overlap: 90% overlap.
+•	Low overlap: 10% overlap.
+•	Real world: actual production patterns.
+Validation
+•	Sustained load: 500K events/min × 24h @ 50K rules.
+•	Burst: 2M events/min × 5 min.
+•	Memory stability: <4 GB @ 100K rules.
+•	Cache hit rates: L1/L2/L3 >95%.
+
+14. Migration Strategy
+Parallel run (recommended)
+1.	Shadow mode (Weeks 1–2): Process events without affecting prod; compare outputs/perf; fix discrepancies.
+2.	Canary (Weeks 3–4): 1% → 5% → 20% → 50% → 100%; monitor and auto rollback on anomalies.
+3.	Feature flags (Weeks 5–6): Customer specific enablement; A/B perf validation; gradual by rule type.
+4.	Complete migration (Weeks 7–8): All traffic on new engine; legacy in standby; decommission after 2 weeks stable.
+
+15. Risks & Mitigations
+•	Memory explosion (High): Dedup + expansion monitoring + lazy materialization.
+•	Cold start latency (High): Pre warmed instances; readiness probes; build time compilation for huge sets.
+•	Complex debugging (Medium): Visualization and traceability for factored structure.
+•	Dedup overhead (Low): Efficient hashing; incremental dedup during compile.
+•	Performance regression (High): Shadow comparison; extensive benchmarking.
+•	Compilation time (Medium): Incremental compilation; parallelization; signature caching.
+•	Memory leaks (Medium): Prefer ScopedValue over ThreadLocal; continuous profiling.
+•	Thread safety (High): Lock free designs where possible; heavy concurrency tests.
+•	Cache thrashing (Medium): SoA layout + factoring; ensure NUMA awareness.
+•	Extreme expansion (Low): Profile patterns; lazy eval for rare combinations.
+
+16. Implementation Plan & Roadmap
+Phase 1 — MVP (Weeks 1–3)
+•	AND only rules; EQUAL_TO only.
+•	HashMap storage; linear evaluation; JSON rule format with expansion estimates.
+•	REST API with health/metrics; expansion factor calculator; 95% test coverage.
+•	Target: <100 ms latency for 1K rules; support rules with 1000+ potential combos.
+Phase 2 — Core Optimizations (Weeks 4–6)
+•	Condition factoring; inverted index (RoaringBitmap); post expansion dedup; counter based evaluation; IS_ANY_OF.
+•	Target: 10× perf; <10 ms @ 10K rules; 70% dedup rate.
+Phase 3 — Advanced Operators (Weeks 7–9)
+•	Full operator set (GREATER_THAN, LESS_THAN, BETWEEN, CONTAINS, REGEX); configurable DNF expansion; rule families; priorities; selection strategies; multithreaded eval; Pub/Sub integration.
+•	Target: 1M events/min; P99 <5 ms.
+Phase 4 — Performance Optimization (Weeks 10–12)
+•	SoA layout; weight based ordering; adaptive bitmap selection; object pooling; off heap; JVM tuning/warmup.
+•	Target: 5M events/min; P99 <2 ms; <200 MB @ 100K rules.
+Phase 5 — Java 25 Features (Weeks 13–15)
+•	Float16 vectorization for deduped predicates; compact object headers; ScopedValue use; JFR profiling; adaptive optimization based on stats.
+•	Target: 15–20M events/min; P99 <0.8 ms; 90%+ CPU; 70%+ dedup.
+Phase 6 — Production Hardening (Weeks 16–18)
+•	Hot reload; OpenTelemetry tracing; circuit breakers/retries; audit logs; admin UI; DR; multi region; chaos tests; SLA/ops runbooks.
+•	Checklist: 99.9% uptime; monitoring dashboards; security audit; zero downtime verified.
+
+17. Success Criteria
+•	15–20M events/min sustained.
+•	P99 <0.8 ms @ 100K rules.
+•	Memory <6 GB @ 100K rules (≥40% reduction vs baseline).
+•	No ThreadLocal leaks (using ScopedValue).
+•	GC pauses <5 ms with Generational ZGC.
+•	CPU profiling overhead <5% in prod.
+•	99.9% uptime over 30 days.
+•	Successful DR drill; team trained on Java 25 features & ops.
+
+18. Revision History
+Version	Date	Author	Notes
+1.0	Sep 2025	Engineering Team	Initial requirements; bounded expansion approach.
+1.1	Sep 2025	Engineering Team	Redesigned for production scale with unlimited expansion, factoring, deduplication; this document reorganizes content without loss.
+
+19. Appendices
+Appendix A — Deduplication & Memory Optimization for Scale (details)
+Scale challenge
+•	10,000 logical rules; each with 100–1,000 IS_ANY_OF alternatives → 1–10M potential combinations.
+•	Traditional approach: 10M × 20 bytes ~ 200 MB just for rule IDs.
+Three tier deduplication
+1.	Base Condition Deduplication
+o	Many rules share static conditions → 10,000 → 500–1,000 unique base sets; evaluate once and cache.
+2.	Expanded Combination Deduplication
+o	Post expansion overlap across rule families → 10M → 100K–500K unique combos.
+3.	Cross System Deduplication
+o	Single predicate evaluation serves many rules; bitmap unions become cheaper; better cache efficiency.
+Production scale analysis (illustrative)
+•	Without factoring/dedup:
+o	10,000 rules × 500 expansions = 5,000,000 rules;
+o	Memory: 5,000,000 × 20 B = 100 MB;
+o	Predicate evals: 5,000,000 × 6 = 30,000,000;
+o	Cache working set: ~500 MB.
+•	With factoring + dedup:
+o	~1,000 unique base condition sets (~20 KB)
+o	~200,000 unique expanded combos (~4 MB)
+o	~50,000 unique predicate sets (~1 MB)
+o	Total memory ~5 MB (≈95% reduction); predicate evals ~300,000 (≈99% reduction); cache WS ~10 MB.
+Handling extreme cases
+•	Pathological example: 20 fields × 10 OR values → 10^20 theoretical combos.
+•	Strategy: factor static; profile for selectivity; expand top 10,000 combos covering 99.9% traffic; catch all for remainder → after dedup with other rules: ~1,000 unique combos.
+Techniques
+•	Lazy materialization; incremental dedup; tiered storage (hot in RAM; cold on disk); adaptive compression (Roaring for sparse; bit arrays for dense); reference counting for shared placement.
+Appendix B — Java 25 Optimizations (details)
+•	Compact Object Headers: 64 bit headers; 40–60% memory reduction per object; ~20% more objects fit into L2; large collection wins.
+•	Scoped Values: Replacement for ThreadLocal; 15–30% concurrent perf gains; prevents leaks; integrates with virtual threads.
+•	Enhanced Vector API (Float16): 2× throughput for numeric predicates; ~50% memory bandwidth reduction; higher CPU utilization.
+•	JFR CPU Time Profiling: Kernel accurate timings; ~5% lower overhead vs legacy profilers; no bytecode changes.
+Appendix C — Selection Strategies
+•	ALL_MATCHES: Return all matching rules.
+•	PER_FAMILY_MAX_PRIORITY: Return one rule per family with max priority.
+•	TOP_K: Return the top K rules by priority/score.
+Appendix D — Glossary
+•	CSE: Common Subexpression Elimination.
+•	DNF: Disjunctive Normal Form.
+•	RLE: Run Length Encoding.
+•	SoA / AoS: Structure /Array of Structures.
+•	NUMA: Non Uniform Memory Access.
+
