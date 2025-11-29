@@ -17,7 +17,18 @@ Headline targets
 •	Memory: Sub linear growth; <4–6 GB per 100K rules depending on features
 •	Operations: Zero downtime updates; distributed caching; blue green deploys
 
-2. Scope, Goals, and Non Goals
+2. Module Structure
+
+The project is organized into the following Maven modules:
+
+*   **`helios-api`**: Core interfaces and domain models (`Event`, `Rule`, `EngineModel`). Zero dependencies.
+*   **`helios-core`**: Infrastructure, lifecycle management (`EngineModelManager`), and observability.
+*   **`helios-compiler`**: Logic for transforming JSON rules into the `EngineModel`.
+*   **`helios-evaluator`**: High-performance runtime engine (`RuleEvaluator`) and caching logic.
+*   **`helios-service`**: REST API and application entry point (Java HttpServer).
+*   **`helios-benchmarks`**: JMH performance tests.
+
+3. Scope, Goals, and Non Goals
 Goals
 •	Handle large rule sets (10K–100K logical rules) with high overlap and many enumerations.
 •	Achieve deterministic compilation outputs for identical inputs.

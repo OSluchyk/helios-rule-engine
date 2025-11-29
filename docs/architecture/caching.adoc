@@ -18,7 +18,7 @@ The **Base Condition Cache**  reduces predicate evaluations by **90%+** and impr
                                                      │
                                            ┌─────────▼────────┐
                                            │ RedisCache       │
-                                           │ (future)         │
+                                           │ (available)      │
                                            └──────────────────┘
 ```
 
@@ -49,7 +49,12 @@ The **Base Condition Cache**  reduces predicate evaluations by **90%+** and impr
 - **Thread-safe** with minimal contention
 - **Sub-microsecond** get operations
 
-### 3. Base Condition Evaluator (`BaseConditionEvaluator.java`)
+### 3. Adaptive Caching (`AdaptiveCaffeineCache.java`)
+- **Self-tuning** based on hit rates and memory pressure
+- **Window TinyLfu** eviction policy (via Caffeine)
+- **Automatic sizing** for optimal performance
+
+### 4. Base Condition Evaluator (`BaseConditionEvaluator.java`)
 - **Factors static predicates** from dynamic ones
 - **Groups rules** by shared base conditions
 - **Generates cache keys** from event attributes
@@ -69,34 +74,11 @@ BaseConditionCache cache = new InMemoryBaseConditionCache.Builder()
 RuleEvaluator evaluator = new RuleEvaluator(model, cache, true);
 ```
 
-## Migration Path to Redis
+## Redis Implementation
 
-### Phase 1: Infrastructure Setup (Week 1)
-1. **Deploy Redis Cluster**
-```bash
-# Redis configuration (redis.conf)
-maxmemory 2gb
-maxmemory-policy allkeys-lru
-save ""  # Disable persistence for cache-only usage
-```
+The Redis implementation is production-ready and supports clustering.
 
-2. **Network Configuration**
-- Place Redis in same availability zone as application
-- Use private networking (no public exposure)
-- Target <1ms network latency
-
-3. **Monitoring Setup**
-- Redis metrics (memory, evictions, latency)
-- Application cache metrics (hit rate, response times)
-
-### Phase 2: Code Changes (Week 2)
-
-1. **Add Redis dependency**
-```bash
-mvn clean install -Predis  # Use Redis profile
-```
-
-2. **Update configuration**
+### Configuration
 ```java
 // application.properties
 cache.type=redis
@@ -105,42 +87,15 @@ cache.redis.password=${REDIS_PASSWORD}
 cache.redis.pool.size=32
 ```
 
-3. **Switch cache implementation**
+### Usage
 ```java
-// Before
-BaseConditionCache cache = new InMemoryBaseConditionCache.Builder()
-.maxSize(10_000)
-.build();
-
-   // After
-   BaseConditionCache cache = new RedisBaseConditionCache.Builder()
-       .redisAddress(config.getRedisAddress())
-       .password(config.getRedisPassword())
-       .connectionPoolSize(32)
-       .compressionThreshold(512)
-       .build();
-   ```
-
-### Phase 3: Gradual Rollout (Week 3)
-
-1. **Shadow Mode Testing**
-```java
-// Run both caches in parallel, compare results
-CompositeCacheValidator validator = new CompositeCacheValidator(
-inMemoryCache,
-redisCache
-);
+BaseConditionCache cache = new RedisBaseConditionCache.Builder()
+    .redisAddress(config.getRedisAddress())
+    .password(config.getRedisPassword())
+    .connectionPoolSize(32)
+    .compressionThreshold(512)
+    .build();
 ```
-
-2. **Canary Deployment**
-- 1% traffic → 5% → 20% → 50% → 100%
-- Monitor metrics at each stage
-- Auto-rollback on anomalies
-
-3. **Performance Validation**
-- Cache hit rate > 95%
-- P99 latency < 1ms
-- No increase in error rate
 
 ## Configuration Best Practices
 
@@ -153,7 +108,7 @@ InMemoryBaseConditionCache.Builder()
     .build()
 ```
 
-### Redis Cache (Future)
+### Redis Cache (Production)
 ```java
 // Recommended for >10K rules, multiple instances
 RedisBaseConditionCache.Builder()
