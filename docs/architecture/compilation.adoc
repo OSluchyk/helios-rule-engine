@@ -1,0 +1,53 @@
+= Compilation Pipeline
+
+The compilation pipeline transforms human-readable JSON rule definitions into an optimized, immutable `EngineModel` used by the runtime. This process ensures that the runtime engine has zero overhead for parsing or validation and operates on highly efficient data structures.
+
+== 1. Pipeline Overview
+
+The pipeline consists of five distinct phases:
+
+1.  **Validation & Canonicalization**
+2.  **Predicate Registration & Optimization**
+3.  **DNF Expansion**
+4.  **Inverted Index Construction**
+5.  **Execution Plan Generation**
+
+== 2. Phase Details
+
+=== Phase 1: Validation & Canonicalization
+*   **Schema Validation**: Enforces "AND-only" structure (no explicit ORs), unique rule codes, and valid operators.
+*   **Contradiction Detection**: Identifies and rejects impossible rules (e.g., `field == A AND field == B`).
+*   **Canonicalization**: Normalizes field names (to `UPPER_SNAKE_CASE`) and trims string values.
+*   **Dictionary Generation**: Converts string fields and values into integer IDs. This provides 4-20x memory compression and enables fast integer comparisons.
+*   **Constant Folding**: Pre-computes static expressions.
+
+=== Phase 2: Predicate Registration & Optimization
+*   **Extraction**: Identifies all unique atomic predicates across the entire rule set.
+*   **Smart IS_ANY_OF Factoring**: Analyzes `IS_ANY_OF` conditions to find common subsets across rules.
+    *   *Example*: If Rule 1 has `[CA, TX]` and Rule 2 has `[CA, TX, NY]`, the subset `[CA, TX]` is factored out as a single predicate reused by both.
+*   **Common Subexpression Elimination (CSE)**: Deduplicates identical predicates so they are evaluated only once per event.
+*   **Weight Calculation**: Assigns weights based on estimated cost and selectivity.
+*   **Vectorization Groups**: Clusters predicates by field to enable SIMD/Vector API evaluation.
+
+=== Phase 3: DNF Expansion (Selective)
+*   **OR Detection**: Identifies `IS_ANY_OF` conditions that function as logical ORs.
+*   **Cartesian Generation**: Expands combinations into pure AND-rules (Disjunctive Normal Form).
+*   **Redundancy Elimination**: Removes duplicate combinations generated during expansion.
+*   **Family Assignment**: Groups expanded rules under a "Rule Family" to preserve the original logical rule's priority and semantics.
+
+=== Phase 4: Inverted Index Construction
+Builds the mapping from `Predicate -> Rules` using adaptive bitmap representations:
+*   **Dense (>50% selectivity)**: Bit arrays (1 bit per rule).
+*   **Ultra Sparse (<32 rules)**: Sorted integer arrays.
+*   **Balanced**: RoaringBitmap with Run-Length Encoding (RLE).
+
+=== Phase 5: Execution Plan Generation
+*   **Ordering**: Sorts predicates by weight (cheapest & most selective first).
+*   **Memory Planning**: Organizes data into Hot (L1/L2 cache), Warm (L3), and Cold (RAM) tiers.
+*   **SoA Layout**: Arranges data in Structure-of-Arrays format for cache locality.
+
+== 3. Key Components
+
+*   **`RuleCompiler`**: The main entry point for the compilation process.
+*   **`SmartIsAnyOfFactorizer`**: Logic for optimizing set membership and reducing combinatorial explosion.
+*   **`Dictionary`**: Manages the bidirectional mapping between Strings and Integers.

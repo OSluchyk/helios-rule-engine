@@ -1,0 +1,37 @@
+= Hot Reload Architecture
+
+The Helios Rule Engine supports zero-downtime hot reloading of rule sets. This capability allows the system to update its logic in real-time without restarting the application or dropping in-flight requests.
+
+== 1. Architecture
+
+The hot reload mechanism is managed by the `EngineModelManager` in the `helios-core` module. It relies on the following key components:
+
+*   **`AtomicReference<EngineModel>`**: Holds the currently active, immutable engine model.
+*   **File Watcher**: Monitors the source rule file (JSON) for modifications.
+*   **Background Compilation**: Compiles the new rule set in a separate thread to avoid blocking request processing.
+
+== 2. Reload Process
+
+When a change is detected in the rule source file:
+
+1.  **Detection**: The `EngineModelManager`'s file watcher detects a modification event (e.g., file timestamp change).
+2.  **Compilation**: The manager triggers the `IRuleCompiler` to parse and compile the new rule set into a new `EngineModel` instance. This happens in the background.
+3.  **Validation**: If compilation fails (e.g., syntax error, invalid logic), the error is logged, and the *old model remains active*. This "fail-safe" mechanism prevents bad configuration from crashing the system.
+4.  **Atomic Swap**: If compilation succeeds, the `AtomicReference` is updated to point to the new `EngineModel`.
+5.  **Immediate Effect**: All subsequent calls to `getEngineModel()` (used by `RuleEvaluator`) will return the new model. In-flight requests using the old model reference will complete naturally.
+
+== 3. Thread Safety
+
+The design ensures thread safety through immutability and atomic operations:
+
+*   **Immutable Model**: The `EngineModel` is immutable once created. It can be safely shared across multiple threads.
+*   **Lock-Free Reads**: The `RuleEvaluator` acquires a reference to the current model at the start of evaluation. It does not need to acquire any locks, ensuring high throughput.
+*   **Safe Updates**: The atomic swap ensures that no thread ever sees a partially constructed or inconsistent model state.
+
+== 4. Observability
+
+Hot reload events are tracked via OpenTelemetry and logs:
+
+*   **Logs**: Info-level logs indicate when a reload is triggered and when it completes successfully. Error logs capture compilation failures.
+*   **Metrics**: Counters track the number of successful reloads and failed attempts.
+*   **Tracing**: A span is created for the reload operation, capturing the duration and any errors.
