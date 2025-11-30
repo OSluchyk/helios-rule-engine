@@ -40,6 +40,9 @@ public final class EvaluationContext {
     // Reusable bitmap buffer for intersection operations
     public final RoaringBitmap bitmapBuffer;
 
+    // Cached IntConsumer for RoaringBitmap iteration to avoid lambda allocation
+    public final org.roaringbitmap.IntConsumer roaringRuleConsumer;
+
     // Matched rules tracking (mutable during evaluation)
     private final List<MutableMatchedRule> matchedRules;
 
@@ -68,6 +71,15 @@ public final class EvaluationContext {
         this.rulePool = new ArrayList<>(initialMatchCapacity);
         this.poolIndex = 0;
         this.predicatesEvaluatedCount = 0;
+        this.roaringRuleConsumer = this::onRuleMatch;
+    }
+
+    /**
+     * Helper method for RoaringBitmap iteration to avoid lambda allocation.
+     */
+    private void onRuleMatch(int ruleId) {
+        counters[ruleId]++;
+        touchedRules.add(ruleId);
     }
 
     /**

@@ -347,15 +347,9 @@ public final class RuleEvaluator implements IRuleEvaluator {
                 buffer.or(affectedRules);
                 buffer.and(eligibleRulesRoaring);
 
-                buffer.forEach((int ruleId) -> {
-                    ctx.counters[ruleId]++;
-                    ctx.addTouchedRule(ruleId);
-                });
+                buffer.forEach(ctx.roaringRuleConsumer);
             } else {
-                affectedRules.forEach((int ruleId) -> {
-                    ctx.counters[ruleId]++;
-                    ctx.addTouchedRule(ruleId);
-                });
+                affectedRules.forEach(ctx.roaringRuleConsumer);
             }
         });
     }
