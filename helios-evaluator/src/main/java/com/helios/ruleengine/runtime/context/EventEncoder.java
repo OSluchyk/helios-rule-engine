@@ -145,6 +145,12 @@ public final class EventEncoder {
         return NORMALIZED_STRING_CACHE.computeIfAbsent(original, String::toUpperCase);
     }
 
+    // Cache for normalized field keys (UPPER_SNAKE_CASE)
+    private static final ConcurrentMap<String, String> FIELD_KEY_CACHE = new ConcurrentHashMap<>(1024);
+
+    // Cache for full flattened paths: Parent Prefix -> (Child Key -> Full Path)
+    private static final ConcurrentMap<String, ConcurrentMap<String, String>> PATH_CACHE = new ConcurrentHashMap<>(256);
+
     /**
      * Flattens nested attribute maps with UPPER_SNAKE_CASE key normalization.
      */
@@ -154,35 +160,59 @@ public final class EventEncoder {
         }
 
         Map<String, Object> result = new HashMap<>();
-        StringBuilder prefixBuilder = new StringBuilder();
-
+        // Start with empty prefix
         for (Map.Entry<String, Object> entry : attributes.entrySet()) {
-            flattenEntry(prefixBuilder, entry.getKey(), entry.getValue(), result);
+            flattenEntry("", entry.getKey(), entry.getValue(), result);
         }
 
         return result;
     }
 
     @SuppressWarnings("unchecked")
-    private void flattenEntry(StringBuilder prefix, String key, Object value, Map<String, Object> flatMap) {
-        int originalLength = prefix.length();
-
-        if (originalLength > 0) {
-            prefix.append('.');
-        }
-
-        // Normalize key to UPPER_SNAKE_CASE
-        for (char c : key.toCharArray()) {
-            prefix.append(Character.toUpperCase(c == '-' ? '_' : c));
-        }
+    private void flattenEntry(String prefix, String key, Object value, Map<String, Object> flatMap) {
+        // Resolve the full path for this key using cache
+        String fullPath = getFullPath(prefix, key);
 
         if (value instanceof Map) {
-            ((Map<String, Object>) value).forEach((k, v) -> flattenEntry(prefix, k, v, flatMap));
+            ((Map<String, Object>) value).forEach((k, v) -> flattenEntry(fullPath, k, v, flatMap));
         } else {
-            flatMap.put(prefix.toString(), value);
+            flatMap.put(fullPath, value);
+        }
+    }
+
+    /**
+     * Resolves the full flattened path for a key under a given prefix.
+     * Uses caching to avoid string concatenation and allocation.
+     */
+    private String getFullPath(String prefix, String key) {
+        // 1. Get normalized key (UPPER_SNAKE_CASE)
+        String normalizedKey = getNormalizedKey(key);
+
+        // 2. If no prefix, the full path is just the normalized key
+        if (prefix.isEmpty()) {
+            return normalizedKey;
         }
 
-        prefix.setLength(originalLength);
+        // 3. Look up in path cache
+        // Structure: prefix -> { key -> fullPath }
+        ConcurrentMap<String, String> prefixCache = PATH_CACHE.computeIfAbsent(prefix, k -> new ConcurrentHashMap<>());
+
+        return prefixCache.computeIfAbsent(normalizedKey, k -> prefix + "." + k);
+    }
+
+    /**
+     * Normalizes a key to UPPER_SNAKE_CASE without creating temporary char[]
+     * arrays.
+     */
+    private String getNormalizedKey(String key) {
+        return FIELD_KEY_CACHE.computeIfAbsent(key, k -> {
+            StringBuilder sb = new StringBuilder(k.length());
+            for (int i = 0; i < k.length(); i++) {
+                char c = k.charAt(i);
+                sb.append(Character.toUpperCase(c == '-' ? '_' : c));
+            }
+            return sb.toString();
+        });
     }
 
     /**
