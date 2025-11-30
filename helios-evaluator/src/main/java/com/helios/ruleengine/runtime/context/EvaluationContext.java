@@ -43,6 +43,10 @@ public final class EvaluationContext {
     // Matched rules tracking (mutable during evaluation)
     private final List<MutableMatchedRule> matchedRules;
 
+    // Pool for MutableMatchedRule objects
+    private final List<MutableMatchedRule> rulePool;
+    private int poolIndex;
+
     // Metrics
     private int predicatesEvaluatedCount;
 
@@ -57,6 +61,8 @@ public final class EvaluationContext {
         this.counters = new int[numRules];
         this.bitmapBuffer = new RoaringBitmap();
         this.matchedRules = new ArrayList<>(32); // Pre-size for typical match count
+        this.rulePool = new ArrayList<>(32);
+        this.poolIndex = 0;
         this.predicatesEvaluatedCount = 0;
     }
 
@@ -72,6 +78,7 @@ public final class EvaluationContext {
         Arrays.fill(counters, 0);
         bitmapBuffer.clear();
         matchedRules.clear();
+        poolIndex = 0; // Reset pool index to reuse objects
         predicatesEvaluatedCount = 0;
         predicatesEvaluated = 0; // FIX: Synchronize public field
     }
@@ -173,7 +180,17 @@ public final class EvaluationContext {
      * Uses mutable object to avoid allocation during hot evaluation path.
      */
     public void addMatchedRule(int ruleId, String ruleCode, int priority, String description) {
-        matchedRules.add(new MutableMatchedRule(ruleId, ruleCode, priority, description));
+        MutableMatchedRule rule;
+        if (poolIndex < rulePool.size()) {
+            rule = rulePool.get(poolIndex);
+        } else {
+            rule = new MutableMatchedRule();
+            rulePool.add(rule);
+        }
+        poolIndex++;
+
+        rule.set(ruleId, ruleCode, priority, description);
+        matchedRules.add(rule);
     }
 
     /**
@@ -191,12 +208,19 @@ public final class EvaluationContext {
      * evaluation.
      */
     public static final class MutableMatchedRule {
-        private final int ruleId;
-        private final String ruleCode;
-        private final int priority;
-        private final String description;
+        private int ruleId;
+        private String ruleCode;
+        private int priority;
+        private String description;
+
+        public MutableMatchedRule() {
+        }
 
         public MutableMatchedRule(int ruleId, String ruleCode, int priority, String description) {
+            set(ruleId, ruleCode, priority, description);
+        }
+
+        public void set(int ruleId, String ruleCode, int priority, String description) {
             this.ruleId = ruleId;
             this.ruleCode = ruleCode;
             this.priority = priority;
