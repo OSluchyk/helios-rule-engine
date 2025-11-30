@@ -92,31 +92,35 @@ RuleEvaluator evaluator = new RuleEvaluator(manager.getEngineModel());
 
 ## Caching Configuration
 
-Helios supports flexible caching to optimize performance.
+For production deployments, configure caching to improve performance.
 
-### Quick Start (Development)
+### Quick Start (Default Cache)
 ```java
-// Uses simple in-memory map
-CacheConfig config = CacheConfig.forDevelopment();
-BaseConditionCache cache = CacheFactory.create(config);
+// Uses default Caffeine cache
+RuleEvaluator evaluator = new RuleEvaluator(model);
 ```
 
-### Production Setup
+### Production Configuration
 ```java
-// Uses high-performance Caffeine cache
+// Using CacheConfig and CacheFactory (recommended)
 CacheConfig config = CacheConfig.forProduction();
 BaseConditionCache cache = CacheFactory.create(config);
+RuleEvaluator evaluator = new RuleEvaluator(model, cache, true);
 ```
 
-### Environment-Based (Recommended)
-Allows tuning without code changes.
+### Environment-Based Configuration
+```bash
+# Set environment variables
+export CACHE_TYPE=ADAPTIVE
+export CACHE_MAX_SIZE=100000
+export CACHE_TTL_MINUTES=10
+```
 
 ```java
-// Reads from env vars (e.g., CACHE_TYPE=REDIS)
+// Load from environment
 CacheConfig config = CacheConfig.fromEnvironment();
 BaseConditionCache cache = CacheFactory.create(config);
+RuleEvaluator evaluator = new RuleEvaluator(model, cache, true);
 ```
 
-For detailed tuning and configuration options, see:
-*   [Performance Tuning Guide](performance-tuning.md)
-*   [Configuration Guide](configuration.md)
+For more details, see [Performance Tuning Guide](performance-tuning.md) and [Configuration Guide](configuration.md).

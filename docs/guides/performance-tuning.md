@@ -2,39 +2,46 @@
 
 ## Cache Configuration
 
-Helios supports multiple caching strategies configured via `CacheConfig` and `CacheFactory`.
+Helios provides multiple cache implementations optimized for different deployment scenarios.
 
-### Recommended Configuration Pattern
+### Recommended: CacheConfig and CacheFactory
 
 ```java
-CacheConfig config = CacheConfig.builder()
-    .cacheType(CacheConfig.CacheType.CAFFEINE) // or ADAPTIVE, REDIS
-    .maxSize(100_000)
-    .ttl(10, TimeUnit.MINUTES)
-    .recordStats(true)
-    .build();
+// Production single-node (Caffeine)
+CacheConfig config = CacheConfig.forProduction();
+BaseConditionCache cache = CacheFactory.create(config);
 
+// Production auto-scale (Adaptive Caffeine)
+CacheConfig config = CacheConfig.forAdaptiveProduction();
+BaseConditionCache cache = CacheFactory.create(config);
+
+// Production multi-instance (Redis)
+CacheConfig config = CacheConfig.forDistributed(
+    "redis://redis-cluster:6379",
+    System.getenv("REDIS_PASSWORD")
+);
 BaseConditionCache cache = CacheFactory.create(config);
 ```
 
 ### Environment Variable Configuration
 
-You can tune the cache without code changes using environment variables:
-
 ```bash
-# Production Tuning
-export CACHE_TYPE=CAFFEINE
-export CACHE_MAX_SIZE=200000
-export CACHE_TTL_MINUTES=15
+export CACHE_TYPE=ADAPTIVE
+export CACHE_MAX_SIZE=100000
+export CACHE_TTL_MINUTES=10
+export CACHE_RECORD_STATS=true
+export CACHE_ENABLE_ADAPTIVE_SIZING=true
 ```
 
-### Performance Targets
+Then load in code:
+```java
+CacheConfig config = CacheConfig.fromEnvironment();
+BaseConditionCache cache = CacheFactory.create(config);
+```
 
-| Cache Type | Target Hit Rate | Notes |
-|------------|-----------------|-------|
-| **Caffeine** | >90% | High hit rate expected for single-node. |
-| **Adaptive** | >90% | Should maintain high hit rates even under load. |
-| **Redis** | >70% | Lower hit rate acceptable due to network latency. |
+**Guidelines:**
+- **Size:** Start with ~1000 entries per rule.
+- **Hit Rate:** Target >90% (Caffeine/Adaptive), >70% (Redis).
 
 ## JVM Optimization (Java 25)
 
