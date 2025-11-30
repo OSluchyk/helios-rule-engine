@@ -93,8 +93,8 @@ public class CaffeineBaseConditionCacheTest {
         cache.put("key1", new RoaringBitmap(), 5, TimeUnit.MINUTES).get();
 
         // When - Generate hits and misses
-        cache.get("key1").get();  // Hit
-        cache.get("missing").get();  // Miss
+        cache.get("key1").get(); // Hit
+        cache.get("missing").get(); // Miss
 
         // Then
         BaseConditionCache.CacheMetrics metrics = cache.getMetrics();
@@ -104,21 +104,26 @@ public class CaffeineBaseConditionCacheTest {
     }
 
     @Test
-    @DisplayName("Should return defensive copies")
-    void testDefensiveCopy() throws Exception {
+    @DisplayName("Should return shared reference (no defensive copy) for performance")
+    void testSharedOwnership() throws Exception {
         // Given
         String key = "test-key";
         RoaringBitmap original = new RoaringBitmap();
         original.add(50);
         cache.put(key, original, 5, TimeUnit.MINUTES).get();
 
-        // When - Modify returned value
+        // When - Get value
         Optional<BaseConditionCache.CacheEntry> entry1 = cache.get(key).get();
+
+        // Then - Should be same instance (identity check)
+        assertSame(original, entry1.get().result(), "Should return original instance to avoid allocation overhead");
+
+        // When - Modify returned value (simulating what we want to avoid but checking
+        // reference)
         entry1.get().result().add(75);
 
-        // Then - Original in cache should be unchanged
+        // Then - Original in cache should be changed (because it's the same object)
         Optional<BaseConditionCache.CacheEntry> entry2 = cache.get(key).get();
-        assertTrue(entry2.get().result().contains(50));
-        assertFalse(entry2.get().result().contains(75));  // Modification didn't affect cache
+        assertTrue(entry2.get().result().contains(75));
     }
 }
