@@ -11,63 +11,80 @@ Helios Rule Engine is configured using Java System Properties (passed via `-D` f
 
 ## Caching Configuration
 
-## Caching Configuration
+The caching layer is configured via **Environment Variables** or a `cache.properties` file.
 
-The caching layer is configured via **Environment Variables** (highest precedence) or a `cache.properties` file (classpath or working directory).
+### Common Cache Settings
 
-### 1. Common Cache Settings
-Applies to all cache types (`IN_MEMORY`, `CAFFEINE`, `ADAPTIVE`, `REDIS`).
+| Env Variable | Default | Description |
+|--------------|---------|-------------|
+| `CACHE_TYPE` | `CAFFEINE` | `IN_MEMORY`, `CAFFEINE`, `ADAPTIVE`, `REDIS`, `NO_OP` |
+| `CACHE_MAX_SIZE` | `100000` | Maximum number of cache entries |
+| `CACHE_INITIAL_CAPACITY` | `0` | Initial capacity hint (0 = auto) |
+| `CACHE_TTL_MINUTES` | `10` | Time-to-live in minutes |
+| `CACHE_TTL_SECONDS` | - | Time-to-live in seconds (overrides minutes) |
+| `CACHE_RECORD_STATS` | `true` | Enable cache statistics |
 
-| Env Variable | Property | Default | Description |
-|--------------|----------|---------|-------------|
-| `CACHE_TYPE` | `cache.type` | `CAFFEINE` | Implementation type. |
-| `CACHE_MAX_SIZE` | `cache.max.size` | `100000` | Max entries (local caches). |
-| `CACHE_TTL_MINUTES` | `cache.ttl.minutes` | `10` | Time-to-live. |
-| `CACHE_RECORD_STATS` | `cache.record.stats` | `true` | Enable metrics. |
+### Redis-Specific Settings
 
-### 2. Redis-Specific Settings
-Required when `CACHE_TYPE=REDIS`.
+| Env Variable | Default | Description |
+|--------------|---------|-------------|
+| `CACHE_REDIS_ADDRESS` | `redis://localhost:6379` | Redis connection string |
+| `CACHE_REDIS_PASSWORD` | - | Redis password (optional) |
+| `CACHE_REDIS_CONNECTION_POOL_SIZE` | `64` | Connection pool size |
+| `CACHE_REDIS_MIN_IDLE_SIZE` | `24` | Minimum idle connections |
+| `CACHE_REDIS_TIMEOUT_MS` | `3000` | Operation timeout in milliseconds |
+| `CACHE_REDIS_COMPRESSION_THRESHOLD` | `1024` | Compress values larger than this (bytes) |
+| `CACHE_REDIS_USE_CLUSTER` | `false` | Enable Redis cluster mode |
 
-| Env Variable | Property | Default | Description |
-|--------------|----------|---------|-------------|
-| `CACHE_REDIS_ADDRESS` | `cache.redis.address` | `redis://localhost:6379` | Connection string. |
-| `CACHE_REDIS_PASSWORD` | `cache.redis.password` | - | Auth password. |
-| `CACHE_REDIS_CONNECTION_POOL_SIZE` | `cache.redis.pool.size` | `64` | Max connections. |
-| `CACHE_REDIS_MIN_IDLE_SIZE` | `cache.redis.min.idle` | `24` | Min idle connections. |
-| `CACHE_REDIS_TIMEOUT_MS` | `cache.redis.timeout.ms` | `3000` | Socket timeout. |
-| `CACHE_REDIS_COMPRESSION_THRESHOLD` | `cache.redis.compression.threshold` | `1024` | Compress values > N bytes. |
-| `CACHE_REDIS_USE_CLUSTER` | `cache.redis.use.cluster` | `false` | Enable cluster mode. |
+### Adaptive Cache Settings
 
-### 3. Adaptive Cache Settings
-Required when `CACHE_TYPE=ADAPTIVE`.
+| Env Variable | Default | Description |
+|--------------|---------|-------------|
+| `CACHE_ENABLE_ADAPTIVE_SIZING` | `false` | Enable auto-sizing |
+| `CACHE_MIN_CACHE_SIZE` | `10000` | Minimum cache size |
+| `CACHE_MAX_CACHE_SIZE` | `10000000` | Maximum cache size |
+| `CACHE_LOW_HIT_RATE_THRESHOLD` | `0.70` | Low hit rate threshold (0.0-1.0) |
+| `CACHE_HIGH_HIT_RATE_THRESHOLD` | `0.95` | High hit rate threshold (0.0-1.0) |
+| `CACHE_TUNING_INTERVAL_SECONDS` | `30` | How often to adjust size (seconds) |
 
-| Env Variable | Property | Default | Description |
-|--------------|----------|---------|-------------|
-| `CACHE_ENABLE_ADAPTIVE_SIZING` | `cache.adaptive.enabled` | `false` | Enable auto-sizing. |
-| `CACHE_MIN_CACHE_SIZE` | `cache.adaptive.min.size` | `10000` | Minimum size floor. |
-| `CACHE_MAX_CACHE_SIZE` | `cache.adaptive.max.size` | `10000000` | Maximum size ceiling. |
-| `CACHE_LOW_HIT_RATE_THRESHOLD` | `cache.adaptive.low.threshold` | `0.70` | Scale up trigger (<70%). |
-| `CACHE_HIGH_HIT_RATE_THRESHOLD` | `cache.adaptive.high.threshold` | `0.95` | Scale down trigger (>95%). |
-| `CACHE_TUNING_INTERVAL_SECONDS` | `cache.adaptive.tuning.interval.seconds` | `30` | Tuning frequency. |
+### Using cache.properties File
 
-### Example `cache.properties`
+You can also place a `cache.properties` file in the classpath or working directory:
 
 ```properties
-# General
+# Cache type selection
 cache.type=ADAPTIVE
-cache.ttl.minutes=15
+
+# Common settings
+cache.max.size=250000
+cache.ttl.minutes=10
 cache.record.stats=true
 
-# Adaptive Tuning
+# Adaptive settings
 cache.adaptive.enabled=true
-cache.adaptive.min.size=50000
-cache.adaptive.max.size=500000
-cache.adaptive.low.threshold=0.75
+cache.adaptive.min.size=100000
+cache.adaptive.max.size=5000000
+cache.adaptive.low.threshold=0.70
+cache.adaptive.high.threshold=0.95
+cache.adaptive.tuning.interval.seconds=30
 
-# Redis Fallback (if switched)
-cache.redis.address=redis://prod-cluster:6379
-cache.redis.pool.size=128
+# Redis settings (if using REDIS type)
+cache.redis.address=redis://localhost:6379
+cache.redis.password=secret
+cache.redis.pool.size=64
+cache.redis.min.idle=24
+cache.redis.timeout.ms=3000
+cache.redis.compression.threshold=512
+cache.redis.use.cluster=false
 ```
+
+Then load in code:
+```java
+CacheConfig config = CacheConfig.loadDefault();
+BaseConditionCache cache = CacheFactory.create(config);
+```
+
+> **Note:** Environment variables take precedence over properties file values.
 
 ## Observability
 
