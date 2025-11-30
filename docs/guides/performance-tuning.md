@@ -2,19 +2,39 @@
 
 ## Cache Configuration
 
-Helios uses Caffeine for caching base condition evaluation results.
+Helios supports multiple caching strategies configured via `CacheConfig` and `CacheFactory`.
+
+### Recommended Configuration Pattern
 
 ```java
-BaseConditionCache cache = new CaffeineBaseConditionCache.builder()
-    .maxSize(100_000)                           // Adjust based on memory
-    .expireAfterWrite(10, TimeUnit.MINUTES)     // TTL
-    .recordStats(true)                          // Enable monitoring
+CacheConfig config = CacheConfig.builder()
+    .cacheType(CacheConfig.CacheType.CAFFEINE) // or ADAPTIVE, REDIS
+    .maxSize(100_000)
+    .ttl(10, TimeUnit.MINUTES)
+    .recordStats(true)
     .build();
+
+BaseConditionCache cache = CacheFactory.create(config);
 ```
 
-**Guidelines:**
-- **Size:** Start with ~1000 entries per rule.
-- **Hit Rate:** Target >70%.
+### Environment Variable Configuration
+
+You can tune the cache without code changes using environment variables:
+
+```bash
+# Production Tuning
+export CACHE_TYPE=CAFFEINE
+export CACHE_MAX_SIZE=200000
+export CACHE_TTL_MINUTES=15
+```
+
+### Performance Targets
+
+| Cache Type | Target Hit Rate | Notes |
+|------------|-----------------|-------|
+| **Caffeine** | >90% | High hit rate expected for single-node. |
+| **Adaptive** | >90% | Should maintain high hit rates even under load. |
+| **Redis** | >70% | Lower hit rate acceptable due to network latency. |
 
 ## JVM Optimization (Java 25)
 

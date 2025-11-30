@@ -52,20 +52,59 @@ EngineModel currentModel = manager.getEngineModel();
 ## Caching API
 
 ### `BaseConditionCache`
-The core interface for caching base condition evaluation results.
+The core interface for caching base condition evaluation results. Implementations must be thread-safe.
+
+```java
+public interface BaseConditionCache {
+    CompletableFuture<BitSet> get(CacheKey key);
+    void put(CacheKey key, BitSet value);
+    void invalidateAll();
+    Map<String, Object> getMetrics();
+}
+```
+
+### `CacheKey`
+Immutable key used for cache lookups. Composed of:
+*   `baseConditionId`: Unique ID of the base condition set.
+*   `eventHash`: Hash of the event attributes relevant to the condition.
 
 ### `CacheConfig`
-Configuration object for the cache.
-*   `type`: `IN_MEMORY`, `REDIS`, `ADAPTIVE`, `NO_OP`
-*   `maxSize`: Maximum number of entries (for in-memory)
-*   `redisAddress`: Redis connection string
-*   `redisPoolSize`: Connection pool size
+Unified configuration object for all cache types.
+
+#### Cache Types (`CacheType`)
+*   `IN_MEMORY`: Simple ConcurrentHashMap-based cache (Development).
+*   `CAFFEINE`: High-performance local cache with W-TinyLFU eviction (Production).
+*   `ADAPTIVE`: Self-tuning Caffeine cache that adjusts size based on hit rates (Auto-scale).
+*   `REDIS`: Distributed cache using Redis (Clustered/Distributed).
+*   `NO_OP`: Disables caching.
+
+#### Common Properties
+*   `maxSize`: Maximum number of entries (default: 100,000).
+*   `ttl`: Time-to-live duration (default: 10 minutes).
+*   `recordStats`: Enable metric collection (default: true).
+
+#### Redis Properties
+*   `redisAddress`: Connection string (e.g., `redis://localhost:6379`).
+*   `redisPoolSize`: Connection pool size (default: 64).
+*   `redisUseCluster`: Enable Redis Cluster support (default: false).
+
+#### Adaptive Properties
+*   `enableAdaptiveSizing`: Enable auto-sizing (default: false).
+*   `minCacheSize` / `maxCacheSize`: Sizing bounds.
+*   `lowHitRateThreshold` / `highHitRateThreshold`: Tuning triggers.
 
 ### `CacheFactory`
-Factory for creating cache instances based on `CacheConfig`.
+Factory for creating cache instances.
+
+```java
+// Create from config
+CacheConfig config = CacheConfig.forProduction();
+BaseConditionCache cache = CacheFactory.create(config);
+```
 
 ### Implementations
-*   **`InMemoryBaseConditionCache`**: High-performance, ConcurrentHashMap-based cache.
-*   **`RedisBaseConditionCache`**: Distributed cache using Redis (supports clustering).
-*   **`AdaptiveCaffeineCache`**: Self-tuning in-memory cache using Caffeine's Window TinyLfu policy.
-*   **`NoOpCache`**: Disables caching.
+*   **`InMemoryBaseConditionCache`**: Basic thread-safe map.
+*   **`CaffeineBaseConditionCache`**: Production-grade local cache.
+*   **`AdaptiveCaffeineCache`**: Smart local cache that resizes dynamically.
+*   **`RedisBaseConditionCache`**: Distributed cache implementation.
+*   **`NoOpCache`**: Passthrough implementation (always misses).

@@ -5,9 +5,14 @@
 ### Key Metrics to Track
 
 1. **Cache Metrics**
-   - **Hit Rate**: Target >95%. Low hit rate implies inefficient caching or highly variable traffic.
+   - **Hit Rate**:
+     - **Caffeine/Adaptive**: Target >90%.
+     - **Redis**: Target >70%.
    - **Eviction Rate**: Should be low. High eviction rate indicates the cache is too small.
-   - **Latency**: Average get/put latency. Target < 100ns for in-memory, < 1ms for Redis.
+   - **Latency**:
+     - **In-Memory/Caffeine**: < 100ns
+     - **Adaptive**: < 500ns
+     - **Redis**: < 1ms
 
 2. **Application Metrics**
    - **Predicates Evaluated per Event**: Target < 1000.
@@ -23,10 +28,20 @@
 
 ```yaml
 alerts:
-  - name: cache_hit_rate_low
-    condition: cache.hit_rate < 0.90
+  - name: cache_hit_rate_low_local
+    condition: cache.type in ('CAFFEINE', 'ADAPTIVE') AND cache.hit_rate < 0.90
     severity: warning
-    description: "Cache hit rate dropped below 90%. Check for traffic pattern changes."
+    description: "Local cache hit rate < 90%. Check sizing or traffic patterns."
+
+  - name: cache_hit_rate_low_redis
+    condition: cache.type == 'REDIS' AND cache.hit_rate < 0.70
+    severity: warning
+    description: "Redis cache hit rate < 70%. Investigate network or key distribution."
+
+  - name: adaptive_cache_sizing_stuck
+    condition: cache.type == 'ADAPTIVE' AND cache.size == cache.max_size AND cache.hit_rate < 0.80
+    severity: warning
+    description: "Adaptive cache at max size with low hit rate. Increase max_size limit."
 
   - name: evaluation_latency_high
     condition: p99_latency > 2ms
