@@ -89,7 +89,7 @@ public class BaseConditionEvaluator {
 
         public EvaluationResult(RoaringBitmap matchingRules, int predicatesEvaluated,
                 boolean fromCache, long evaluationNanos) {
-            this.matchingRulesRoaring = matchingRules.clone(); // Defensive copy
+            this.matchingRulesRoaring = matchingRules; // No defensive copy
             this.predicatesEvaluated = predicatesEvaluated;
             this.fromCache = fromCache;
             this.evaluationNanos = evaluationNanos;
@@ -103,7 +103,7 @@ public class BaseConditionEvaluator {
         }
 
         public RoaringBitmap getMatchingRulesRoaring() {
-            return matchingRulesRoaring.clone();
+            return matchingRulesRoaring; // Return reference, caller must not modify
         }
 
         public int getCardinality() {
@@ -210,7 +210,8 @@ public class BaseConditionEvaluator {
 
         // No applicable sets - return rules with no base conditions
         if (applicableSets.isEmpty()) {
-            RoaringBitmap rulesToEvaluate = this.rulesWithNoBaseConditions.clone();
+            // Return direct reference (read-only)
+            RoaringBitmap rulesToEvaluate = this.rulesWithNoBaseConditions;
             return CompletableFuture.completedFuture(
                     new EvaluationResult(rulesToEvaluate, 0, false, System.nanoTime() - startTime));
         }
@@ -452,7 +453,9 @@ public class BaseConditionEvaluator {
         final int predsEvaluated = totalPredicatesEvaluated;
 
         // Cache the result using the correct CacheEntry constructor
-        return cache.put(cacheKey, matchingCombinations.clone(), 5, TimeUnit.MINUTES)
+        // No clone needed here, matchingCombinations is a local variable not used
+        // afterwards
+        return cache.put(cacheKey, matchingCombinations, 5, TimeUnit.MINUTES)
                 .thenApply(v -> {
                     if (logger.isLoggable(Level.FINE)) {
                         logger.fine(String.format(

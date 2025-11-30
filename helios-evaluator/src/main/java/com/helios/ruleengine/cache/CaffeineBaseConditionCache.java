@@ -76,7 +76,7 @@ public class CaffeineBaseConditionCache implements BaseConditionCache {
         }
 
         CacheEntry entry = new CacheEntry(
-                result.clone(),
+                result, // No defensive copy
                 System.nanoTime(),
                 0,
                 cacheKey);
@@ -87,8 +87,7 @@ public class CaffeineBaseConditionCache implements BaseConditionCache {
     @Override
     @SuppressWarnings("null")
     public CompletableFuture<Void> put(Object cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit) {
-        RoaringBitmap cloned = result.clone();
-        cache.put(cacheKey, cloned);
+        cache.put(cacheKey, result); // No defensive copy
         return CompletableFuture.completedFuture(null);
     }
 
@@ -100,7 +99,7 @@ public class CaffeineBaseConditionCache implements BaseConditionCache {
             RoaringBitmap result = cache.getIfPresent(key);
             if (result != null) {
                 CacheEntry entry = new CacheEntry(
-                        result.clone(),
+                        result, // No defensive copy
                         System.nanoTime(),
                         0,
                         key);
