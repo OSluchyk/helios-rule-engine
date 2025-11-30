@@ -7,16 +7,22 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import org.roaringbitmap.RoaringBitmap;
+
 /**
- * Thread-local evaluation context with object pooling and matched rules tracking.
+ * Thread-local evaluation context with object pooling and matched rules
+ * tracking.
  *
- * THREAD SAFETY: One instance per thread (ThreadLocal), no synchronization needed.
+ * THREAD SAFETY: One instance per thread (ThreadLocal), no synchronization
+ * needed.
  * MEMORY: Pooled and reused via reset(), zero allocations in steady state.
  *
  * PERFORMANCE OPTIMIZATIONS:
- * - Mutable matched rules list (avoid MatchedRule object creation during evaluation)
+ * - Mutable matched rules list (avoid MatchedRule object creation during
+ * evaluation)
  * - Pre-sized collections to minimize resizing
  * - Direct field access for hot paths (counters, touchedRules)
+ * - Reusable RoaringBitmap buffer for intersection operations
  *
  * FIX: touchedRules is now IntSet for automatic deduplication
  * FIX: predicatesEvaluated public field now synchronized with internal counter
@@ -29,7 +35,10 @@ public final class EvaluationContext {
     // Rule matching state
     // FIX: Changed from IntList to IntSet to automatically deduplicate
     private final IntSet touchedRules;
-    public final int[] counters;         // Public for hot-path access
+    public final int[] counters; // Public for hot-path access
+
+    // Reusable bitmap buffer for intersection operations
+    public final RoaringBitmap bitmapBuffer;
 
     // Matched rules tracking (mutable during evaluation)
     private final List<MutableMatchedRule> matchedRules;
@@ -42,10 +51,11 @@ public final class EvaluationContext {
         this(10000, estimatedTouchedRules);
     }
 
-    public EvaluationContext(int numRules,int estimatedTouchedRules) {
+    public EvaluationContext(int numRules, int estimatedTouchedRules) {
         this.truePredicates = new IntOpenHashSet(256);
         this.touchedRules = new IntOpenHashSet(estimatedTouchedRules); // FIX: Now a Set
         this.counters = new int[numRules];
+        this.bitmapBuffer = new RoaringBitmap();
         this.matchedRules = new ArrayList<>(32); // Pre-size for typical match count
         this.predicatesEvaluatedCount = 0;
     }
@@ -60,9 +70,10 @@ public final class EvaluationContext {
         truePredicates.clear();
         touchedRules.clear();
         Arrays.fill(counters, 0);
+        bitmapBuffer.clear();
         matchedRules.clear();
         predicatesEvaluatedCount = 0;
-        predicatesEvaluated = 0;  // FIX: Synchronize public field
+        predicatesEvaluated = 0; // FIX: Synchronize public field
     }
 
     /**
@@ -125,7 +136,7 @@ public final class EvaluationContext {
      */
     public void incrementPredicatesEvaluatedCount() {
         predicatesEvaluatedCount++;
-        predicatesEvaluated++;  // FIX: Synchronize public field
+        predicatesEvaluated++; // FIX: Synchronize public field
     }
 
     /**
@@ -135,7 +146,7 @@ public final class EvaluationContext {
      */
     public void addPredicatesEvaluated(int count) {
         predicatesEvaluatedCount += count;
-        predicatesEvaluated += count;  // FIX: Synchronize public field
+        predicatesEvaluated += count; // FIX: Synchronize public field
     }
 
     /**
@@ -155,7 +166,7 @@ public final class EvaluationContext {
      * FIX: This field is now properly synchronized with predicatesEvaluatedCount
      * in all increment and reset operations.
      */
-    public int predicatesEvaluated = 0;  // Now synchronized with internal counter
+    public int predicatesEvaluated = 0; // Now synchronized with internal counter
 
     /**
      * Add a matched rule to the results.
@@ -176,7 +187,8 @@ public final class EvaluationContext {
     /**
      * Mutable matched rule object - avoids allocation during evaluation.
      *
-     * This is converted to immutable MatchResult.MatchedRule at the end of evaluation.
+     * This is converted to immutable MatchResult.MatchedRule at the end of
+     * evaluation.
      */
     public static final class MutableMatchedRule {
         private final int ruleId;

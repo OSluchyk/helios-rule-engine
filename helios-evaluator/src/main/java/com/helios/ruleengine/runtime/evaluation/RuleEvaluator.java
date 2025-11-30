@@ -335,8 +335,16 @@ public final class RuleEvaluator implements IRuleEvaluator {
                 continue;
 
             if (eligibleRulesRoaring != null) {
-                RoaringBitmap intersection = RoaringBitmap.and(affectedRules, eligibleRulesRoaring);
-                intersection.forEach((int ruleId) -> {
+                // Use reusable buffer to avoid allocation
+                RoaringBitmap buffer = ctx.bitmapBuffer;
+                buffer.clear();
+
+                // Perform intersection: buffer = affectedRules AND eligibleRulesRoaring
+                // We copy affectedRules to the buffer first, then intersect in-place
+                buffer.or(affectedRules);
+                buffer.and(eligibleRulesRoaring);
+
+                buffer.forEach((int ruleId) -> {
                     ctx.counters[ruleId]++;
                     ctx.addTouchedRule(ruleId);
                 });
