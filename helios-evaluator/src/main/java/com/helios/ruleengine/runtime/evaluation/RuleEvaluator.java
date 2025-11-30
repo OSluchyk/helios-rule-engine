@@ -109,7 +109,11 @@ public final class RuleEvaluator implements IRuleEvaluator {
         this.contextPool = ThreadLocal.withInitial(() -> {
             int numRules = model.getNumRules();
             int estimatedTouched = Math.min(numRules / 10, 1000);
-            return new EvaluationContext(numRules, estimatedTouched);
+            // Pre-size match lists to avoid resizing during evaluation
+            // Use a heuristic: 1% of rules or 256, whichever is larger, capped at
+            // reasonable limit
+            int initialMatchCapacity = Math.max(256, Math.min(numRules / 100, 1024));
+            return new EvaluationContext(numRules, estimatedTouched, initialMatchCapacity);
         });
     }
 
