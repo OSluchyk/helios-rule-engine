@@ -405,6 +405,9 @@ public class BaseConditionEvaluator {
         return true;
     }
 
+    // Thread-local buffer for RoaringBitmap operations (avoids allocation)
+    private static final ThreadLocal<RoaringBitmap> BITMAP_BUFFER = ThreadLocal.withInitial(RoaringBitmap::new);
+
     private CompletableFuture<EvaluationResult> evaluateAndCache(
             Event event,
             EventEncoder encoder,
@@ -412,8 +415,12 @@ public class BaseConditionEvaluator {
             CacheKey cacheKey,
             long startTime) {
 
-        // Start with rules that have no base conditions
-        RoaringBitmap matchingCombinations = this.rulesWithNoBaseConditions.clone();
+        // Use reusable buffer to avoid allocation
+        RoaringBitmap matchingCombinations = BITMAP_BUFFER.get();
+        matchingCombinations.clear();
+
+        // Initialize with rules having no base conditions
+        matchingCombinations.or(this.rulesWithNoBaseConditions);
 
         // Add all rules from applicable sets (will filter below)
         for (BaseConditionSet set : sets) {
@@ -452,19 +459,21 @@ public class BaseConditionEvaluator {
         long duration = System.nanoTime() - startTime;
         final int predsEvaluated = totalPredicatesEvaluated;
 
-        // Cache the result using the correct CacheEntry constructor
-        // No clone needed here, matchingCombinations is a local variable not used
-        // afterwards
-        return cache.put(cacheKey, matchingCombinations, 5, TimeUnit.MINUTES)
+        // Clone the result for the cache (cache needs its own copy)
+        // But we saved the allocation of the intermediate bitmap used for calculation
+        RoaringBitmap resultToCache = matchingCombinations.clone();
+
+        return cache.put(cacheKey, resultToCache, 5, TimeUnit.MINUTES)
                 .thenApply(v -> {
                     if (logger.isLoggable(Level.FINE)) {
                         logger.fine(String.format(
                                 "Evaluated %d predicates for event %s: %d combinations match (%.2f ms)",
                                 predsEvaluated, event.eventId(),
-                                matchingCombinations.getCardinality(), duration / 1_000_000.0));
+                                resultToCache.getCardinality(), duration / 1_000_000.0));
                     }
 
-                    return new EvaluationResult(matchingCombinations, predsEvaluated, false, duration);
+                    // Return the cached result (which is safe to share as it's from the cache now)
+                    return new EvaluationResult(resultToCache, predsEvaluated, false, duration);
                 });
     }
 
