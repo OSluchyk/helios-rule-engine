@@ -1,0 +1,30 @@
+# Helios Core Module
+
+The `helios-core` module provides the infrastructure and integration layer for the rule engine. It connects the compiler and evaluator, manages the lifecycle of the engine model, and handles observability.
+
+## 1. Engine Management
+
+The `EngineModelManager` is the central component for managing the rule engine's state.
+*   **Hot Reloading**: It monitors the rule source (e.g., a JSON file) for changes.
+*   **Atomic Swaps**: When rules change, it recompiles the model in the background and atomically swaps the active `EngineModel` reference. This ensures zero downtime during rule updates.
+
+## 2. Observability
+
+Helios is built with production observability in mind, utilizing OpenTelemetry.
+
+### 2.1. Tracing
+The `TracingService` provides a centralized wrapper around OpenTelemetry.
+*   **Spans**: Key operations (compilation, evaluation, rule matching) are instrumented with spans.
+*   **Attributes**: Spans are enriched with semantic attributes (e.g., `rule.id`, `evaluation.result`).
+*   **Exporters**: Supports OTLP (gRPC) and logging exporters, configurable via environment variables.
+
+### 2.2. Metrics
+The module includes adapters for Prometheus metrics (counters, gauges, timers) to track:
+*   Evaluation throughput
+*   Latency distributions
+*   Cache hit/miss rates
+*   Rule match counts
+
+## 3. Integration
+
+`helios-core` acts as the glue code. It uses `ServiceLoader` to discover and instantiate the `IRuleCompiler` implementation (from `helios-compiler`), decoupling the core infrastructure from the specific compilation logic.

@@ -1,0 +1,128 @@
+
+Benchmark                                  (cacheScenario)  (ruleCount)  (workloadType)    Mode     Cnt         Score      Error   Units
+SimpleBenchmark.throughput_batch100                    HOT          500           MIXED   thrpt      10        75.790 ±    3.495   ops/s
+SimpleBenchmark.throughput_batch100:jfr                HOT          500           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.throughput_batch100                    HOT         2000           MIXED   thrpt      10        45.326 ±    3.458   ops/s
+SimpleBenchmark.throughput_batch100:jfr                HOT         2000           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.throughput_batch100                    HOT         5000           MIXED   thrpt      10        31.493 ±    1.702   ops/s
+SimpleBenchmark.throughput_batch100:jfr                HOT         5000           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.throughput_batch100                   WARM          500           MIXED   thrpt      10        74.253 ±    0.863   ops/s
+SimpleBenchmark.throughput_batch100:jfr               WARM          500           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.throughput_batch100                   WARM         2000           MIXED   thrpt      10        52.000 ±    3.369   ops/s
+SimpleBenchmark.throughput_batch100:jfr               WARM         2000           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.throughput_batch100                   WARM         5000           MIXED   thrpt      10        34.192 ±    3.605   ops/s
+SimpleBenchmark.throughput_batch100:jfr               WARM         5000           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.throughput_batch100                   COLD          500           MIXED   thrpt      10        67.791 ±    3.001   ops/s
+SimpleBenchmark.throughput_batch100:jfr               COLD          500           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.throughput_batch100                   COLD         2000           MIXED   thrpt      10        46.547 ±    1.874   ops/s
+SimpleBenchmark.throughput_batch100:jfr               COLD         2000           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.throughput_batch100                   COLD         5000           MIXED   thrpt      10        33.067 ±    0.965   ops/s
+SimpleBenchmark.throughput_batch100:jfr               COLD         5000           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.throughput_concurrent                  HOT          500           MIXED   thrpt      10         0.006 ±    0.001  ops/us
+SimpleBenchmark.throughput_concurrent:jfr              HOT          500           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.throughput_concurrent                  HOT         2000           MIXED   thrpt      10         0.006 ±    0.001  ops/us
+SimpleBenchmark.throughput_concurrent:jfr              HOT         2000           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.throughput_concurrent                  HOT         5000           MIXED   thrpt      10         0.003 ±    0.001  ops/us
+SimpleBenchmark.throughput_concurrent:jfr              HOT         5000           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.throughput_concurrent                 WARM          500           MIXED   thrpt      10         0.007 ±    0.001  ops/us
+SimpleBenchmark.throughput_concurrent:jfr             WARM          500           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.throughput_concurrent                 WARM         2000           MIXED   thrpt      10         0.005 ±    0.001  ops/us
+SimpleBenchmark.throughput_concurrent:jfr             WARM         2000           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.throughput_concurrent                 WARM         5000           MIXED   thrpt      10         0.003 ±    0.001  ops/us
+SimpleBenchmark.throughput_concurrent:jfr             WARM         5000           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.throughput_concurrent                 COLD          500           MIXED   thrpt      10         0.006 ±    0.001  ops/us
+SimpleBenchmark.throughput_concurrent:jfr             COLD          500           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.throughput_concurrent                 COLD         2000           MIXED   thrpt      10         0.005 ±    0.001  ops/us
+SimpleBenchmark.throughput_concurrent:jfr             COLD         2000           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.throughput_concurrent                 COLD         5000           MIXED   thrpt      10         0.003 ±    0.001  ops/us
+SimpleBenchmark.throughput_concurrent:jfr             COLD         5000           MIXED   thrpt                   NaN                ---
+SimpleBenchmark.latency_single                         HOT          500           MIXED  sample  219501    136835.573 ±  335.625   ns/op
+SimpleBenchmark.latency_single:jfr                     HOT          500           MIXED  sample                   NaN                ---
+SimpleBenchmark.latency_single:p0.00                   HOT          500           MIXED  sample             73088.000              ns/op
+SimpleBenchmark.latency_single:p0.50                   HOT          500           MIXED  sample            117504.000              ns/op
+SimpleBenchmark.latency_single:p0.90                   HOT          500           MIXED  sample            205056.000              ns/op
+SimpleBenchmark.latency_single:p0.95                   HOT          500           MIXED  sample            216064.000              ns/op
+SimpleBenchmark.latency_single:p0.99                   HOT          500           MIXED  sample            245760.000              ns/op
+SimpleBenchmark.latency_single:p0.999                  HOT          500           MIXED  sample            297472.000              ns/op
+SimpleBenchmark.latency_single:p0.9999                 HOT          500           MIXED  sample            461312.000              ns/op
+SimpleBenchmark.latency_single:p1.00                   HOT          500           MIXED  sample            795648.000              ns/op
+SimpleBenchmark.latency_single                         HOT         2000           MIXED  sample  147914    203111.529 ±  687.042   ns/op
+SimpleBenchmark.latency_single:jfr                     HOT         2000           MIXED  sample                   NaN                ---
+SimpleBenchmark.latency_single:p0.00                   HOT         2000           MIXED  sample            103040.000              ns/op
+SimpleBenchmark.latency_single:p0.50                   HOT         2000           MIXED  sample            181760.000              ns/op
+SimpleBenchmark.latency_single:p0.90                   HOT         2000           MIXED  sample            295424.000              ns/op
+SimpleBenchmark.latency_single:p0.95                   HOT         2000           MIXED  sample            316928.000              ns/op
+SimpleBenchmark.latency_single:p0.99                   HOT         2000           MIXED  sample            357376.000              ns/op
+SimpleBenchmark.latency_single:p0.999                  HOT         2000           MIXED  sample            451888.640              ns/op
+SimpleBenchmark.latency_single:p0.9999                 HOT         2000           MIXED  sample           3186372.608              ns/op
+SimpleBenchmark.latency_single:p1.00                   HOT         2000           MIXED  sample           5038080.000              ns/op
+SimpleBenchmark.latency_single                         HOT         5000           MIXED  sample   96413    311685.033 ± 2443.166   ns/op
+SimpleBenchmark.latency_single:jfr                     HOT         5000           MIXED  sample                   NaN                ---
+SimpleBenchmark.latency_single:p0.00                   HOT         5000           MIXED  sample            135168.000              ns/op
+SimpleBenchmark.latency_single:p0.50                   HOT         5000           MIXED  sample            279040.000              ns/op
+SimpleBenchmark.latency_single:p0.90                   HOT         5000           MIXED  sample            419840.000              ns/op
+SimpleBenchmark.latency_single:p0.95                   HOT         5000           MIXED  sample            483840.000              ns/op
+SimpleBenchmark.latency_single:p0.99                   HOT         5000           MIXED  sample            865280.000              ns/op
+SimpleBenchmark.latency_single:p0.999                  HOT         5000           MIXED  sample           3768320.000              ns/op
+SimpleBenchmark.latency_single:p0.9999                 HOT         5000           MIXED  sample           6646983.885              ns/op
+SimpleBenchmark.latency_single:p1.00                   HOT         5000           MIXED  sample          11632640.000              ns/op
+SimpleBenchmark.latency_single                        WARM          500           MIXED  sample  213906    140407.612 ±  363.231   ns/op
+SimpleBenchmark.latency_single:jfr                    WARM          500           MIXED  sample                   NaN                ---
+SimpleBenchmark.latency_single:p0.00                  WARM          500           MIXED  sample             76160.000              ns/op
+SimpleBenchmark.latency_single:p0.50                  WARM          500           MIXED  sample            121344.000              ns/op
+SimpleBenchmark.latency_single:p0.90                  WARM          500           MIXED  sample            208640.000              ns/op
+SimpleBenchmark.latency_single:p0.95                  WARM          500           MIXED  sample            219904.000              ns/op
+SimpleBenchmark.latency_single:p0.99                  WARM          500           MIXED  sample            248832.000              ns/op
+SimpleBenchmark.latency_single:p0.999                 WARM          500           MIXED  sample            321583.616              ns/op
+SimpleBenchmark.latency_single:p0.9999                WARM          500           MIXED  sample            664223.539              ns/op
+SimpleBenchmark.latency_single:p1.00                  WARM          500           MIXED  sample           4775936.000              ns/op
+SimpleBenchmark.latency_single                        WARM         2000           MIXED  sample  143711    209101.241 ±  815.412   ns/op
+SimpleBenchmark.latency_single:jfr                    WARM         2000           MIXED  sample                   NaN                ---
+SimpleBenchmark.latency_single:p0.00                  WARM         2000           MIXED  sample            103808.000              ns/op
+SimpleBenchmark.latency_single:p0.50                  WARM         2000           MIXED  sample            185856.000              ns/op
+SimpleBenchmark.latency_single:p0.90                  WARM         2000           MIXED  sample            306176.000              ns/op
+SimpleBenchmark.latency_single:p0.95                  WARM         2000           MIXED  sample            328704.000              ns/op
+SimpleBenchmark.latency_single:p0.99                  WARM         2000           MIXED  sample            369664.000              ns/op
+SimpleBenchmark.latency_single:p0.999                 WARM         2000           MIXED  sample            521441.280              ns/op
+SimpleBenchmark.latency_single:p0.9999                WARM         2000           MIXED  sample           4220990.259              ns/op
+SimpleBenchmark.latency_single:p1.00                  WARM         2000           MIXED  sample           6332416.000              ns/op
+SimpleBenchmark.latency_single                        WARM         5000           MIXED  sample  113622    264379.235 ± 3557.274   ns/op
+SimpleBenchmark.latency_single:jfr                    WARM         5000           MIXED  sample                   NaN                ---
+SimpleBenchmark.latency_single:p0.00                  WARM         5000           MIXED  sample            118656.000              ns/op
+SimpleBenchmark.latency_single:p0.50                  WARM         5000           MIXED  sample            244736.000              ns/op
+SimpleBenchmark.latency_single:p0.90                  WARM         5000           MIXED  sample            353792.000              ns/op
+SimpleBenchmark.latency_single:p0.95                  WARM         5000           MIXED  sample            404992.000              ns/op
+SimpleBenchmark.latency_single:p0.99                  WARM         5000           MIXED  sample            485888.000              ns/op
+SimpleBenchmark.latency_single:p0.999                 WARM         5000           MIXED  sample           1578772.480              ns/op
+SimpleBenchmark.latency_single:p0.9999                WARM         5000           MIXED  sample          20705607.680              ns/op
+SimpleBenchmark.latency_single:p1.00                  WARM         5000           MIXED  sample          53084160.000              ns/op
+SimpleBenchmark.latency_single                        COLD          500           MIXED  sample  200266    149986.597 ± 1205.914   ns/op
+SimpleBenchmark.latency_single:jfr                    COLD          500           MIXED  sample                   NaN                ---
+SimpleBenchmark.latency_single:p0.00                  COLD          500           MIXED  sample             71680.000              ns/op
+SimpleBenchmark.latency_single:p0.50                  COLD          500           MIXED  sample            119936.000              ns/op
+SimpleBenchmark.latency_single:p0.90                  COLD          500           MIXED  sample            206848.000              ns/op
+SimpleBenchmark.latency_single:p0.95                  COLD          500           MIXED  sample            220160.000              ns/op
+SimpleBenchmark.latency_single:p0.99                  COLD          500           MIXED  sample            269312.000              ns/op
+SimpleBenchmark.latency_single:p0.999                 COLD          500           MIXED  sample           2424832.000              ns/op
+SimpleBenchmark.latency_single:p0.9999                COLD          500           MIXED  sample           2662181.274              ns/op
+SimpleBenchmark.latency_single:p1.00                  COLD          500           MIXED  sample           5054464.000              ns/op
+SimpleBenchmark.latency_single                        COLD         2000           MIXED  sample  156968    191362.552 ±  880.667   ns/op
+SimpleBenchmark.latency_single:jfr                    COLD         2000           MIXED  sample                   NaN                ---
+SimpleBenchmark.latency_single:p0.00                  COLD         2000           MIXED  sample             88320.000              ns/op
+SimpleBenchmark.latency_single:p0.50                  COLD         2000           MIXED  sample            165888.000              ns/op
+SimpleBenchmark.latency_single:p0.90                  COLD         2000           MIXED  sample            271360.000              ns/op
+SimpleBenchmark.latency_single:p0.95                  COLD         2000           MIXED  sample            294912.000              ns/op
+SimpleBenchmark.latency_single:p0.99                  COLD         2000           MIXED  sample            355328.000              ns/op
+SimpleBenchmark.latency_single:p0.999                 COLD         2000           MIXED  sample           1323071.488              ns/op
+SimpleBenchmark.latency_single:p0.9999                COLD         2000           MIXED  sample           1735711.744              ns/op
+SimpleBenchmark.latency_single:p1.00                  COLD         2000           MIXED  sample           3731456.000              ns/op
+SimpleBenchmark.latency_single                        COLD         5000           MIXED  sample   82289    365380.715 ± 3803.876   ns/op
+SimpleBenchmark.latency_single:jfr                    COLD         5000           MIXED  sample                   NaN                ---
+SimpleBenchmark.latency_single:p0.00                  COLD         5000           MIXED  sample            153088.000              ns/op
+SimpleBenchmark.latency_single:p0.50                  COLD         5000           MIXED  sample            314368.000              ns/op
+SimpleBenchmark.latency_single:p0.90                  COLD         5000           MIXED  sample            458240.000              ns/op
+SimpleBenchmark.latency_single:p0.95                  COLD         5000           MIXED  sample            513536.000              ns/op
+SimpleBenchmark.latency_single:p0.99                  COLD         5000           MIXED  sample           2965504.000              ns/op
+SimpleBenchmark.latency_single:p0.999                 COLD         5000           MIXED  sample           3443548.160              ns/op
+SimpleBenchmark.latency_single:p0.9999                COLD         5000           MIXED  sample           4721844.224              ns/op
+SimpleBenchmark.latency_single:p1.00                  COLD         5000           MIXED  sample           8052736.000              ns/op
