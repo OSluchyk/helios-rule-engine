@@ -287,8 +287,9 @@ public final class RuleEvaluator implements IRuleEvaluator {
         IntSet eligiblePredicateIds = computeEligiblePredicateIds(eligibleRules);
 
         // Sort fields by minimum predicate weight (cheap & selective first)
-        List<Integer> fieldIds = new ArrayList<>(encodedAttributes.keySet());
-        fieldIds.sort((a, b) -> Float.compare(
+        // Use IntArrayList to avoid boxing and ArrayList overhead
+        IntArrayList fieldIds = new IntArrayList(encodedAttributes.keySet());
+        fieldIds.sort((int a, int b) -> Float.compare(
                 model.getFieldMinWeight(a),
                 model.getFieldMinWeight(b)));
 
