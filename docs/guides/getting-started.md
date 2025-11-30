@@ -89,3 +89,34 @@ manager.start();  // Starts background watcher
 // Always get the latest model
 RuleEvaluator evaluator = new RuleEvaluator(manager.getEngineModel());
 ```
+
+## Caching Configuration
+
+Helios supports flexible caching to optimize performance.
+
+### Quick Start (Development)
+```java
+// Uses simple in-memory map
+CacheConfig config = CacheConfig.forDevelopment();
+BaseConditionCache cache = CacheFactory.create(config);
+```
+
+### Production Setup
+```java
+// Uses high-performance Caffeine cache
+CacheConfig config = CacheConfig.forProduction();
+BaseConditionCache cache = CacheFactory.create(config);
+```
+
+### Environment-Based (Recommended)
+Allows tuning without code changes.
+
+```java
+// Reads from env vars (e.g., CACHE_TYPE=REDIS)
+CacheConfig config = CacheConfig.fromEnvironment();
+BaseConditionCache cache = CacheFactory.create(config);
+```
+
+For detailed tuning and configuration options, see:
+*   [Performance Tuning Guide](performance-tuning.md)
+*   [Configuration Guide](configuration.md)

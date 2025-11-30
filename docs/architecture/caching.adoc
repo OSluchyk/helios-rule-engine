@@ -62,61 +62,68 @@ The **Base Condition Cache**  reduces predicate evaluations by **90%+** and impr
 
 ## Current Usage
 
-```java
-// Default in-memory cache
-RuleEvaluator evaluator = new RuleEvaluator(model);
+The recommended way to instantiate a cache is using `CacheConfig` and `CacheFactory`.
 
-// Custom cache configuration
-BaseConditionCache cache = new InMemoryBaseConditionCache.Builder()
-    .maxSize(10_000)
-    .defaultTtl(5, TimeUnit.MINUTES)
+```java
+// 1. Create Configuration
+CacheConfig config = CacheConfig.builder()
+    .cacheType(CacheConfig.CacheType.CAFFEINE)
+    .maxSize(100_000)
+    .ttl(10, TimeUnit.MINUTES)
+    .recordStats(true)
     .build();
-RuleEvaluator evaluator = new RuleEvaluator(model, cache, true);
+
+// 2. Create Cache Instance
+BaseConditionCache cache = CacheFactory.create(config);
+
+// 3. Initialize Evaluator
+RuleEvaluator evaluator = new RuleEvaluator(model, tracer, true); // true enables caching
 ```
 
-## Redis Implementation
+## Configuration via Environment Variables
 
-The Redis implementation is production-ready and supports clustering.
+All cache properties can be configured via environment variables, making it easy to switch implementations without code changes.
 
-### Configuration
-```java
-// application.properties
-cache.type=redis
-cache.redis.address=redis://redis-server:6379
-cache.redis.password=${REDIS_PASSWORD}
-cache.redis.pool.size=32
-```
+```bash
+# Switch to Redis
+export CACHE_TYPE=REDIS
+export CACHE_REDIS_ADDRESS=redis://redis-cluster:6379
+export CACHE_REDIS_POOL_SIZE=64
 
-### Usage
-```java
-BaseConditionCache cache = new RedisBaseConditionCache.Builder()
-    .redisAddress(config.getRedisAddress())
-    .password(config.getRedisPassword())
-    .connectionPoolSize(32)
-    .compressionThreshold(512)
-    .build();
+# Switch to Adaptive Caching
+export CACHE_TYPE=ADAPTIVE
+export CACHE_ENABLE_ADAPTIVE_SIZING=true
+export CACHE_MAX_CACHE_SIZE=5000000
 ```
 
 ## Configuration Best Practices
 
-### In-Memory Cache (Current)
+### 1. In-Memory (Development)
+Best for local development and unit tests.
 ```java
-// Recommended for <10K rules, single instance
-InMemoryBaseConditionCache.Builder()
-    .maxSize(10_000)           // Limit memory usage
-    .defaultTtl(5, MINUTES)     // Short TTL for consistency
-    .build()
+CacheConfig.forDevelopment();
+// Defaults: IN_MEMORY type, 10k max size, 5m TTL, no stats
 ```
 
-### Redis Cache (Production)
+### 2. Caffeine (Production Single-Node)
+Best for standard production workloads on single instances.
 ```java
-// Recommended for >10K rules, multiple instances
-RedisBaseConditionCache.Builder()
-    .redisAddress("redis-cluster:6379")
-    .connectionPoolSize(64)     // High concurrency
-    .compressionThreshold(512)  // Compress large BitSets
-    .useCluster(true)          // For high availability
-    .build()
+CacheConfig.forProduction();
+// Defaults: CAFFEINE type, 100k max size, 10m TTL, stats enabled
+```
+
+### 3. Adaptive (Production Auto-Scale)
+Best for workloads with fluctuating traffic patterns.
+```java
+CacheConfig.forAdaptiveProduction();
+// Defaults: ADAPTIVE type, auto-sizing enabled, 10k-10M range
+```
+
+### 4. Redis (Production Multi-Instance)
+Best for distributed deployments where cache coherence is required.
+```java
+CacheConfig.forDistributed("redis://redis-cluster:6379", null);
+// Defaults: REDIS type, 32 connection pool, compression enabled
 ```
 
 ## Operations
