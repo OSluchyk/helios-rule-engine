@@ -52,16 +52,20 @@ public final class EvaluationContext {
 
     @Deprecated
     public EvaluationContext(int estimatedTouchedRules) {
-        this(10000, estimatedTouchedRules);
+        this(10000, estimatedTouchedRules, 256);
     }
 
     public EvaluationContext(int numRules, int estimatedTouchedRules) {
+        this(numRules, estimatedTouchedRules, 256);
+    }
+
+    public EvaluationContext(int numRules, int estimatedTouchedRules, int initialMatchCapacity) {
         this.truePredicates = new IntOpenHashSet(256);
         this.touchedRules = new IntOpenHashSet(estimatedTouchedRules); // FIX: Now a Set
         this.counters = new int[numRules];
         this.bitmapBuffer = new RoaringBitmap();
-        this.matchedRules = new ArrayList<>(32); // Pre-size for typical match count
-        this.rulePool = new ArrayList<>(32);
+        this.matchedRules = new ArrayList<>(initialMatchCapacity); // Pre-size for typical match count
+        this.rulePool = new ArrayList<>(initialMatchCapacity);
         this.poolIndex = 0;
         this.predicatesEvaluatedCount = 0;
     }
