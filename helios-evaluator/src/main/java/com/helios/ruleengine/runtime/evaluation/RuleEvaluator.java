@@ -60,7 +60,6 @@ import java.util.concurrent.CompletableFuture;
  */
 public final class RuleEvaluator implements IRuleEvaluator {
     private static final Logger logger = LoggerFactory.getLogger(RuleEvaluator.class);
-    private static final int PREFETCH_DISTANCE = 64;
 
     // ScopedValue for thread-safe context access (Java 21+)
     private static final ScopedValue<EvaluationContext> CONTEXT = ScopedValue.newInstance();
@@ -329,10 +328,10 @@ public final class RuleEvaluator implements IRuleEvaluator {
         EvaluationContext ctx = CONTEXT.get();
         IntSet truePredicates = ctx.getTruePredicates();
 
-        for (int predId : truePredicates) {
+        truePredicates.forEach((int predId) -> {
             RoaringBitmap affectedRules = model.getInvertedIndex().get(predId);
             if (affectedRules == null)
-                continue;
+                return;
 
             if (eligibleRulesRoaring != null) {
                 // Use reusable buffer to avoid allocation
@@ -354,7 +353,7 @@ public final class RuleEvaluator implements IRuleEvaluator {
                     ctx.addTouchedRule(ruleId);
                 });
             }
-        }
+        });
     }
 
     /**
@@ -366,17 +365,12 @@ public final class RuleEvaluator implements IRuleEvaluator {
         int[] counters = ctx.counters;
         int[] needs = model.getPredicateCounts();
 
-        IntList uniqueTouchedRules = new IntArrayList(touchedRules);
-
-        for (int i = 0; i < uniqueTouchedRules.size(); i++) {
-            // Prefetch next cache line
-            if (i + PREFETCH_DISTANCE < uniqueTouchedRules.size()) {
-                int prefetchRuleId = uniqueTouchedRules.getInt(i + PREFETCH_DISTANCE);
-                @SuppressWarnings("unused")
-                int prefetchNeed = needs[prefetchRuleId]; // Trigger prefetch
-            }
-
-            int ruleId = uniqueTouchedRules.getInt(i);
+        // Avoid creating IntArrayList (which iterates the set) and use forEach directly
+        // Note: Prefetching is removed as it requires index-based access, but the
+        // allocation savings
+        // from avoiding IntArrayList and Iterator outweigh the prefetching benefits for
+        // this set size.
+        touchedRules.forEach((int ruleId) -> {
             if (counters[ruleId] >= needs[ruleId]) {
                 List<String> ruleCodes = model.getCombinationRuleCodes(ruleId);
                 List<Integer> priorities = model.getCombinationPrioritiesAll(ruleId);
@@ -385,7 +379,7 @@ public final class RuleEvaluator implements IRuleEvaluator {
                     ctx.addMatchedRule(ruleId, ruleCodes.get(j), priorities.get(j), "");
                 }
             }
-        }
+        });
     }
 
     /**
