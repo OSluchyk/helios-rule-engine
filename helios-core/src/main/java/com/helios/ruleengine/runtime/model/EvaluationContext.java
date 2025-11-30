@@ -19,8 +19,10 @@ import java.util.concurrent.ConcurrentMap;
  *
  * PERFORMANCE OPTIMIZATION - STRING NORMALIZATION CACHING:
  * String values are uppercased for case-insensitive matching in most operators.
- * To eliminate the CPU overhead of repeated toUpperCase() calls (which was consuming
- * 51.1% of CPU samples), we cache normalized strings after the first normalization.
+ * To eliminate the CPU overhead of repeated toUpperCase() calls (which was
+ * consuming
+ * 51.1% of CPU samples), we cache normalized strings after the first
+ * normalization.
  *
  * EXECUTION FLOW:
  * 1. Event created with original attribute values
@@ -33,26 +35,31 @@ import java.util.concurrent.ConcurrentMap;
  * - toUpperCase() is never called again for the same string
  *
  * REGEX OPERATOR COMPATIBILITY:
- * REGEX operators require original (non-uppercased) string values for case-sensitive matching.
- * These operators access the original values directly from getFlattenedAttributes(),
+ * REGEX operators require original (non-uppercased) string values for
+ * case-sensitive matching.
+ * These operators access the original values directly from
+ * getFlattenedAttributes(),
  * which always returns the original, non-normalized values.
  *
  * MEMORY FOOTPRINT:
- * The normalizedStringsCache only stores mappings for string values that were actually
- * normalized (lazy initialization). Typical memory overhead: ~50-100 bytes per unique
+ * The normalizedStringsCache only stores mappings for string values that were
+ * actually
+ * normalized (lazy initialization). Typical memory overhead: ~50-100 bytes per
+ * unique
  * string value, negligible compared to the massive CPU savings.
  *
  * CACHING STRATEGY:
  * - Flattened attributes: Cached (safe - no external dependencies)
  * - Normalized strings: Cached lazily (only string values, not all attributes)
- * - Encoded attributes: Pooled via ThreadLocal (NOT cached to prevent dictionary issues)
+ * - Encoded attributes: Pooled via ThreadLocal (NOT cached to prevent
+ * dictionary issues)
  */
 public final class EvaluationContext {
     private static final Map<String, Object> EMPTY_MAP = Collections.emptyMap();
 
     // ThreadLocal pool for encoded attributes map (reused across evaluations)
-    private static final ThreadLocal<Int2ObjectOpenHashMap<Object>> ENCODED_BUFFER =
-            ThreadLocal.withInitial(() -> new Int2ObjectOpenHashMap<>(32));
+    private static final ThreadLocal<Int2ObjectOpenHashMap<Object>> ENCODED_BUFFER = ThreadLocal
+            .withInitial(() -> new Int2ObjectOpenHashMap<>(32));
 
     private final String eventId;
     private final String eventType;
@@ -61,7 +68,8 @@ public final class EvaluationContext {
     // Cache flattened attributes (safe - derived only from event's own data)
     private volatile Map<String, Object> flattenedAttributesCache;
 
-    // ✅ FIX: Use ConcurrentHashMap for thread-safe, non-blocking, high-performance caching.
+    // ✅ FIX: Use ConcurrentHashMap for thread-safe, non-blocking, high-performance
+    // caching.
     // Replaces the volatile HashMap and unsafe double-checked locking.
     private final ConcurrentMap<String, String> normalizedStringsCache = new ConcurrentHashMap<>();
 
@@ -127,7 +135,8 @@ public final class EvaluationContext {
      *
      * PERFORMANCE OPTIMIZATION:
      * - Uses ThreadLocal pooling to avoid allocation on every evaluation
-     * - Caches normalized (uppercased) strings to eliminate repeated toUpperCase() calls
+     * - Caches normalized (uppercased) strings to eliminate repeated toUpperCase()
+     * calls
      *
      * EXECUTION FLOW:
      * 1. Get flattened attributes (cached)
@@ -178,7 +187,8 @@ public final class EvaluationContext {
      * is called exactly once per string, even under high concurrent load.
      *
      * REASONING:
-     * The profiling data showed that toUpperCase() was consuming 51.1% of CPU samples
+     * The profiling data showed that toUpperCase() was consuming 51.1% of CPU
+     * samples
      * because it was called repeatedly. This fix resolves that hotspot
      * and corrects the data race in the previous implementation.
      */
@@ -204,7 +214,8 @@ public final class EvaluationContext {
         if (originalLength > 0) {
             prefix.append('.');
         }
-        for (char c : key.toCharArray()) {
+        for (int i = 0; i < key.length(); i++) {
+            char c = key.charAt(i);
             prefix.append(Character.toUpperCase(c == '-' ? '_' : c));
         }
 
@@ -218,8 +229,10 @@ public final class EvaluationContext {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o)
+            return true;
+        if (o == null || getClass() != o.getClass())
+            return false;
         EvaluationContext event = (EvaluationContext) o;
         return Objects.equals(eventId, event.eventId) &&
                 Objects.equals(eventType, event.eventType) &&
