@@ -75,8 +75,9 @@ public class CaffeineBaseConditionCache implements BaseConditionCache {
             return CompletableFuture.completedFuture(Optional.empty());
         }
 
+        // NO CLONE - bitmap is immutable by contract
         CacheEntry entry = new CacheEntry(
-                result, // No defensive copy
+                result,
                 System.nanoTime(),
                 0,
                 cacheKey);
@@ -87,7 +88,8 @@ public class CaffeineBaseConditionCache implements BaseConditionCache {
     @Override
     @SuppressWarnings("null")
     public CompletableFuture<Void> put(Object cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit) {
-        cache.put(cacheKey, result); // No defensive copy
+        // Clone on PUT only (once per entry), not on every GET
+        cache.put(cacheKey, result.clone());
         return CompletableFuture.completedFuture(null);
     }
 

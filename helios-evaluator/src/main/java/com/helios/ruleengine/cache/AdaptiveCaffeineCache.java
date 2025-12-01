@@ -9,6 +9,8 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.roaringbitmap.RoaringBitmap;
+import org.roaringbitmap.buffer.ImmutableRoaringBitmap;
+import org.roaringbitmap.buffer.MutableRoaringBitmap;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -146,12 +148,12 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
 
     /**
      * ✅ P0-A FIX: Changed from Cache<String, BitSet> to Cache<String,
-     * RoaringBitmap>
+     * ImmutableRoaringBitmap>
      *
      * Current cache instance. Replaced atomically during resize.
      * Uses String keys from FastCacheKeyGenerator.
      */
-    private volatile Cache<Object, RoaringBitmap> cache;
+    private volatile Cache<Object, ImmutableRoaringBitmap> cache;
 
     /**
      * Current maximum cache size.
@@ -253,19 +255,13 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
     // ================================================================
 
     /**
-     * ✅ P0-A FIX: Get operation using RoaringBitmap
-     *
-     * CHANGED: Returns RoaringBitmap directly (no defensive copy needed -
-     * immutable)
-     *
-     * Thread-safety: Lock-free optimistic read for zero contention
-     * Performance: O(1) Caffeine lookup + ~3ns for optimistic lock validation
+     * ✅ P0-A FIX: Get operation using ImmutableRoaringBitmap
      */
     @Override
     public CompletableFuture<Optional<CacheEntry>> get(Object cacheKey) {
         // FAST PATH: Optimistic read (no lock contention)
         long stamp = resizeLock.tryOptimisticRead();
-        Cache<Object, RoaringBitmap> currentCache = this.cache;
+        Cache<Object, ImmutableRoaringBitmap> currentCache = this.cache;
 
         if (!resizeLock.validate(stamp)) {
             // Rare: Resize happened during read, retry with read lock
@@ -278,16 +274,25 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
         }
 
         // Get from Caffeine cache
-        RoaringBitmap result = currentCache.getIfPresent(cacheKey);
+        ImmutableRoaringBitmap result = currentCache.getIfPresent(cacheKey);
 
         if (result == null) {
             return CompletableFuture.completedFuture(Optional.empty());
         }
 
-        // ✅ NO DEFENSIVE COPY NEEDED - RoaringBitmap is immutable
-        // This eliminates ~200ns overhead per cache hit vs BitSet
+        // Convert back to RoaringBitmap for the interface
+        // Note: This creates a copy, but ensures the cache content remains immutable
+        // CRITICAL: Synchronize to prevent BufferUnderflowException when multiple
+        // threads
+        // call toRoaringBitmap() concurrently (the underlying ByteBuffer has mutable
+        // position state)
+        RoaringBitmap roaringBitmap;
+        synchronized (result) {
+            roaringBitmap = result.toRoaringBitmap();
+        }
+
         CacheEntry entry = new CacheEntry(
-                result, // Direct reference (safe - immutable)
+                roaringBitmap,
                 System.nanoTime(),
                 0, // Caffeine doesn't track per-entry hit count
                 cacheKey);
@@ -296,18 +301,13 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
     }
 
     /**
-     * ✅ P0-A FIX: Put operation using RoaringBitmap
-     *
-     * CHANGED: Accepts RoaringBitmap directly (no conversion needed)
-     *
-     * Thread-safety: Lock-free optimistic read for zero contention
-     * Performance: O(1) Caffeine insert + ~3ns for optimistic lock validation
+     * ✅ P0-A FIX: Put operation using ImmutableRoaringBitmap
      */
     @Override
     public CompletableFuture<Void> put(Object cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit) {
         // FAST PATH: Optimistic read
         long stamp = resizeLock.tryOptimisticRead();
-        Cache<Object, RoaringBitmap> currentCache = this.cache;
+        Cache<Object, ImmutableRoaringBitmap> currentCache = this.cache;
 
         if (!resizeLock.validate(stamp)) {
             stamp = resizeLock.readLock();
@@ -318,9 +318,11 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
             }
         }
 
+        // Convert to immutable (zero-copy if already immutable)
+        ImmutableRoaringBitmap immutable = result.toMutableRoaringBitmap().toImmutableRoaringBitmap();
+
         // Store in Caffeine cache
-        // ✅ Direct storage - no conversion needed
-        currentCache.put(cacheKey, result);
+        currentCache.put(cacheKey, immutable);
 
         return CompletableFuture.completedFuture(null);
     }
@@ -333,7 +335,7 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
     public CompletableFuture<Map<Object, CacheEntry>> getBatch(Iterable<Object> cacheKeys) {
         // FAST PATH: Optimistic read
         long stamp = resizeLock.tryOptimisticRead();
-        Cache<Object, RoaringBitmap> currentCache = this.cache;
+        Cache<Object, ImmutableRoaringBitmap> currentCache = this.cache;
 
         if (!resizeLock.validate(stamp)) {
             stamp = resizeLock.readLock();
@@ -345,15 +347,20 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
         }
 
         Map<Object, CacheEntry> results = new HashMap<>();
-        long currentTimeNanos = System.nanoTime();
 
         // Batch retrieve from Caffeine
         for (Object key : cacheKeys) {
-            RoaringBitmap bitmap = currentCache.getIfPresent(key);
-            if (bitmap != null) {
+            ImmutableRoaringBitmap result = currentCache.getIfPresent(key);
+            if (result != null) {
+                // CRITICAL: Synchronize to prevent BufferUnderflowException
+                RoaringBitmap roaringBitmap;
+                synchronized (result) {
+                    roaringBitmap = result.toRoaringBitmap();
+                }
+
                 results.put(key, new CacheEntry(
-                        bitmap, // ✅ Direct reference (immutable)
-                        currentTimeNanos,
+                        roaringBitmap,
+                        System.nanoTime(),
                         0,
                         key));
             }
@@ -377,7 +384,7 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
 
         // FAST PATH: Optimistic read
         long stamp = resizeLock.tryOptimisticRead();
-        Cache<Object, RoaringBitmap> currentCache = this.cache;
+        Cache<Object, ImmutableRoaringBitmap> currentCache = this.cache;
 
         if (!resizeLock.validate(stamp)) {
             stamp = resizeLock.readLock();
@@ -388,8 +395,11 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
             }
         }
 
-        // Bulk insert into Caffeine
-        currentCache.putAll(entries);
+        // Convert and bulk insert
+        Map<Object, ImmutableRoaringBitmap> immutableEntries = new HashMap<>(entries.size());
+        entries.forEach((k, v) -> immutableEntries.put(k, v.toMutableRoaringBitmap().toImmutableRoaringBitmap()));
+
+        currentCache.putAll(immutableEntries);
 
         logger.info(String.format(
                 "Cache warm-up complete: %d entries loaded, estimated size: %d",
@@ -405,7 +415,7 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
     public CompletableFuture<Void> invalidate(Object cacheKey) {
         // FAST PATH: Optimistic read
         long stamp = resizeLock.tryOptimisticRead();
-        Cache<Object, RoaringBitmap> currentCache = this.cache;
+        Cache<Object, ImmutableRoaringBitmap> currentCache = this.cache;
 
         if (!resizeLock.validate(stamp)) {
             stamp = resizeLock.readLock();
@@ -533,11 +543,10 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
         long stamp = resizeLock.writeLock();
 
         try {
-            Cache<Object, RoaringBitmap> oldCache = this.cache;
-            Cache<Object, RoaringBitmap> newCache = buildCache(newMax);
+            Cache<Object, ImmutableRoaringBitmap> oldCache = this.cache;
+            Cache<Object, ImmutableRoaringBitmap> newCache = buildCache(newMax);
 
             // Migrate hot entries (Caffeine handles eviction automatically)
-            // ✅ Direct migration - no conversion needed
             newCache.putAll(oldCache.asMap());
 
             // Atomic swap
@@ -572,7 +581,7 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
      *
      * CHANGED: Returns Cache<Object, RoaringBitmap>
      */
-    private Cache<Object, RoaringBitmap> buildCache(long maxSize) {
+    private Cache<Object, ImmutableRoaringBitmap> buildCache(long maxSize) {
         Caffeine<Object, Object> builder = Caffeine.newBuilder()
                 .maximumSize(maxSize)
                 .expireAfterWrite(this.defaultTtlMillis, TimeUnit.MILLISECONDS)
@@ -581,9 +590,6 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
         if (statsEnabled) {
             builder.recordStats();
         }
-
-        // ✅ No custom weigher needed - Caffeine uses entry count
-        // RoaringBitmap's memory efficiency helps keep heap footprint low
 
         return builder.build();
     }
