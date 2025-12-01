@@ -287,8 +287,10 @@ public final class RuleEvaluator implements IRuleEvaluator {
         IntSet eligiblePredicateIds = computeEligiblePredicateIds(eligibleRules);
 
         // Sort fields by minimum predicate weight (cheap & selective first)
-        // Use IntArrayList to avoid boxing and ArrayList overhead
-        IntArrayList fieldIds = new IntArrayList(encodedAttributes.keySet());
+        // Use pooled buffer to avoid allocation (was 29.5% of allocations)
+        IntArrayList fieldIds = FIELD_IDS_BUFFER.get();
+        fieldIds.clear();
+        fieldIds.addAll(encodedAttributes.keySet());
         fieldIds.sort((int a, int b) -> Float.compare(
                 model.getFieldMinWeight(a),
                 model.getFieldMinWeight(b)));
@@ -331,6 +333,13 @@ public final class RuleEvaluator implements IRuleEvaluator {
      * Avoids allocations during rule intersection operations.
      */
     private static final ThreadLocal<RoaringBitmap> INTERSECTION_POOL = ThreadLocal.withInitial(RoaringBitmap::new);
+
+    /**
+     * Thread-local pool for field IDs list.
+     * Avoids allocations during predicate evaluation (29.5% of allocations).
+     */
+    private static final ThreadLocal<IntArrayList> FIELD_IDS_BUFFER = ThreadLocal
+            .withInitial(() -> new IntArrayList(64));
 
     /**
      * Updates rule counters based on true predicates.

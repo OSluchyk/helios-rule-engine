@@ -66,9 +66,10 @@ public final class NumericOperatorEvaluator {
      * Evaluate numeric predicates for a field.
      */
     public void evaluateNumeric(int fieldId, double value,
-                                EvaluationContext ctx, IntSet eligiblePredicateIds) {
+            EvaluationContext ctx, IntSet eligiblePredicateIds) {
         FieldEvaluator evaluator = fieldEvaluators.get(fieldId);
-        if (evaluator == null) return;
+        if (evaluator == null)
+            return;
 
         IntSet matches = evaluator.evaluate((float) value, eligiblePredicateIds);
         matches.forEach((int predId) -> {
@@ -86,13 +87,20 @@ public final class NumericOperatorEvaluator {
 
         // ✅ FIX: Add ThreadLocal buffer to pool dense predicate lists
         // This avoids allocating a new list for every evaluation.
-        private final ThreadLocal<List<NumericPredicate>> densePredicateBuffer =
-                ThreadLocal.withInitial(ArrayList::new);
+        private final ThreadLocal<List<NumericPredicate>> densePredicateBuffer = ThreadLocal
+                .withInitial(ArrayList::new);
+
+        // ✅ OPTIMIZATION: Pool for dense array to eliminate toArray() allocation
+        private final ThreadLocal<NumericPredicate[]> denseArrayPool;
 
         FieldEvaluator(List<NumericPredicate> predicates) {
             this.groups = organizeIntoGroups(predicates);
             int maxSize = Arrays.stream(groups).mapToInt(g -> g.predicates.length).max().orElse(0);
             this.thresholdCache = new float[Math.max(maxSize, FLOAT_SPECIES.length())];
+
+            // Initialize pool with max possible size
+            final int poolSize = maxSize;
+            this.denseArrayPool = ThreadLocal.withInitial(() -> new NumericPredicate[poolSize]);
         }
 
         /**
@@ -102,8 +110,9 @@ public final class NumericOperatorEvaluator {
         IntSet evaluate(float value, IntSet eligiblePredicateIds) {
             IntSet matches = new IntOpenHashSet();
 
-            // Get the reusable, thread-local buffer
+            // Get the reusable, thread-local buffers
             List<NumericPredicate> denseBuffer = densePredicateBuffer.get();
+            NumericPredicate[] pooledArray = denseArrayPool.get();
 
             for (PredicateGroup group : groups) {
                 // Reset the buffer for this group
@@ -128,11 +137,25 @@ public final class NumericOperatorEvaluator {
                 }
                 // --- END DENSIFICATION ---
 
-                // Create a temporary, dense group from the buffer's contents
-                // We use .toArray() here, which is a minor copy, but it
-                // simplifies the logic significantly.
-                NumericPredicate[] denseArray = denseBuffer.toArray(new NumericPredicate[0]);
-                PredicateGroup eligibleGroup = new PredicateGroup(group.operator, denseArray);
+                // ✅ OPTIMIZATION: Copy into pooled array instead of allocating
+                // BEFORE: NumericPredicate[] denseArray = denseBuffer.toArray(new
+                // NumericPredicate[0]);
+                int denseSize = denseBuffer.size();
+                for (int i = 0; i < denseSize; i++) {
+                    pooledArray[i] = denseBuffer.get(i);
+                }
+
+                // CRITICAL: Null out remaining slots to prevent stale data in subsequent
+                // evaluations
+                // This is necessary because the pool is reused across evaluations with
+                // different counts
+                for (int i = denseSize; i < pooledArray.length; i++) {
+                    pooledArray[i] = null;
+                }
+
+                // Create a temporary, dense group using the pooled array slice
+                // Note: We pass the full array but only use denseSize elements
+                PredicateGroup eligibleGroup = new PredicateGroup(group.operator, pooledArray, denseSize);
 
                 // ✅ CHANGED: Call evaluate methods with the *dense* group
                 // and pass 'null' for eligibility. The underlying methods
@@ -152,8 +175,8 @@ public final class NumericOperatorEvaluator {
          * (No changes needed, already handles null eligiblePredicateIds)
          */
         private void evaluateGT(float value, PredicateGroup group,
-                                IntSet matches, IntSet eligiblePredicateIds) {
-            int count = group.predicates.length;
+                IntSet matches, IntSet eligiblePredicateIds) {
+            int count = group.count; // Use actual count for pooled arrays
 
             if (count >= FLOAT_SPECIES.length()) {
                 // Vectorized path
@@ -169,7 +192,7 @@ public final class NumericOperatorEvaluator {
                     FloatVector thresholdVec = FloatVector.fromArray(FLOAT_SPECIES, thresholdCache, 0);
                     VectorMask<Float> mask = eventVec.compare(VectorOperators.GT, thresholdVec);
 
-                    processMaskedResults(offset, mask, eligibilityMask, group.predicates, matches);
+                    processMaskedResults(offset, mask, eligibilityMask, group.predicates, count, matches);
                 }
 
                 // Scalar remainder
@@ -191,8 +214,8 @@ public final class NumericOperatorEvaluator {
          * (No changes needed, already handles null eligiblePredicateIds)
          */
         private void evaluateLT(float value, PredicateGroup group,
-                                IntSet matches, IntSet eligiblePredicateIds) {
-            int count = group.predicates.length;
+                IntSet matches, IntSet eligiblePredicateIds) {
+            int count = group.count; // Use actual count for pooled arrays
 
             if (count >= FLOAT_SPECIES.length()) {
                 vectorizedOps++;
@@ -207,7 +230,7 @@ public final class NumericOperatorEvaluator {
                     FloatVector thresholdVec = FloatVector.fromArray(FLOAT_SPECIES, thresholdCache, 0);
                     VectorMask<Float> mask = eventVec.compare(VectorOperators.LT, thresholdVec);
 
-                    processMaskedResults(offset, mask, eligibilityMask, group.predicates, matches);
+                    processMaskedResults(offset, mask, eligibilityMask, group.predicates, count, matches);
                 }
 
                 int remainder = count % FLOAT_SPECIES.length();
@@ -227,8 +250,8 @@ public final class NumericOperatorEvaluator {
          * (No changes needed, already handles null eligiblePredicateIds)
          */
         private void evaluateBetween(float value, PredicateGroup group,
-                                     IntSet matches, IntSet eligiblePredicateIds) {
-            int count = group.predicates.length;
+                IntSet matches, IntSet eligiblePredicateIds) {
+            int count = group.count; // Use actual count for pooled arrays
 
             if (count >= FLOAT_SPECIES.length()) {
                 vectorizedOps++;
@@ -256,7 +279,7 @@ public final class NumericOperatorEvaluator {
                     VectorMask<Float> upperMask = eventVec.compare(VectorOperators.LE, upperVec);
                     VectorMask<Float> combinedMask = lowerMask.and(upperMask);
 
-                    processMaskedResults(offset, combinedMask, eligibilityMask, group.predicates, matches);
+                    processMaskedResults(offset, combinedMask, eligibilityMask, group.predicates, count, matches);
                 }
 
                 // Scalar remainder
@@ -281,13 +304,15 @@ public final class NumericOperatorEvaluator {
 
         // Helper methods
         private void loadThresholds(PredicateGroup group, int offset, int length) {
-            for (int i = 0; i < length && (offset + i) < group.predicates.length; i++) {
+            // CRITICAL: Use group.count for pooled arrays, not group.predicates.length
+            for (int i = 0; i < length && (offset + i) < group.count; i++) {
                 thresholdCache[i] = (float) group.predicates[offset + i].threshold;
             }
         }
 
         private long[] buildEligibilityMask(PredicateGroup group, int count, IntSet eligibleIds) {
-            if (eligibleIds == null) return null;
+            if (eligibleIds == null)
+                return null;
             long[] mask = new long[(count + 63) / 64];
             for (int i = 0; i < count; i++) {
                 if (eligibleIds.contains(group.predicates[i].id)) {
@@ -298,9 +323,10 @@ public final class NumericOperatorEvaluator {
         }
 
         private void processMaskedResults(int offset, VectorMask<Float> compareMask,
-                                          long[] eligibilityMask, NumericPredicate[] predicates,
-                                          IntSet matches) {
-            for (int j = 0; j < FLOAT_SPECIES.length() && (offset + j) < predicates.length; j++) {
+                long[] eligibilityMask, NumericPredicate[] predicates, int count,
+                IntSet matches) {
+            // CRITICAL: Use count for pooled arrays, not predicates.length
+            for (int j = 0; j < FLOAT_SPECIES.length() && (offset + j) < count; j++) {
                 // This logic is correct: if eligibilityMask is null, eligible is true.
                 // This is the "fast path" we want when passing a dense list.
                 boolean eligible = eligibilityMask == null ||
@@ -312,37 +338,49 @@ public final class NumericOperatorEvaluator {
         }
 
         private void processScalarRemainder(int start, int end, float value, PredicateGroup group,
-                                            long[] eligibilityMask, IntSet matches, boolean isGT) {
+                long[] eligibilityMask, IntSet matches, boolean isGT) {
             for (int i = start; i < end; i++) {
                 // This logic is also correct and handles the null mask "fast path"
                 boolean eligible = eligibilityMask == null ||
                         ((eligibilityMask[i / 64] & (1L << (i % 64))) != 0);
                 if (eligible) {
-                    boolean passes = isGT ? value > group.predicates[i].threshold :
-                            value < group.predicates[i].threshold;
-                    if (passes) matches.add(group.predicates[i].id);
+                    boolean passes = isGT ? value > group.predicates[i].threshold
+                            : value < group.predicates[i].threshold;
+                    if (passes)
+                        matches.add(group.predicates[i].id);
                 }
             }
         }
 
         private void evaluateScalarGT(float value, PredicateGroup group, IntSet matches, IntSet eligibleIds) {
-            for (NumericPredicate pred : group.predicates) {
+            // CRITICAL: Use indexed loop with group.count to avoid null slots in pooled
+            // array
+            for (int i = 0; i < group.count; i++) {
+                NumericPredicate pred = group.predicates[i];
                 if (eligibleIds == null || eligibleIds.contains(pred.id)) {
-                    if (value > pred.threshold) matches.add(pred.id);
+                    if (value > pred.threshold)
+                        matches.add(pred.id);
                 }
             }
         }
 
         private void evaluateScalarLT(float value, PredicateGroup group, IntSet matches, IntSet eligibleIds) {
-            for (NumericPredicate pred : group.predicates) {
+            // CRITICAL: Use indexed loop with group.count to avoid null slots in pooled
+            // array
+            for (int i = 0; i < group.count; i++) {
+                NumericPredicate pred = group.predicates[i];
                 if (eligibleIds == null || eligibleIds.contains(pred.id)) {
-                    if (value < pred.threshold) matches.add(pred.id);
+                    if (value < pred.threshold)
+                        matches.add(pred.id);
                 }
             }
         }
 
         private void evaluateScalarBetween(float value, PredicateGroup group, IntSet matches, IntSet eligibleIds) {
-            for (NumericPredicate pred : group.predicates) {
+            // CRITICAL: Use indexed loop with group.count to avoid null slots in pooled
+            // array
+            for (int i = 0; i < group.count; i++) {
+                NumericPredicate pred = group.predicates[i];
                 if (eligibleIds == null || eligibleIds.contains(pred.id)) {
                     if (value >= pred.lowerBound && value <= pred.upperBound) {
                         matches.add(pred.id);
@@ -365,17 +403,23 @@ public final class NumericOperatorEvaluator {
     private static class PredicateGroup {
         final Operator operator;
         final NumericPredicate[] predicates;
+        final int count; // Actual number of predicates to use (for pooled arrays)
 
         PredicateGroup(Operator op, NumericPredicate[] preds) {
+            this(op, preds, preds.length);
+        }
+
+        PredicateGroup(Operator op, NumericPredicate[] preds, int count) {
             this.operator = op;
             this.predicates = preds;
+            this.count = count;
         }
     }
 
     private static class NumericPredicate {
         final int id;
         final Operator operator;
-        final double threshold;  // For GT/LT
+        final double threshold; // For GT/LT
         final double lowerBound; // For BETWEEN
         final double upperBound; // For BETWEEN
 
