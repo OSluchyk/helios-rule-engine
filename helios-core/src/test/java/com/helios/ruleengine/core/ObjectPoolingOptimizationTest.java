@@ -274,6 +274,8 @@ class ObjectPoolingOptimizationTest {
         int iterationsPerThread = 100;
 
         Thread[] threads = new Thread[threadCount];
+        // Store exceptions to report them
+        Throwable[] exceptions = new Throwable[threadCount];
         boolean[] success = new boolean[threadCount];
 
         for (int t = 0; t < threadCount; t++) {
@@ -289,13 +291,13 @@ class ObjectPoolingOptimizationTest {
 
                         // Verify result is valid
                         if (result == null || result.eventId() == null) {
-                            success[threadId] = false;
-                            return;
+                            throw new RuntimeException("Result or eventId is null");
                         }
                     }
                     success[threadId] = true;
-                } catch (Exception e) {
+                } catch (Throwable e) {
                     e.printStackTrace();
+                    exceptions[threadId] = e;
                     success[threadId] = false;
                 }
             });
@@ -312,9 +314,11 @@ class ObjectPoolingOptimizationTest {
 
         // Then - all threads should succeed
         for (int i = 0; i < threadCount; i++) {
-            assertThat(success[i])
-                    .withFailMessage("Thread %d failed", i)
-                    .isTrue();
+            if (!success[i]) {
+                Throwable e = exceptions[i];
+                String errorMsg = e != null ? e.toString() : "Unknown error";
+                org.assertj.core.api.Assertions.fail("Thread " + i + " failed: " + errorMsg, e);
+            }
         }
     }
 

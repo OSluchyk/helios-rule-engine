@@ -82,14 +82,15 @@ public class BaseConditionEvaluator {
      * Result of base condition evaluation.
      */
     public static class EvaluationResult {
-        public final RoaringBitmap matchingRulesRoaring;
+        public final RoaringBitmap matchingRulesRoaring; // Immutable by contract
         public final int predicatesEvaluated;
         public final boolean fromCache;
         public final long evaluationNanos;
 
         public EvaluationResult(RoaringBitmap matchingRules, int predicatesEvaluated,
                 boolean fromCache, long evaluationNanos) {
-            this.matchingRulesRoaring = matchingRules; // No defensive copy
+            // NO CLONE - caller must pass ownership or immutable reference
+            this.matchingRulesRoaring = matchingRules;
             this.predicatesEvaluated = predicatesEvaluated;
             this.fromCache = fromCache;
             this.evaluationNanos = evaluationNanos;
@@ -102,8 +103,21 @@ public class BaseConditionEvaluator {
             return bitSet;
         }
 
+        /**
+         * Returns the matching rules bitmap. DO NOT MODIFY - this is the internal
+         * reference.
+         * For a mutable copy, use getMatchingRulesClone().
+         */
         public RoaringBitmap getMatchingRulesRoaring() {
-            return matchingRulesRoaring; // Return reference, caller must not modify
+            return matchingRulesRoaring; // NO CLONE on read path
+        }
+
+        /**
+         * Returns a mutable copy of the matching rules. Use only when modification is
+         * needed.
+         */
+        public RoaringBitmap getMatchingRulesClone() {
+            return matchingRulesRoaring.clone();
         }
 
         public int getCardinality() {

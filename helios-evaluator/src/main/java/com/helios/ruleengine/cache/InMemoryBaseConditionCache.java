@@ -68,7 +68,7 @@ public class InMemoryBaseConditionCache implements BaseConditionCache {
         final LongAdder hitCount;
 
         InternalEntry(RoaringBitmap result, long ttlMillis) {
-            this.result = result.clone(); // ✅ Defensive copy (fast for RoaringBitmap)
+            this.result = result; // ✅ No defensive copy (Immutable by contract)
             this.createTimeNanos = System.nanoTime();
             this.ttlMillis = ttlMillis;
             this.hitCount = new LongAdder();
@@ -80,7 +80,7 @@ public class InMemoryBaseConditionCache implements BaseConditionCache {
 
         CacheEntry toCacheEntry(Object key) {
             return new CacheEntry(
-                    result.clone(), // ✅ Return defensive copy (fast clone)
+                    result, // ✅ No defensive copy (Immutable by contract)
                     createTimeNanos,
                     hitCount.sum(),
                     key);

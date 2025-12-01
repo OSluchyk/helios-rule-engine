@@ -322,9 +322,15 @@ public final class RuleEvaluator implements IRuleEvaluator {
             eligible.addAll(predicateIds);
         });
 
-        cache.put(eligibleRules.clone(), eligible);
+        cache.put(eligibleRules, eligible);
         return eligible;
     }
+
+    /**
+     * Thread-local pool for intersection bitmaps.
+     * Avoids allocations during rule intersection operations.
+     */
+    private static final ThreadLocal<RoaringBitmap> INTERSECTION_POOL = ThreadLocal.withInitial(RoaringBitmap::new);
 
     /**
      * Updates rule counters based on true predicates.
@@ -333,6 +339,9 @@ public final class RuleEvaluator implements IRuleEvaluator {
         EvaluationContext ctx = CONTEXT.get();
         IntSet truePredicates = ctx.getTruePredicates();
 
+        // Reuse pooled bitmap for intersection results
+        RoaringBitmap intersection = INTERSECTION_POOL.get();
+
         truePredicates.forEach((int predId) -> {
             RoaringBitmap affectedRules = model.getInvertedIndex().get(predId);
             if (affectedRules == null)
@@ -340,15 +349,13 @@ public final class RuleEvaluator implements IRuleEvaluator {
 
             if (eligibleRulesRoaring != null) {
                 // Use reusable buffer to avoid allocation
-                RoaringBitmap buffer = ctx.bitmapBuffer;
-                buffer.clear();
+                // BEFORE: RoaringBitmap intersection = RoaringBitmap.and(...) ← ALLOCATION
+                // AFTER: In-place AND into pooled bitmap
+                intersection.clear();
+                intersection.or(affectedRules); // Copy affectedRules
+                intersection.and(eligibleRulesRoaring); // In-place AND
 
-                // Perform intersection: buffer = affectedRules AND eligibleRulesRoaring
-                // We copy affectedRules to the buffer first, then intersect in-place
-                buffer.or(affectedRules);
-                buffer.and(eligibleRulesRoaring);
-
-                buffer.forEach(ctx.roaringRuleConsumer);
+                intersection.forEach(ctx.roaringRuleConsumer);
             } else {
                 affectedRules.forEach(ctx.roaringRuleConsumer);
             }

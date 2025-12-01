@@ -104,8 +104,8 @@ public class CaffeineBaseConditionCacheTest {
     }
 
     @Test
-    @DisplayName("Should return shared reference (no defensive copy) for performance")
-    void testSharedOwnership() throws Exception {
+    @DisplayName("Should verify immutable-by-contract behavior (clone on put, shared on get)")
+    void testImmutableByContract() throws Exception {
         // Given
         String key = "test-key";
         RoaringBitmap original = new RoaringBitmap();
@@ -115,15 +115,15 @@ public class CaffeineBaseConditionCacheTest {
         // When - Get value
         Optional<BaseConditionCache.CacheEntry> entry1 = cache.get(key).get();
 
-        // Then - Should be same instance (identity check)
-        assertSame(original, entry1.get().result(), "Should return original instance to avoid allocation overhead");
+        // Then - Should be equal but NOT same instance (put cloned it)
+        assertNotSame(original, entry1.get().result(), "Should clone on put for safety");
+        assertEquals(original, entry1.get().result(), "Content should be identical");
 
-        // When - Modify returned value (simulating what we want to avoid but checking
-        // reference)
-        entry1.get().result().add(75);
-
-        // Then - Original in cache should be changed (because it's the same object)
+        // When - Get value again
         Optional<BaseConditionCache.CacheEntry> entry2 = cache.get(key).get();
-        assertTrue(entry2.get().result().contains(75));
+
+        // Then - Should be SAME instance as first get (no clone on get)
+        assertSame(entry1.get().result(), entry2.get().result(),
+                "Should return cached instance on get for performance");
     }
 }
