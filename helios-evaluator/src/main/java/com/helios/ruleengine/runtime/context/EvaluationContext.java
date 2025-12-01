@@ -4,7 +4,6 @@ import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 import org.roaringbitmap.RoaringBitmap;
@@ -86,12 +85,18 @@ public final class EvaluationContext {
      * Reset context for reuse (object pooling).
      * Called at the start of each evaluation.
      *
-     * FIX: Now also resets the public predicatesEvaluated field
+     * OPTIMIZATION: O(touched) reset instead of O(n)
+     * For 5000 rules with 50 touched, this is 100x faster.
      */
     public void reset() {
         truePredicates.clear();
+
+        // O(touched) reset - only clear counters that were actually used
+        // BEFORE: Arrays.fill(counters, 0) - O(n) for ALL rules
+        // AFTER: forEach on touched set - O(touched rules only)
+        touchedRules.forEach((int ruleId) -> counters[ruleId] = 0);
         touchedRules.clear();
-        Arrays.fill(counters, 0);
+
         bitmapBuffer.clear();
         matchedRules.clear();
         poolIndex = 0; // Reset pool index to reuse objects
