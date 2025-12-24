@@ -48,13 +48,18 @@ graph TD
 
 ## Key Performance Characteristics
 
-| Metric | Target | Achieved |
-|--------|--------|----------|
-| **Throughput** | > 15M events/min | **20M events/min** |
-| **Latency (P99)** | < 1ms | **0.8ms** |
-| **Memory (100K rules)** | < 6GB | **4GB** |
-| **GC Pauses** | < 10ms | **< 5ms** (ZGC) |
-| **Startup Time** | < 5s | **~2s** |
+| Metric | Target | Current (v1.2) | Status |
+|--------|--------|----------------|--------|
+| **Throughput** | 15-20M events/min | **8-12M events/min** | ⚠️ In Progress |
+| **Latency (P50)** | < 0.2ms | **~0.27ms** (500 rules) | ⚠️ In Progress |
+| **Latency (P99)** | < 1ms | **~0.8ms** (500 rules) | ✅ Meeting Target |
+| **Latency (P99)** | < 1ms | **~2.1ms** (5000 rules) | ⚠️ Above Target |
+| **Memory (5K rules)** | < 1GB | **~600MB** | ✅ Excellent |
+| **Memory (100K rules)** | < 6GB | **~4-5GB** (projected) | ✅ Meeting Target |
+| **GC Pauses** | < 10ms | **< 5ms** (ZGC) | ✅ Excellent |
+| **Startup Time** | < 5s | **~2s** | ✅ Excellent |
+
+**Note**: v1.2 includes hybrid intersection strategy optimizations (Dec 2024). Throughput improvements in progress with adaptive RoaringBitmap operations. See [Performance Tuning Guide](docs/guides/performance-tuning.md) for optimization details.
 
 ## Documentation
 
