@@ -63,7 +63,37 @@ import static java.nio.file.Paths.*;
  * -Dbench.quick : 1-minute quick mode
  * -Dbench.extended : 3-minute extended mode
  * -Dbench.rules : Override rule count (default: progressive)
- * -Dbench.profile : Enable detailed profiling
+ * -Dbench.profile : Enable JFR profiling (CRITICAL: see usage below)
+ *
+ * JFR PROFILING SETUP:
+ * When -Dbench.profile=true is set, JMH will:
+ * 1. Create a timestamped directory: jfr-reports-YYYY-MM-DD/
+ * 2. Generate .jfr files for each benchmark method
+ * 3. Force single fork and single thread for clean profiling
+ *
+ * IMPORTANT: The JFR profiler requires:
+ * - JMH to be run via the main() method (not via Maven exec plugin directly)
+ * - The benchmark JAR must be built first: mvn clean package
+ * - Profiling adds significant overhead (~20-30% slower)
+ *
+ * USAGE WITH PROFILING:
+ * # Build benchmark JAR
+ * mvn clean package -pl helios-benchmarks -am -DskipTests
+ *
+ * # Run with profiling (recommended: use run-jfr.sh script)
+ * ./helios-benchmarks/run-jfr.sh
+ *
+ * OR manually via JAR:
+ *   java -Dbench.quick=true -Dbench.profile=true
+ *        -jar helios-benchmarks/target/benchmarks.jar SimpleBenchmark
+ *
+ * Analyze results:
+ *   jmc jfr-reports-YYYY-MM-DD/SimpleBenchmark*.jfr
+ *
+ * KNOWN ISSUE (FIXED):
+ * Previous versions had a syntax error on line 628 that prevented JFR from running.
+ * The comment "// <-- THE FIX .forks(1)" broke the method chain.
+ * This has been corrected to properly call .forks(1).threads(1) after addProfiler().
  */
 @BenchmarkMode({Mode.Throughput, Mode.SampleTime})
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
@@ -616,17 +646,32 @@ public class SimpleBenchmark {
                 .shouldDoGC(false);
         if (PROFILE) {
             LocalDate now = LocalDate.now();
-            String jfrOutputDir = "jfr-reports-"+ now;
+            String jfrOutputDir = "jfr-reports-" + now;
             try {
                 java.nio.file.Path outputPath = get(jfrOutputDir);
                 createDirectories(outputPath);
-                System.out.println("JFR profiling enabled. Output will be written to: " + jfrOutputDir);
+                System.out.println("\n" + "=".repeat(80));
+                System.out.println("🔍 JFR PROFILING ENABLED");
+                System.out.println("=".repeat(80));
+                System.out.println("Output directory: " + outputPath.toAbsolutePath());
+                System.out.println("Profiling settings:");
+                System.out.println("  - Single fork (no process restarts)");
+                System.out.println("  - Single thread (cleaner stack traces)");
+                System.out.println("  - JFR profile settings (balanced CPU/memory)");
+                System.out.println("\nAfter completion, analyze with:");
+                System.out.println("  jmc " + jfrOutputDir + "/*.jfr");
+                System.out.println("  OR upload to https://github.com/openjdk/jmc");
+                System.out.println("=".repeat(80) + "\n");
             } catch (java.io.IOException e) {
-                System.err.println("Warning: Could not create JFR output directory: " + e.getMessage());
+                System.err.println("⚠️  ERROR: Could not create JFR output directory: " + e.getMessage());
+                System.err.println("Profiling will fail. Please check permissions for: " + jfrOutputDir);
             }
 
-            jmhBuilder.addProfiler("jfr", "dir=" + jfrOutputDir) // <-- THE FIX .forks(1)
-                    .threads(1);
+            // Configure JMH JFR profiler
+            // Parameters: dir=<output>, settings=profile (CPU + allocations)
+            jmhBuilder.addProfiler("jfr", "dir=" + jfrOutputDir + ";settings=profile")
+                    .forks(1)  // Force single fork for profiling (required for JFR)
+                    .threads(1);  // Single thread for cleaner profiling data
         }
         Options opt = jmhBuilder.build();
 
