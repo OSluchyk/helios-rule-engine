@@ -19,11 +19,14 @@ import org.openjdk.jmh.runner.options.TimeValue;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
 
+import static java.lang.String.join;
 import static java.nio.file.Files.createDirectories;
 import static java.nio.file.Paths.*;
 
@@ -57,10 +60,10 @@ import static java.nio.file.Paths.*;
  * mvn test-compile exec:java [...] -Dbench.extended=true
  * <p>
  * CONFIGURATION:
- * -Dbench.quick     : 1-minute quick mode
- * -Dbench.extended  : 3-minute extended mode
- * -Dbench.rules     : Override rule count (default: progressive)
- * -Dbench.profile   : Enable detailed profiling
+ * -Dbench.quick : 1-minute quick mode
+ * -Dbench.extended : 3-minute extended mode
+ * -Dbench.rules : Override rule count (default: progressive)
+ * -Dbench.profile : Enable detailed profiling
  */
 @BenchmarkMode({Mode.Throughput, Mode.SampleTime})
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
@@ -77,7 +80,7 @@ import static java.nio.file.Paths.*;
         "-XX:MaxInlineLevel=15",
         "-XX:InlineSmallCode=2000"
 })
-@Warmup(iterations = 10, time = 2)    // 20 seconds warmup
+@Warmup(iterations = 10, time = 2) // 20 seconds warmup
 @Measurement(iterations = 20, time = 5) // 100 seconds measurement
 public class SimpleBenchmark {
 
@@ -100,13 +103,13 @@ public class SimpleBenchmark {
     // TEST PARAMETERS
     // ========================================================================
 
-    @Param({"500", "2000", "5000"})  // Progressive rule counts
+    @Param({"500", "2000", "5000"}) // Progressive rule counts
     private int ruleCount;
 
-    @Param({"MIXED"})  // Default to realistic mixed workload
+    @Param({"MIXED"}) // Default to realistic mixed workload
     private String workloadType;
 
-    @Param({"HOT", "WARM", "COLD"})  // Cache scenarios
+    @Param({"HOT", "WARM", "COLD"}) // Cache scenarios
     private String cacheScenario;
 
     // ========================================================================
@@ -163,8 +166,7 @@ public class SimpleBenchmark {
         if (evaluator.getBaseConditionEvaluator() == null) {
             throw new IllegalStateException(
                     "Base condition cache failed to initialize! " +
-                            "This will cause poor performance."
-            );
+                            "This will cause poor performance.");
         }
 
         // Generate diverse event pool
@@ -264,7 +266,7 @@ public class SimpleBenchmark {
      */
     @Benchmark
     @BenchmarkMode(Mode.Throughput)
-    @Threads(4)  // Multi-threaded to stress memory
+    @Threads(4) // Multi-threaded to stress memory
     public void throughput_concurrent(Blackhole bh) {
         Event event = getNextEvent();
         MatchResult result = evaluator.evaluate(event);
@@ -299,11 +301,10 @@ public class SimpleBenchmark {
             StringBuilder rule = new StringBuilder();
             rule.append(String.format(
                     "{\"rule_code\":\"RULE_%d\",\"priority\":%d,\"conditions\":[",
-                    i, 1000 - i
-            ));
+                    i, 1000 - i));
 
-            int complexity = (i * 100 / count) < simpleRatio ? 0 :
-                    (i * 100 / count) < (simpleRatio + mediumRatio) ? 1 : 2;
+            int complexity = (i * 100 / count) < simpleRatio ? 0
+                    : (i * 100 / count) < (simpleRatio + mediumRatio) ? 1 : 2;
 
             List<String> conditions = new ArrayList<>();
 
@@ -311,17 +312,14 @@ public class SimpleBenchmark {
                 case 0: // Simple rules (2-3 conditions)
                     conditions.add(String.format(
                             "{\"field\":\"status\",\"operator\":\"EQUAL_TO\",\"value\":\"%s\"}",
-                            statuses[rand.nextInt(2)]
-                    ));
+                            statuses[rand.nextInt(2)]));
                     conditions.add(String.format(
                             "{\"field\":\"amount\",\"operator\":\"GREATER_THAN\",\"value\":%d}",
-                            rand.nextInt(1000)
-                    ));
+                            rand.nextInt(1000)));
                     if (rand.nextBoolean()) {
                         conditions.add(String.format(
                                 "{\"field\":\"country\",\"operator\":\"EQUAL_TO\",\"value\":\"%s\"}",
-                                countries[0]
-                        ));
+                                countries[0]));
                     }
                     break;
 
@@ -329,63 +327,53 @@ public class SimpleBenchmark {
                     conditions.add(String.format(
                             "{\"field\":\"status\",\"operator\":\"IS_ANY_OF\",\"value\":[\"%s\",\"%s\"]}",
                             statuses[rand.nextInt(statuses.length)],
-                            statuses[rand.nextInt(statuses.length)]
-                    ));
+                            statuses[rand.nextInt(statuses.length)]));
                     conditions.add(String.format(
                             "{\"field\":\"amount\",\"operator\":\"BETWEEN\",\"value\":[%d,%d]}",
-                            rand.nextInt(5000), 5000 + rand.nextInt(5000)
-                    ));
+                            rand.nextInt(5000), 5000 + rand.nextInt(5000)));
                     conditions.add(String.format(
                             "{\"field\":\"country\",\"operator\":\"IS_ANY_OF\",\"value\":[\"%s\",\"%s\",\"%s\"]}",
                             countries[rand.nextInt(countries.length)],
                             countries[rand.nextInt(countries.length)],
-                            countries[rand.nextInt(countries.length)]
-                    ));
+                            countries[rand.nextInt(countries.length)]));
                     conditions.add(String.format(
                             "{\"field\":\"tier\",\"operator\":\"IS_ANY_OF\",\"value\":[\"%s\",\"%s\"]}",
                             tiers[rand.nextInt(tiers.length)],
-                            tiers[rand.nextInt(tiers.length)]
-                    ));
+                            tiers[rand.nextInt(tiers.length)]));
                     break;
 
                 case 2: // Complex rules (6-8 conditions)
                     conditions.add(String.format(
                             "{\"field\":\"status\",\"operator\":\"IS_ANY_OF\",\"value\":[\"%s\",\"%s\",\"%s\"]}",
-                            statuses[0], statuses[1], statuses[2]
-                    ));
+                            statuses[0], statuses[1], statuses[2]));
                     conditions.add(String.format(
                             "{\"field\":\"amount\",\"operator\":\"GREATER_THAN\",\"value\":%d}",
-                            rand.nextInt(10000)
-                    ));
+                            rand.nextInt(10000)));
                     conditions.add(String.format(
                             "{\"field\":\"country\",\"operator\":\"IS_ANY_OF\",\"value\":[\"%s\",\"%s\",\"%s\",\"%s\"]}",
                             countries[rand.nextInt(countries.length)],
                             countries[rand.nextInt(countries.length)],
                             countries[rand.nextInt(countries.length)],
-                            countries[rand.nextInt(countries.length)]
-                    ));
+                            countries[rand.nextInt(countries.length)]));
                     conditions.add(String.format(
                             "{\"field\":\"tier\",\"operator\":\"IS_ANY_OF\",\"value\":[\"%s\",\"%s\",\"%s\"]}",
-                            tiers[0], tiers[1], tiers[2]
-                    ));
+                            tiers[0], tiers[1], tiers[2]));
                     conditions.add(String.format(
                             "{\"field\":\"product\",\"operator\":\"IS_ANY_OF\",\"value\":[\"%s\",\"%s\"]}",
                             products[rand.nextInt(products.length)],
-                            products[rand.nextInt(products.length)]
-                    ));
+                            products[rand.nextInt(products.length)]));
                     conditions.add(String.format(
                             "{\"field\":\"risk_score\",\"operator\":\"LESS_THAN\",\"value\":%d}",
-                            50 + rand.nextInt(50)
-                    ));
+                            50 + rand.nextInt(50)));
                     break;
             }
 
-            rule.append(String.join(",", conditions));
+            rule.append(join(",", conditions));
             rule.append("]}");
             rules.add(rule.toString());
         }
 
-        Files.writeString(path, "[" + String.join(",", rules) + "]");
+        Files.writeString(path, "[" + join(",", rules) + "]");
         return path;
     }
 
@@ -451,8 +439,7 @@ public class SimpleBenchmark {
         System.out.println("🚀 DEVELOPMENT PERFORMANCE BENCHMARK");
         System.out.println("=".repeat(80));
 
-        String mode = QUICK_MODE ? "QUICK (1 min)" :
-                (EXTENDED_MODE ? "EXTENDED (3 min)" : "STANDARD (2 min)");
+        String mode = QUICK_MODE ? "QUICK (1 min)" : (EXTENDED_MODE ? "EXTENDED (3 min)" : "STANDARD (2 min)");
         System.out.println("Mode: " + mode);
 
         if (PROFILE) {
@@ -546,8 +533,7 @@ public class SimpleBenchmark {
         System.out.println("─".repeat(50));
 
         if (evaluator.getBaseConditionEvaluator() != null) {
-            Map<String, Object> cacheMetrics =
-                    evaluator.getBaseConditionEvaluator().getMetrics();
+            Map<String, Object> cacheMetrics = evaluator.getBaseConditionEvaluator().getMetrics();
 
             System.out.printf("Total Evaluations:        %,d%n",
                     cacheMetrics.get("totalEvaluations"));
@@ -618,6 +604,7 @@ public class SimpleBenchmark {
     // ========================================================================
 
     public static void main(String[] args) throws RunnerException {
+        System.out.println("ARGS: " + join(", ", args));
         // Configure for 2-3 minute runtime
         ChainedOptionsBuilder jmhBuilder = new OptionsBuilder()
                 .include(SimpleBenchmark.class.getSimpleName())
@@ -627,8 +614,9 @@ public class SimpleBenchmark {
                 .measurementTime(TimeValue.seconds(MEASUREMENT_TIME))
                 .shouldFailOnError(true)
                 .shouldDoGC(false);
-        if (args.length > 0 && args[0].equals("profile")) {
-            String jfrOutputDir = "jfr-reports";
+        if (PROFILE) {
+            LocalDate now = LocalDate.now();
+            String jfrOutputDir = "jfr-reports-"+ now;
             try {
                 java.nio.file.Path outputPath = get(jfrOutputDir);
                 createDirectories(outputPath);
@@ -637,7 +625,7 @@ public class SimpleBenchmark {
                 System.err.println("Warning: Could not create JFR output directory: " + e.getMessage());
             }
 
-            jmhBuilder.addProfiler("jfr", "dir=" + jfrOutputDir) // <-- THE FIX                    .forks(1)
+            jmhBuilder.addProfiler("jfr", "dir=" + jfrOutputDir) // <-- THE FIX .forks(1)
                     .threads(1);
         }
         Options opt = jmhBuilder.build();
