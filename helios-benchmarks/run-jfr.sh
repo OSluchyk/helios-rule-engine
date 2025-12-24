@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # Resolve script directory to handle running from root or module dir
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -27,6 +29,17 @@ if [ ! -f "$JAR_FILE" ]; then
     (cd "$PROJECT_ROOT" && mvn clean package -pl helios-benchmarks -am -DskipTests)
 fi
 
-echo "Running SimpleBenchmark (Throughput, Batch 100)..."
-"$JAVA_CMD" -jar "$JAR_FILE" SimpleBenchmark
-#"$JAVA_CMD" -jar "$JAR_FILE" SimpleBenchmark.throughput_batch100 -f 1 -wi 5 -i 5 -p ruleCount=500 -p workloadType=MIXED -p cacheScenario=HOT
+# Clean up previous JFR reports if they exist to avoid confusion
+if [ -d "jfr-reports" ]; then
+    echo "Cleaning up old JFR reports..."
+    rm -rf jfr-reports
+fi
+
+echo "Running SimpleBenchmark in QUICK MODE with JFR Profiling enabled..."
+echo "Configuration: -Dbench.quick=true"
+
+# Updated execution line:
+# 1. -Dbench.quick=true : Activates the 1-minute logic in SimpleBenchmark.java
+# 2. SimpleBenchmark    : The class to run (regex filter)
+# 3. profile            : The argument your main() method looks for to attach the JFR profiler
+"$JAVA_CMD" -Dbench.quick=true -Dbench.profile=true -jar "$JAR_FILE" SimpleBenchmark profile

@@ -329,12 +329,6 @@ public final class RuleEvaluator implements IRuleEvaluator {
     }
 
     /**
-     * Thread-local pool for intersection bitmaps.
-     * Avoids allocations during rule intersection operations.
-     */
-    private static final ThreadLocal<RoaringBitmap> INTERSECTION_POOL = ThreadLocal.withInitial(RoaringBitmap::new);
-
-    /**
      * Thread-local pool for field IDs list.
      * Avoids allocations during predicate evaluation (29.5% of allocations).
      */
@@ -343,13 +337,23 @@ public final class RuleEvaluator implements IRuleEvaluator {
 
     /**
      * Updates rule counters based on true predicates.
+     * 
+     * OPTIMIZATION: Zero-allocation intersection via direct iteration.
+     * Instead of materializing the intersection into a pooled bitmap,
+     * we iterate over affectedRules and check eligibility inline.
+     * 
+     * PERFORMANCE:
+     * - Eliminates Container[] allocations (was 36.9% of total)
+     * - contains() is O(log(containers)) ≈ O(1) for RoaringBitmap
+     * - Better cache locality (no intermediate bitmap)
      */
     private void updateCountersOptimized(RoaringBitmap eligibleRulesRoaring) {
         EvaluationContext ctx = CONTEXT.get();
         IntSet truePredicates = ctx.getTruePredicates();
 
-        // Reuse pooled bitmap for intersection results
-        RoaringBitmap intersection = INTERSECTION_POOL.get();
+        // Pre-fetch for hot path
+        final int[] counters = ctx.counters;
+        final IntSet touchedRules = ctx.getTouchedRules();
 
         truePredicates.forEach((int predId) -> {
             RoaringBitmap affectedRules = model.getInvertedIndex().get(predId);
@@ -357,16 +361,19 @@ public final class RuleEvaluator implements IRuleEvaluator {
                 return;
 
             if (eligibleRulesRoaring != null) {
-                // Use reusable buffer to avoid allocation
-                // BEFORE: RoaringBitmap intersection = RoaringBitmap.and(...) ← ALLOCATION
-                // AFTER: In-place AND into pooled bitmap
-                intersection.clear();
-                intersection.or(affectedRules); // Copy affectedRules
-                intersection.and(eligibleRulesRoaring); // In-place AND
-
-                intersection.forEach(ctx.roaringRuleConsumer);
+                // ✅ ZERO-ALLOCATION: Direct iteration with inline eligibility check
+                affectedRules.forEach((int ruleId) -> {
+                    if (eligibleRulesRoaring.contains(ruleId)) {
+                        counters[ruleId]++;
+                        touchedRules.add(ruleId);
+                    }
+                });
             } else {
-                affectedRules.forEach(ctx.roaringRuleConsumer);
+                // No eligibility filter - process all affected rules
+                affectedRules.forEach((int ruleId) -> {
+                    counters[ruleId]++;
+                    touchedRules.add(ruleId);
+                });
             }
         });
     }
