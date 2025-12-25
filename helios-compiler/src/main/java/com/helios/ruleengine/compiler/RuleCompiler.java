@@ -274,6 +274,10 @@ public class RuleCompiler implements IRuleCompiler {
         Span span = tracer.spanBuilder("build-core-model").startSpan();
         try (Scope scope = span.makeCurrent()) {
             EngineModel.Builder builder = new EngineModel.Builder();
+
+            // Track combination IDs for each rule to populate metadata
+            Map<String, Set<Integer>> ruleToCombinations = new HashMap<>();
+
             for (RuleDefinition def : definitions) {
                 if (!def.enabled())
                     continue; // Skip disabled rules
@@ -291,8 +295,32 @@ public class RuleCompiler implements IRuleCompiler {
                     int combinationId = builder.registerCombination(canonicalKey);
                     // Map this unique combination back to the original logical rule
                     builder.addLogicalRuleMapping(def.ruleCode(), def.priority(), def.description(), combinationId);
+
+                    // Track combination ID for metadata
+                    ruleToCombinations
+                        .computeIfAbsent(def.ruleCode(), k -> new HashSet<>())
+                        .add(combinationId);
                 }
             }
+
+            // Add RuleMetadata for each rule
+            for (RuleDefinition def : definitions) {
+                if (!def.enabled())
+                    continue;
+
+                // Create RuleMetadata with compilation-derived information
+                Set<Integer> combinationIds = ruleToCombinations.getOrDefault(def.ruleCode(), Set.of());
+                com.helios.ruleengine.api.model.RuleMetadata metadata =
+                    com.helios.ruleengine.api.model.RuleMetadata.fromDefinition(def)
+                        .withCompilationMetadata(
+                            combinationIds,
+                            null, // estimatedSelectivity - TODO: calculate from profile
+                            null, // isVectorizable - TODO: determine from conditions
+                            combinationIds.isEmpty() ? "WARNING" : "OK"
+                        );
+                builder.addRuleMetadata(metadata);
+            }
+
             return builder;
         } finally {
             span.end();
