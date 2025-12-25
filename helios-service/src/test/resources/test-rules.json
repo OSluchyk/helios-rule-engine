@@ -1,0 +1,11 @@
+[
+  {
+    "rule_code": "TEST_RULE_1",
+    "priority": 1,
+    "enabled": true,
+    "description": "Test rule for unit tests",
+    "conditions": [
+      {"field": "type", "operator": "EQUAL_TO", "value": "test"}
+    ]
+  }
+]
