@@ -15,6 +15,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -39,6 +40,12 @@ public class EngineModelManager implements IEngineModelManager {
 
     private long lastModifiedTime = -1;
 
+    /**
+     * Optional callback to trigger cache warming after model reload.
+     * This helps address COLD cache P99 latency spikes by pre-populating caches.
+     */
+    private Consumer<EngineModel> cacheWarmupCallback = null;
+
     public EngineModelManager(Path rulesPath, Tracer tracer, IRuleCompiler compiler)
             throws CompilationException, IOException {
         this.rulesPath = rulesPath;
@@ -57,6 +64,31 @@ public class EngineModelManager implements IEngineModelManager {
 
     public EngineModel getEngineModel() {
         return activeModel.get();
+    }
+
+    /**
+     * Sets a callback to be invoked after model reload for cache warming.
+     * <p>
+     * <b>Purpose:</b> Address COLD cache P99 latency spikes by pre-populating caches
+     * with representative data immediately after model reload.
+     * <p>
+     * <b>Usage:</b>
+     * <pre>{@code
+     * manager.setCacheWarmupCallback(model -> {
+     *     // Evaluate representative events to warm up caches
+     *     Event[] warmupEvents = loadWarmupEvents();
+     *     RuleEvaluator evaluator = new RuleEvaluator(model, tracer, true);
+     *     for (Event event : warmupEvents) {
+     *         evaluator.evaluate(event);
+     *     }
+     *     logger.info("Cache warmup completed");
+     * });
+     * }</pre>
+     *
+     * @param callback function to execute after model reload (receives the new model)
+     */
+    public void setCacheWarmupCallback(Consumer<EngineModel> callback) {
+        this.cacheWarmupCallback = callback;
     }
 
     public void start() {
@@ -105,6 +137,24 @@ public class EngineModelManager implements IEngineModelManager {
             this.lastModifiedTime = modifiedTime;
             span.setAttribute("newModel.uniqueCombinations", newModel.getNumRules());
             logger.info("Successfully reloaded and swapped to new rule model.");
+
+            // Trigger cache warmup if callback is configured
+            if (cacheWarmupCallback != null) {
+                Span warmupSpan = tracer.spanBuilder("cache-warmup").startSpan();
+                try (Scope warmupScope = warmupSpan.makeCurrent()) {
+                    logger.info("Starting cache warmup...");
+                    long warmupStart = System.nanoTime();
+                    cacheWarmupCallback.accept(newModel);
+                    long warmupDuration = System.nanoTime() - warmupStart;
+                    warmupSpan.setAttribute("warmupDurationMs", warmupDuration / 1_000_000.0);
+                    logger.info(String.format("Cache warmup completed in %.2f ms", warmupDuration / 1_000_000.0));
+                } catch (Exception e) {
+                    warmupSpan.recordException(e);
+                    logger.log(Level.WARNING, "Cache warmup failed, continuing with cold cache", e);
+                } finally {
+                    warmupSpan.end();
+                }
+            }
         } catch (IOException | RuntimeException e) {
             span.recordException(e);
             throw e;
