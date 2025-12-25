@@ -87,13 +87,23 @@ import static java.nio.file.Paths.*;
  *   java -Dbench.quick=true -Dbench.profile=true
  *        -jar helios-benchmarks/target/benchmarks.jar SimpleBenchmark
  *
+ * Advanced: Control JFR profile settings via JVM args (in @Fork annotation):
+ *   -XX:StartFlightRecording=settings=profile  # Balanced CPU + allocations
+ *   -XX:StartFlightRecording=settings=default  # Lower overhead
+ *
  * Analyze results:
  *   jmc jfr-reports-YYYY-MM-DD/SimpleBenchmark*.jfr
  *
- * KNOWN ISSUE (FIXED):
- * Previous versions had a syntax error on line 628 that prevented JFR from running.
- * The comment "// <-- THE FIX .forks(1)" broke the method chain.
- * This has been corrected to properly call .forks(1).threads(1) after addProfiler().
+ * TROUBLESHOOTING:
+ * - Error "Cannot parse argument 'ettings=profile'": Fixed in this version
+ *   The JMH JFR profiler only accepts 'dir=' parameter, not 'settings='
+ * - JFR files not created: Ensure -Dbench.profile=true is set
+ * - Permission denied: Check write permissions for jfr-reports-* directory
+ *
+ * KNOWN ISSUES (FIXED):
+ * - v1.0: Syntax error "// <-- THE FIX .forks(1)" broke method chain
+ * - v1.1: Invalid parameter ";settings=profile" caused ProfilerException
+ * - v1.2: CURRENT - Uses only valid 'dir=' parameter
  */
 @BenchmarkMode({Mode.Throughput, Mode.SampleTime})
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
@@ -654,13 +664,18 @@ public class SimpleBenchmark {
                 System.out.println("🔍 JFR PROFILING ENABLED");
                 System.out.println("=".repeat(80));
                 System.out.println("Output directory: " + outputPath.toAbsolutePath());
-                System.out.println("Profiling settings:");
-                System.out.println("  - Single fork (no process restarts)");
-                System.out.println("  - Single thread (cleaner stack traces)");
-                System.out.println("  - JFR profile settings (balanced CPU/memory)");
+                System.out.println("\nProfiler configuration:");
+                System.out.println("  - JMH JFR profiler with dir=" + jfrOutputDir);
+                System.out.println("  - Single fork (required for JFR)");
+                System.out.println("  - Single thread (cleaner profiling data)");
+                System.out.println("  - Default JFR settings (to customize, add JVM args in @Fork)");
+                System.out.println("\nJFR files will be generated for each benchmark method:");
+                System.out.println("  - SimpleBenchmark.throughput_batch100.jfr");
+                System.out.println("  - SimpleBenchmark.latency_single.jfr");
+                System.out.println("  - SimpleBenchmark.throughput_concurrent.jfr");
                 System.out.println("\nAfter completion, analyze with:");
                 System.out.println("  jmc " + jfrOutputDir + "/*.jfr");
-                System.out.println("  OR upload to https://github.com/openjdk/jmc");
+                System.out.println("  OR upload to: https://jmc.openjdk.java.net");
                 System.out.println("=".repeat(80) + "\n");
             } catch (java.io.IOException e) {
                 System.err.println("⚠️  ERROR: Could not create JFR output directory: " + e.getMessage());
@@ -668,8 +683,10 @@ public class SimpleBenchmark {
             }
 
             // Configure JMH JFR profiler
-            // Parameters: dir=<output>, settings=profile (CPU + allocations)
-            jmhBuilder.addProfiler("jfr", "dir=" + jfrOutputDir + ";settings=profile")
+            // Note: JFR profiler only accepts 'dir' parameter in JMH 1.x
+            // The 'settings' parameter is controlled via JVM flight recorder options
+            // For detailed profiling, use: -XX:StartFlightRecording:settings=profile
+            jmhBuilder.addProfiler("jfr", "dir=" + jfrOutputDir)
                     .forks(1)  // Force single fork for profiling (required for JFR)
                     .threads(1);  // Single thread for cleaner profiling data
         }
