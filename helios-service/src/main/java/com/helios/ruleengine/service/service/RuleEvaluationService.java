@@ -1,6 +1,8 @@
 package com.helios.ruleengine.service.service;
 
 import com.helios.ruleengine.api.model.Event;
+import com.helios.ruleengine.api.model.EvaluationResult;
+import com.helios.ruleengine.api.model.ExplanationResult;
 import com.helios.ruleengine.api.model.MatchResult;
 import com.helios.ruleengine.infra.management.EngineModelManager;
 import com.helios.ruleengine.runtime.evaluation.RuleEvaluator;
@@ -10,6 +12,7 @@ import io.opentelemetry.api.trace.Span;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -63,6 +66,45 @@ public class RuleEvaluationService {
     }
 
     /**
+     * Evaluates an event with detailed execution tracing.
+     *
+     * <p><b>Performance Impact:</b> ~10% overhead. Use for debugging only.
+     *
+     * @param event the event to evaluate
+     * @return evaluation result with trace data
+     */
+    public EvaluationResult evaluateWithTrace(Event event) {
+        EngineModel currentModel = modelManager.getEngineModel();
+        RuleEvaluator evaluator = getOrRefreshEvaluator(currentModel);
+        return evaluator.evaluateWithTrace(event);
+    }
+
+    /**
+     * Explains why a specific rule matched or didn't match an event.
+     *
+     * @param event the event to evaluate
+     * @param ruleCode the rule to explain
+     * @return explanation result
+     */
+    public ExplanationResult explainRule(Event event, String ruleCode) {
+        EngineModel currentModel = modelManager.getEngineModel();
+        RuleEvaluator evaluator = getOrRefreshEvaluator(currentModel);
+        return evaluator.explainRule(event, ruleCode);
+    }
+
+    /**
+     * Evaluates multiple events in batch.
+     *
+     * @param events list of events to evaluate
+     * @return list of match results
+     */
+    public List<MatchResult> evaluateBatch(List<Event> events) {
+        EngineModel currentModel = modelManager.getEngineModel();
+        RuleEvaluator evaluator = getOrRefreshEvaluator(currentModel);
+        return evaluator.evaluateBatch(events);
+    }
+
+    /**
      * Gets detailed metrics from the current thread's evaluator.
      *
      * @return metrics map
@@ -70,6 +112,27 @@ public class RuleEvaluationService {
     public Map<String, Object> getMetrics() {
         RuleEvaluator evaluator = evaluatorPool.get();
         return evaluator.getDetailedMetrics();
+    }
+
+    /**
+     * Helper method to get evaluator and refresh if stale.
+     *
+     * @param currentModel the current engine model
+     * @return evaluator instance
+     */
+    private RuleEvaluator getOrRefreshEvaluator(EngineModel currentModel) {
+        RuleEvaluator evaluator = evaluatorPool.get();
+        if (evaluator.getModel() != currentModel) {
+            Span span = tracer.spanBuilder("evaluator-refresh").startSpan();
+            try {
+                span.addEvent("Stale model detected. Creating new evaluator.");
+                evaluator = createNewEvaluator(currentModel);
+                evaluatorPool.set(evaluator);
+            } finally {
+                span.end();
+            }
+        }
+        return evaluator;
     }
 
     /**
