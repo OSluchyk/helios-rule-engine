@@ -313,6 +313,23 @@ public class SimpleBenchmark {
         bh.consume(result);
     }
 
+    /**
+     * BENCHMARK 4: Trace overhead validation
+     * Compares standard evaluation vs. evaluation with tracing enabled
+     * <p>
+     * <b>Purpose:</b> Validates the claimed 10% overhead for tracing.
+     * <p>
+     * <b>Expected Result:</b> evaluateWithTrace should be ~10% slower than evaluate()
+     */
+    @Benchmark
+    @BenchmarkMode(Mode.AverageTime)
+    @OutputTimeUnit(TimeUnit.NANOSECONDS)
+    public MatchResult latency_withTrace() {
+        Event event = getNextEvent();
+        var result = evaluator.evaluateWithTrace(event);
+        return result.matchResult();
+    }
+
     // ========================================================================
     // HELPER METHODS
     // ========================================================================
