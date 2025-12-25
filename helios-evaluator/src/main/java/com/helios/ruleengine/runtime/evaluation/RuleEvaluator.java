@@ -489,10 +489,77 @@ public final class RuleEvaluator implements IRuleEvaluator {
                 model.getFieldMinWeight(a),
                 model.getFieldMinWeight(b)));
 
+        // Get tracing state before evaluation
+        final boolean tracing = tracingEnabled.get();
+        final IntSet truePredicatesBefore = tracing ? new it.unimi.dsi.fastutil.ints.IntOpenHashSet(ctx.getTruePredicates()) : null;
+
         // Evaluate predicates field by field
         for (int fieldId : fieldIds) {
             predicateEvaluator.evaluateField(fieldId, encodedAttributes, ctx, eligiblePredicateIds);
         }
+
+        // Collect trace data for predicates that were evaluated
+        if (tracing) {
+            collectPredicateTraceData(eligiblePredicateIds, ctx.getTruePredicates(), truePredicatesBefore, encodedAttributes);
+        }
+    }
+
+    /**
+     * Collects trace data for evaluated predicates.
+     * This method is only called when tracing is enabled.
+     *
+     * @param eligiblePredicateIds predicates that were eligible for evaluation
+     * @param truePredicatesAfter predicates that evaluated to true
+     * @param truePredicatesBefore predicates that were true before this evaluation
+     * @param encodedAttributes event attributes for extracting actual values
+     */
+    private void collectPredicateTraceData(IntSet eligiblePredicateIds, IntSet truePredicatesAfter,
+                                            IntSet truePredicatesBefore, Int2ObjectMap<Object> encodedAttributes) {
+        TraceCollector collector = traceCollector.get();
+
+        // Determine which predicates to trace
+        IntSet predicatesToTrace;
+        if (eligiblePredicateIds != null) {
+            predicatesToTrace = eligiblePredicateIds;
+        } else {
+            // If no eligible filter, trace all unique predicates (convert Predicate[] to IntSet)
+            predicatesToTrace = new it.unimi.dsi.fastutil.ints.IntOpenHashSet();
+            for (int i = 0; i < model.getUniquePredicates().length; i++) {
+                predicatesToTrace.add(i);
+            }
+        }
+
+        // For each eligible predicate, determine if it matched and collect trace data
+        predicatesToTrace.forEach((int predicateId) -> {
+            // Skip predicates that were already true before evaluation (not evaluated in this pass)
+            if (truePredicatesBefore != null && truePredicatesBefore.contains(predicateId)) {
+                return;
+            }
+
+            boolean matched = truePredicatesAfter.contains(predicateId);
+
+            // Get predicate metadata from model
+            var predicate = model.getPredicate(predicateId);
+            if (predicate == null) {
+                return; // Skip if predicate metadata not available
+            }
+
+            String fieldName = model.getFieldDictionary().decode(predicate.fieldId());
+            String operator = predicate.operator().name();
+            Object expectedValue = predicate.value();
+
+            // Get actual value from event attributes
+            Object actualValue = encodedAttributes.get(predicate.fieldId());
+
+            // Decode if dictionary-encoded
+            if (actualValue instanceof Integer && predicate.operator().name().contains("EQUAL")) {
+                actualValue = model.getValueDictionary().decode((Integer) actualValue);
+            }
+
+            // Record the outcome (timing data not available at this level, use 0)
+            collector.addPredicateOutcome(predicateId, fieldName, operator,
+                                         expectedValue, actualValue, matched, 0);
+        });
     }
 
     /**
@@ -653,21 +720,76 @@ public final class RuleEvaluator implements IRuleEvaluator {
         int[] counters = ctx.counters;
         int[] needs = model.getPredicateCounts();
 
+        // Get tracing state
+        final boolean tracing = tracingEnabled.get();
+        final TraceCollector collector = tracing ? traceCollector.get() : null;
+
         // Avoid creating IntArrayList (which iterates the set) and use forEach directly
         // Note: Prefetching is removed as it requires index-based access, but the
         // allocation savings
         // from avoiding IntArrayList and Iterator outweigh the prefetching benefits for
         // this set size.
         touchedRules.forEach((int ruleId) -> {
-            if (counters[ruleId] >= needs[ruleId]) {
+            int predicatesMatched = counters[ruleId];
+            int predicatesRequired = needs[ruleId];
+            boolean matched = predicatesMatched >= predicatesRequired;
+
+            if (matched) {
                 List<String> ruleCodes = model.getCombinationRuleCodes(ruleId);
                 List<Integer> priorities = model.getCombinationPrioritiesAll(ruleId);
 
                 for (int j = 0; j < ruleCodes.size(); j++) {
                     ctx.addMatchedRule(ruleId, ruleCodes.get(j), priorities.get(j), "");
+
+                    // Collect trace data for matched rules
+                    if (tracing && collector != null) {
+                        collector.addRuleDetail(ruleId, ruleCodes.get(j), priorities.get(j),
+                                              predicatesMatched, predicatesRequired, true, List.of());
+                    }
+                }
+            } else if (tracing && collector != null) {
+                // Collect trace data for non-matched touched rules
+                List<String> ruleCodes = model.getCombinationRuleCodes(ruleId);
+                List<Integer> priorities = model.getCombinationPrioritiesAll(ruleId);
+
+                // Identify failed predicates
+                List<String> failedPredicates = computeFailedPredicates(ruleId, ctx.getTruePredicates());
+
+                for (int j = 0; j < ruleCodes.size(); j++) {
+                    collector.addRuleDetail(ruleId, ruleCodes.get(j), priorities.get(j),
+                                          predicatesMatched, predicatesRequired, false, failedPredicates);
                 }
             }
         });
+    }
+
+    /**
+     * Computes the list of failed predicates for a rule.
+     * Only called during tracing.
+     *
+     * @param combinationId the combination ID
+     * @param truePredicates predicates that evaluated to true
+     * @return list of failed predicate descriptions
+     */
+    private List<String> computeFailedPredicates(int combinationId, IntSet truePredicates) {
+        List<String> failed = new ArrayList<>();
+        it.unimi.dsi.fastutil.ints.IntList predicateIds = model.getCombinationPredicateIds(combinationId);
+
+        predicateIds.forEach((int predicateId) -> {
+            if (!truePredicates.contains(predicateId)) {
+                var predicate = model.getPredicate(predicateId);
+                if (predicate != null) {
+                    String fieldName = model.getFieldDictionary().decode(predicate.fieldId());
+                    String desc = String.format("%s %s %s",
+                                              fieldName,
+                                              predicate.operator().name(),
+                                              predicate.value());
+                    failed.add(desc);
+                }
+            }
+        });
+
+        return failed;
     }
 
     /**
@@ -793,6 +915,50 @@ public final class RuleEvaluator implements IRuleEvaluator {
      */
     public BaseConditionEvaluator getBaseConditionEvaluator() {
         return baseConditionEvaluator;
+    }
+
+    /**
+     * Cleans up ThreadLocal resources for the current thread.
+     * <p>
+     * <b>When to use:</b> Call this method when a thread is being returned to a thread pool
+     * or when shutting down the application to prevent ThreadLocal memory leaks.
+     * <p>
+     * <b>Thread Safety:</b> This method only cleans up ThreadLocal state for the calling thread.
+     * It does not affect other threads.
+     * <p>
+     * <b>Production Usage (Servlet Container):</b>
+     * <pre>{@code
+     * // In servlet filter or listener
+     * @Override
+     * public void destroy() {
+     *     evaluator.cleanupThreadLocals();
+     * }
+     * }</pre>
+     * <p>
+     * <b>Production Usage (Thread Pool):</b>
+     * <pre>{@code
+     * // Wrap task execution
+     * executor.execute(() -> {
+     *     try {
+     *         // ... use evaluator ...
+     *     } finally {
+     *         evaluator.cleanupThreadLocals();
+     *     }
+     * });
+     * }</pre>
+     */
+    public void cleanupThreadLocals() {
+        // Remove ThreadLocal entries for current thread
+        contextPool.remove();
+        tracingEnabled.remove();
+        traceCollector.remove();
+        counterUpdaterPool.remove();
+        FIELD_IDS_BUFFER.remove();
+        INTERSECTION_BUFFER.remove();
+
+        if (logger.isDebugEnabled()) {
+            logger.debug("ThreadLocal cleanup completed for thread: " + Thread.currentThread().getName());
+        }
     }
 
     // ════════════════════════════════════════════════════════════════════════════════
