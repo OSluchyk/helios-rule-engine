@@ -84,19 +84,19 @@ import static java.nio.file.Paths.*;
  * ./helios-benchmarks/run-jfr.sh
  *
  * OR manually via JAR:
- *   java -Dbench.quick=true -Dbench.profile=true
- *        -jar helios-benchmarks/target/benchmarks.jar SimpleBenchmark
+ * java -Dbench.quick=true -Dbench.profile=true
+ * -jar helios-benchmarks/target/benchmarks.jar SimpleBenchmark
  *
  * Advanced: Control JFR profile settings via JVM args (in @Fork annotation):
- *   -XX:StartFlightRecording=settings=profile  # Balanced CPU + allocations
- *   -XX:StartFlightRecording=settings=default  # Lower overhead
+ * -XX:StartFlightRecording=settings=profile # Balanced CPU + allocations
+ * -XX:StartFlightRecording=settings=default # Lower overhead
  *
  * Analyze results:
- *   jmc jfr-reports-YYYY-MM-DD/SimpleBenchmark*.jfr
+ * jmc jfr-reports-YYYY-MM-DD/SimpleBenchmark*.jfr
  *
  * TROUBLESHOOTING:
  * - Error "Cannot parse argument 'ettings=profile'": Fixed in this version
- *   The JMH JFR profiler only accepts 'dir=' parameter, not 'settings='
+ * The JMH JFR profiler only accepts 'dir=' parameter, not 'settings='
  * - JFR files not created: Ensure -Dbench.profile=true is set
  * - Permission denied: Check write permissions for jfr-reports-* directory
  *
@@ -105,7 +105,7 @@ import static java.nio.file.Paths.*;
  * - v1.1: Invalid parameter ";settings=profile" caused ProfilerException
  * - v1.2: CURRENT - Uses only valid 'dir=' parameter
  */
-@BenchmarkMode({Mode.Throughput, Mode.SampleTime})
+@BenchmarkMode({ Mode.Throughput, Mode.SampleTime })
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
 @State(Scope.Benchmark)
 @Fork(value = 1, jvmArgs = {
@@ -143,13 +143,13 @@ public class SimpleBenchmark {
     // TEST PARAMETERS
     // ========================================================================
 
-    @Param({"500", "2000", "5000"}) // Progressive rule counts
+    @Param({ "500", "2000", "5000" }) // Progressive rule counts
     private int ruleCount;
 
-    @Param({"MIXED"}) // Default to realistic mixed workload
+    @Param({ "MIXED" }) // Default to realistic mixed workload
     private String workloadType;
 
-    @Param({"HOT", "WARM", "COLD"}) // Cache scenarios
+    @Param({ "HOT", "WARM", "COLD" }) // Cache scenarios
     private String cacheScenario;
 
     // ========================================================================
@@ -319,7 +319,8 @@ public class SimpleBenchmark {
      * <p>
      * <b>Purpose:</b> Validates the claimed 10% overhead for tracing.
      * <p>
-     * <b>Expected Result:</b> evaluateWithTrace should be ~10% slower than evaluate()
+     * <b>Expected Result:</b> evaluateWithTrace should be ~10% slower than
+     * evaluate()
      */
     @Benchmark
     @BenchmarkMode(Mode.AverageTime)
@@ -327,6 +328,33 @@ public class SimpleBenchmark {
     public MatchResult latency_withTrace() {
         Event event = getNextEvent();
         var result = evaluator.evaluateWithTrace(event);
+        return result.matchResult();
+    }
+
+    @Benchmark
+    @BenchmarkMode(Mode.AverageTime)
+    @OutputTimeUnit(TimeUnit.NANOSECONDS)
+    public MatchResult latency_withTrace_BASIC() {
+        Event event = getNextEvent();
+        var result = evaluator.evaluateWithTrace(event, com.helios.ruleengine.api.model.TraceLevel.BASIC, false);
+        return result.matchResult();
+    }
+
+    @Benchmark
+    @BenchmarkMode(Mode.AverageTime)
+    @OutputTimeUnit(TimeUnit.NANOSECONDS)
+    public MatchResult latency_withTrace_STANDARD() {
+        Event event = getNextEvent();
+        var result = evaluator.evaluateWithTrace(event, com.helios.ruleengine.api.model.TraceLevel.STANDARD, false);
+        return result.matchResult();
+    }
+
+    @Benchmark
+    @BenchmarkMode(Mode.AverageTime)
+    @OutputTimeUnit(TimeUnit.NANOSECONDS)
+    public MatchResult latency_withTrace_CONDITIONAL() {
+        Event event = getNextEvent();
+        var result = evaluator.evaluateWithTrace(event, com.helios.ruleengine.api.model.TraceLevel.FULL, true);
         return result.matchResult();
     }
 
@@ -349,10 +377,10 @@ public class SimpleBenchmark {
         int mediumRatio = count <= 1000 ? 30 : (count <= 5000 ? 40 : 40);
         int complexRatio = 100 - simpleRatio - mediumRatio;
 
-        String[] statuses = {"ACTIVE", "PENDING", "SUSPENDED", "CLOSED"};
-        String[] countries = {"US", "CA", "UK", "DE", "FR", "JP", "AU", "BR", "IN", "CN"};
-        String[] tiers = {"BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"};
-        String[] products = {"ELECTRONICS", "CLOTHING", "FOOD", "BOOKS", "TOYS"};
+        String[] statuses = { "ACTIVE", "PENDING", "SUSPENDED", "CLOSED" };
+        String[] countries = { "US", "CA", "UK", "DE", "FR", "JP", "AU", "BR", "IN", "CN" };
+        String[] tiers = { "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND" };
+        String[] products = { "ELECTRONICS", "CLOTHING", "FOOD", "BOOKS", "TOYS" };
 
         for (int i = 0; i < count; i++) {
             StringBuilder rule = new StringBuilder();
@@ -438,10 +466,10 @@ public class SimpleBenchmark {
         List<Event> events = new ArrayList<>(count);
         Random rand = new Random(42);
 
-        String[] statuses = {"ACTIVE", "PENDING", "SUSPENDED", "CLOSED"};
-        String[] countries = {"US", "CA", "UK", "DE", "FR", "JP", "AU", "BR", "IN", "CN"};
-        String[] tiers = {"BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"};
-        String[] products = {"ELECTRONICS", "CLOTHING", "FOOD", "BOOKS", "TOYS"};
+        String[] statuses = { "ACTIVE", "PENDING", "SUSPENDED", "CLOSED" };
+        String[] countries = { "US", "CA", "UK", "DE", "FR", "JP", "AU", "BR", "IN", "CN" };
+        String[] tiers = { "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND" };
+        String[] products = { "ELECTRONICS", "CLOTHING", "FOOD", "BOOKS", "TOYS" };
 
         for (int i = 0; i < count; i++) {
             Map<String, Object> attrs = new HashMap<>();
@@ -704,8 +732,8 @@ public class SimpleBenchmark {
             // The 'settings' parameter is controlled via JVM flight recorder options
             // For detailed profiling, use: -XX:StartFlightRecording:settings=profile
             jmhBuilder.addProfiler("jfr", "dir=" + jfrOutputDir)
-                    .forks(1)  // Force single fork for profiling (required for JFR)
-                    .threads(1);  // Single thread for cleaner profiling data
+                    .forks(1) // Force single fork for profiling (required for JFR)
+                    .threads(1); // Single thread for cleaner profiling data
         }
         Options opt = jmhBuilder.build();
 
