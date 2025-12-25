@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs'
+import { RulesList } from './components/helios/RulesList'
 
 function App() {
   const [activeTab, setActiveTab] = useState('overview')
@@ -47,12 +48,7 @@ function App() {
           </TabsContent>
 
           <TabsContent value="rules">
-            <div className="rounded-lg border p-6">
-              <p className="text-muted-foreground">Rules browser will be implemented here.</p>
-              <p className="text-sm text-muted-foreground mt-2">
-                Reference: helios-mock-ui/src/app/components/helios/RuleListView.tsx
-              </p>
-            </div>
+            <RulesList />
           </TabsContent>
 
           <TabsContent value="builder">

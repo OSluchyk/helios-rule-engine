@@ -9,15 +9,37 @@ Production web interface for managing, testing, and monitoring the Helios Rule E
 - npm >= 9.0.0
 - Helios Rule Engine backend running on http://localhost:8080
 
+### Configuration
+
+The UI is configured using environment variables in a `.env` file:
+
+```bash
+# Copy example configuration
+cp .env.example .env
+
+# Edit configuration as needed
+# VITE_API_URL=http://localhost:8080
+# VITE_ENABLE_DEBUG_MODE=false
+# VITE_ENABLE_EXPERIMENTAL_FEATURES=false
+```
+
+**Environment Variables:**
+- `VITE_API_URL` - Backend API URL (default: `http://localhost:8080`)
+  - In development, Vite proxy automatically forwards requests
+  - Only change for production builds or custom backend URLs
+- `VITE_ENABLE_DEBUG_MODE` - Enable debug logging (default: `false`)
+- `VITE_ENABLE_EXPERIMENTAL_FEATURES` - Enable experimental features (default: `false`)
+
 ### Development
 
 ```bash
 # Install dependencies
 npm install
 
-# Start development server
+# Start development server (automatically starts backend if needed)
 ./start-ui.sh
-# OR
+
+# OR manually
 npm run dev
 
 # Open browser to http://localhost:3000
