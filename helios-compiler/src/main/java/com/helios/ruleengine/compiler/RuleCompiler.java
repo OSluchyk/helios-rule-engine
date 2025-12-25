@@ -32,6 +32,7 @@ public class RuleCompiler implements IRuleCompiler {
     private static final Logger logger = Logger.getLogger(RuleCompiler.class.getName());
     private final ObjectMapper objectMapper = new ObjectMapper();
     private Tracer tracer;
+    private com.helios.ruleengine.api.CompilationListener listener;
 
     public RuleCompiler() {
         this(OpenTelemetry.noop().getTracer("helios-compiler"));
@@ -39,6 +40,11 @@ public class RuleCompiler implements IRuleCompiler {
 
     public RuleCompiler(Tracer tracer) {
         this.tracer = tracer;
+    }
+
+    @Override
+    public void setCompilationListener(com.helios.ruleengine.api.CompilationListener listener) {
+        this.listener = listener;
     }
 
     /**
@@ -68,12 +74,24 @@ public class RuleCompiler implements IRuleCompiler {
         try (Scope scope = span.makeCurrent()) {
             span.setAttribute("ruleFilePath", rulesPath.toString());
             long startTime = System.nanoTime();
+            final int TOTAL_STAGES = 7;
 
+            // Stage 1: PARSING
+            notifyStageStart("PARSING", 1, TOTAL_STAGES);
+            long stageStart = System.nanoTime();
             List<RuleDefinition> definitions = loadRules(rulesPath);
             span.setAttribute("logicalRuleCount", definitions.size());
+            notifyStageComplete("PARSING", stageStart, Map.of("ruleCount", definitions.size()));
 
+            // Stage 2: VALIDATION
+            notifyStageStart("VALIDATION", 2, TOTAL_STAGES);
+            stageStart = System.nanoTime();
             List<RuleDefinition> validRules = validateAndCanonize(definitions);
+            notifyStageComplete("VALIDATION", stageStart, Map.of("validRuleCount", validRules.size()));
 
+            // Stage 3: FACTORIZATION
+            notifyStageStart("FACTORIZATION", 3, TOTAL_STAGES);
+            stageStart = System.nanoTime();
             // --- FIX APPLIED: Re-integrated SmartIsAnyOfFactorizer ---
             // Apply compile-time rule optimizations, starting with IS_ANY_OF factorization.
             // This rewrites rules that share common signatures (non-IS_ANY_OF conditions)
@@ -83,15 +101,36 @@ public class RuleCompiler implements IRuleCompiler {
             List<RuleDefinition> factoredRules = factorizer.factorize(validRules);
             span.setAttribute("factoredRuleCount", factoredRules.size());
             // --- END FIX ---
+            notifyStageComplete("FACTORIZATION", stageStart, Map.of("factoredRuleCount", factoredRules.size()));
 
+            // Stage 4: DICTIONARY_ENCODING
+            notifyStageStart("DICTIONARY_ENCODING", 4, TOTAL_STAGES);
+            stageStart = System.nanoTime();
             Dictionary fieldDictionary = new Dictionary();
             Dictionary valueDictionary = new Dictionary();
             buildDictionaries(factoredRules, fieldDictionary, valueDictionary);
+            notifyStageComplete("DICTIONARY_ENCODING", stageStart, Map.of(
+                "fieldCount", fieldDictionary.size(),
+                "valueCount", valueDictionary.size()));
 
+            // Stage 5: SELECTIVITY_PROFILING
+            notifyStageStart("SELECTIVITY_PROFILING", 5, TOTAL_STAGES);
+            stageStart = System.nanoTime();
             SelectivityProfile profile = profileSelectivity(factoredRules, fieldDictionary, valueDictionary);
+            notifyStageComplete("SELECTIVITY_PROFILING", stageStart, Map.of());
 
+            // Stage 6: MODEL_BUILDING
+            notifyStageStart("MODEL_BUILDING", 6, TOTAL_STAGES);
+            stageStart = System.nanoTime();
             EngineModel.Builder builder = buildCoreModelWithDeduplication(factoredRules, profile, fieldDictionary,
                     valueDictionary);
+            notifyStageComplete("MODEL_BUILDING", stageStart, Map.of(
+                "totalCombinations", builder.getTotalExpandedCombinations(),
+                "uniqueCombinations", builder.getUniqueCombinationCount()));
+
+            // Stage 7: INDEX_BUILDING (happens in builder.build())
+            notifyStageStart("INDEX_BUILDING", 7, TOTAL_STAGES);
+            stageStart = System.nanoTime();
 
             long compilationTime = System.nanoTime() - startTime;
             span.setAttribute("compilationTimeMs", TimeUnit.NANOSECONDS.toMillis(compilationTime));
@@ -120,14 +159,23 @@ public class RuleCompiler implements IRuleCompiler {
                     compilationTime,
                     metadata);
 
-            return builder.withStats(stats)
+            EngineModel model = builder.withStats(stats)
                     .withFieldDictionary(fieldDictionary)
                     .withValueDictionary(valueDictionary)
                     .withSelectionStrategy(strategy)
                     .build();
 
+            notifyStageComplete("INDEX_BUILDING", stageStart, Map.of(
+                "predicateCount", builder.getPredicateCount()));
+
+            return model;
+
         } catch (IOException | CompilationException e) {
             span.recordException(e);
+            // Notify listener of error
+            if (listener != null) {
+                listener.onError("COMPILATION", e);
+            }
             throw e;
         } finally {
             span.end();
@@ -141,6 +189,29 @@ public class RuleCompiler implements IRuleCompiler {
 
     public EngineModel compile(Path rulesPath) throws IOException, CompilationException {
         return compile(rulesPath, SelectionStrategy.FIRST_MATCH);
+    }
+
+    /**
+     * Helper method to notify listener when a stage starts.
+     * No-op if listener is null (zero overhead).
+     */
+    private void notifyStageStart(String stageName, int stageNumber, int totalStages) {
+        if (listener != null) {
+            listener.onStageStart(stageName, stageNumber, totalStages);
+        }
+    }
+
+    /**
+     * Helper method to notify listener when a stage completes.
+     * No-op if listener is null (zero overhead).
+     */
+    private void notifyStageComplete(String stageName, long stageStartNanos, Map<String, Object> metrics) {
+        if (listener != null) {
+            long duration = System.nanoTime() - stageStartNanos;
+            var result = new com.helios.ruleengine.api.CompilationListener.StageResult(
+                stageName, duration, metrics);
+            listener.onStageComplete(stageName, result);
+        }
     }
 
     private void buildDictionaries(List<RuleDefinition> definitions, Dictionary fieldDictionary,
