@@ -60,10 +60,13 @@
         </dependency>
 
         <!-- OpenTelemetry Integration -->
+        <!-- TODO: Fix OpenTelemetry version conflict with helios-core -->
+        <!--
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-opentelemetry</artifactId>
         </dependency>
+        -->
 
         <!-- SmallRye Health for health checks -->
         <dependency>
@@ -76,7 +79,7 @@
             <groupId>com.helios</groupId>
             <artifactId>helios-compiler</artifactId>
             <version>${project.version}</version>
-            <scope>test</scope>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
