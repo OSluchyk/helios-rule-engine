@@ -21,9 +21,17 @@ public interface IRuleCompiler {
 
     /**
      * Sets the tracer for observability.
-     * 
+     *
      * @param tracer the OpenTelemetry tracer
      */
     default void setTracer(Tracer tracer) {
+    }
+
+    /**
+     * Sets a compilation listener for tracking compilation progress.
+     *
+     * @param listener the compilation listener (null to disable)
+     */
+    default void setCompilationListener(CompilationListener listener) {
     }
 }
