@@ -9,6 +9,7 @@ import type {
   MatchResult,
   EvaluationResult,
   ExplanationResult,
+  BatchEvaluationResult,
   TraceLevel,
 } from '../types/api';
 
@@ -51,10 +52,10 @@ export const explainRule = async (
 };
 
 /**
- * Evaluate multiple events in batch
+ * Evaluate multiple events in batch with aggregated statistics
  */
-export const evaluateBatch = async (events: Event[]): Promise<MatchResult[]> => {
-  return post<MatchResult[]>('/evaluate/batch', events);
+export const evaluateBatch = async (events: Event[]): Promise<BatchEvaluationResult> => {
+  return post<BatchEvaluationResult>('/evaluate/batch', events);
 };
 
 /**
