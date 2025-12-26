@@ -1,0 +1,417 @@
+/**
+ * EvaluationView - Interactive rule evaluation and debugging interface
+ */
+
+import { useState } from 'react';
+import { useEvaluateWithTrace, useExplainRule } from '../../../hooks/useEvaluation';
+import type { Event, TraceLevel, EvaluationResult, ExplanationResult } from '../../../types/api';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { Button } from '../ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { Alert, AlertDescription } from '../ui/alert';
+
+export function EvaluationView() {
+  const [eventJson, setEventJson] = useState(JSON.stringify({
+    eventId: 'test-001',
+    timestamp: Date.now(),
+    attributes: {
+      amount: 1500.0,
+      transaction_count: 12,
+      time_window: 45,
+      total_spend: 15000.0
+    }
+  }, null, 2));
+
+  const [traceLevel, setTraceLevel] = useState<TraceLevel>('FULL');
+  const [selectedRuleForExplanation, setSelectedRuleForExplanation] = useState('');
+
+  const evaluateMutation = useEvaluateWithTrace();
+  const explainMutation = useExplainRule();
+
+  const handleEvaluate = () => {
+    try {
+      const event: Event = JSON.parse(eventJson);
+      evaluateMutation.mutate({ event, level: traceLevel });
+    } catch (error) {
+      console.error('Invalid JSON:', error);
+    }
+  };
+
+  const handleExplain = () => {
+    if (!selectedRuleForExplanation) return;
+    try {
+      const event: Event = JSON.parse(eventJson);
+      explainMutation.mutate({ ruleCode: selectedRuleForExplanation, event });
+    } catch (error) {
+      console.error('Invalid JSON:', error);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold">Rule Evaluation & Debugging</h2>
+        <p className="text-muted-foreground">
+          Test rules with real events and debug with execution traces
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left Panel: Event Input */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Event Input</CardTitle>
+            <CardDescription>
+              Enter event JSON to evaluate against rules
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Event JSON
+              </label>
+              <textarea
+                value={eventJson}
+                onChange={(e) => setEventJson(e.target.value)}
+                className="w-full h-64 p-3 border rounded-md font-mono text-sm"
+                placeholder="Enter event JSON..."
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Trace Level
+                <span className="text-muted-foreground ml-2 font-normal">
+                  (Performance impact varies)
+                </span>
+              </label>
+              <select
+                value={traceLevel}
+                onChange={(e) => setTraceLevel(e.target.value as TraceLevel)}
+                className="w-full p-2 border rounded-md"
+              >
+                <option value="NONE">NONE - No tracing (fastest)</option>
+                <option value="BASIC">BASIC - Rule matches only (~34% overhead)</option>
+                <option value="STANDARD">STANDARD - + Predicate outcomes (~51% overhead)</option>
+                <option value="FULL">FULL - + Field values (~53% overhead)</option>
+              </select>
+            </div>
+
+            <Button
+              onClick={handleEvaluate}
+              disabled={evaluateMutation.isPending}
+              className="w-full"
+            >
+              {evaluateMutation.isPending ? 'Evaluating...' : 'Evaluate Event'}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Right Panel: Results */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Evaluation Results</CardTitle>
+            <CardDescription>
+              Matched rules and performance metrics
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {evaluateMutation.isError && (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  Error: {evaluateMutation.error.message}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {evaluateMutation.isSuccess && (
+              <EvaluationResults
+                result={evaluateMutation.data}
+                onExplainRule={(ruleCode) => {
+                  setSelectedRuleForExplanation(ruleCode);
+                  handleExplain();
+                }}
+              />
+            )}
+
+            {!evaluateMutation.data && !evaluateMutation.isError && (
+              <div className="text-center text-muted-foreground py-8">
+                Enter an event and click "Evaluate" to see results
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Trace Visualization */}
+      {evaluateMutation.data?.trace && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Execution Trace</CardTitle>
+            <CardDescription>
+              Detailed breakdown of rule evaluation
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="timing">
+              <TabsList>
+                <TabsTrigger value="timing">Timing Breakdown</TabsTrigger>
+                <TabsTrigger value="predicates">Predicate Outcomes</TabsTrigger>
+                <TabsTrigger value="rules">Rule Details</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="timing" className="space-y-4">
+                <TimingBreakdown trace={evaluateMutation.data.trace} />
+              </TabsContent>
+
+              <TabsContent value="predicates" className="space-y-4">
+                <PredicateOutcomes trace={evaluateMutation.data.trace} />
+              </TabsContent>
+
+              <TabsContent value="rules" className="space-y-4">
+                <RuleDetailsView trace={evaluateMutation.data.trace} />
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Rule Explanation */}
+      {explainMutation.data && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Rule Explanation: {explainMutation.data.rule_code}</CardTitle>
+            <CardDescription>
+              {explainMutation.data.summary}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <RuleExplanation explanation={explainMutation.data} />
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// Sub-components
+
+function EvaluationResults({
+  result,
+  onExplainRule,
+}: {
+  result: EvaluationResult;
+  onExplainRule: (ruleCode: string) => void;
+}) {
+  const { match_result } = result;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="p-3 bg-muted rounded-md">
+          <div className="text-sm text-muted-foreground">Matched Rules</div>
+          <div className="text-2xl font-bold">{match_result.matchedRules.length}</div>
+        </div>
+        <div className="p-3 bg-muted rounded-md">
+          <div className="text-sm text-muted-foreground">Evaluation Time</div>
+          <div className="text-2xl font-bold">
+            {(match_result.evaluationTimeNanos / 1_000_000).toFixed(2)}ms
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h4 className="font-medium mb-2">Matched Rules:</h4>
+        {match_result.matchedRules.length === 0 ? (
+          <p className="text-muted-foreground">No rules matched</p>
+        ) : (
+          <div className="space-y-2">
+            {match_result.matchedRules.map((rule) => (
+              <div
+                key={rule.ruleCode}
+                className="flex items-center justify-between p-3 border rounded-md"
+              >
+                <div>
+                  <div className="font-medium">{rule.ruleCode}</div>
+                  <div className="text-sm text-muted-foreground">
+                    Priority: {rule.priority}
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onExplainRule(rule.ruleCode)}
+                >
+                  Explain
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TimingBreakdown({ trace }: { trace: EvaluationResult['trace'] }) {
+  if (!trace) return null;
+
+  const stages = [
+    { name: 'Dictionary Encoding', value: trace.timingBreakdown.dictEncodingPercent, nanos: trace.dict_encoding_nanos },
+    { name: 'Base Condition', value: trace.timingBreakdown.baseConditionPercent, nanos: trace.base_condition_nanos },
+    { name: 'Predicate Evaluation', value: trace.timingBreakdown.predicateEvalPercent, nanos: trace.predicate_eval_nanos },
+    { name: 'Counter Update', value: trace.timingBreakdown.counterUpdatePercent, nanos: trace.counter_update_nanos },
+    { name: 'Match Detection', value: trace.timingBreakdown.matchDetectionPercent, nanos: trace.match_detection_nanos },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="p-3 bg-muted rounded-md">
+        <div className="text-sm text-muted-foreground">Total Duration</div>
+        <div className="text-2xl font-bold">
+          {(trace.total_duration_nanos / 1_000_000).toFixed(3)}ms
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {stages.map((stage) => (
+          <div key={stage.name} className="space-y-1">
+            <div className="flex justify-between text-sm">
+              <span>{stage.name}</span>
+              <span className="text-muted-foreground">
+                {stage.value.toFixed(1)}% ({(stage.nanos / 1000).toFixed(1)}µs)
+              </span>
+            </div>
+            <div className="h-2 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary"
+                style={{ width: `${stage.value}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PredicateOutcomes({ trace }: { trace: EvaluationResult['trace'] }) {
+  if (!trace || trace.predicate_outcomes.length === 0) {
+    return <div className="text-muted-foreground">No predicate outcomes available</div>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {trace.predicate_outcomes.map((outcome) => (
+        <div
+          key={outcome.predicate_id}
+          className={`p-3 border rounded-md ${outcome.matched ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <div className="font-medium">{outcome.field_name}</div>
+              <div className="text-sm text-muted-foreground">
+                {outcome.operator} {JSON.stringify(outcome.expected_value)}
+                {outcome.actual_value !== undefined && (
+                  <span className="ml-2">
+                    (actual: {JSON.stringify(outcome.actual_value)})
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className={`font-medium ${outcome.matched ? 'text-green-600' : 'text-red-600'}`}>
+              {outcome.matched ? '✓ Match' : '✗ No Match'}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RuleDetailsView({ trace }: { trace: EvaluationResult['trace'] }) {
+  if (!trace || trace.rule_details.length === 0) {
+    return <div className="text-muted-foreground">No rule details available</div>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {trace.rule_details.map((rule) => (
+        <div
+          key={rule.combination_id}
+          className={`p-4 border rounded-md ${rule.final_match ? 'bg-green-50 border-green-200' : 'bg-gray-50'}`}
+        >
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="font-medium">{rule.rule_code}</div>
+              <div className="text-sm text-muted-foreground mt-1">
+                Priority: {rule.priority} | Combination ID: {rule.combination_id}
+              </div>
+              <div className="text-sm mt-2">
+                Matched {rule.predicates_matched}/{rule.predicates_required} predicates
+              </div>
+              {rule.failed_predicates.length > 0 && (
+                <div className="text-sm text-red-600 mt-1">
+                  Failed: {rule.failed_predicates.join(', ')}
+                </div>
+              )}
+            </div>
+            <div className={`font-medium ${rule.final_match ? 'text-green-600' : 'text-muted-foreground'}`}>
+              {rule.final_match ? '✓ Matched' : '✗ Not Matched'}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RuleExplanation({ explanation }: { explanation: ExplanationResult }) {
+  return (
+    <div className="space-y-4">
+      <div className={`p-4 rounded-md ${explanation.matched ? 'bg-green-50' : 'bg-yellow-50'}`}>
+        <div className="font-medium">
+          {explanation.matched ? '✓ Rule Matched' : '✗ Rule Did Not Match'}
+        </div>
+        <div className="text-sm text-muted-foreground mt-1">
+          {explanation.summary}
+        </div>
+      </div>
+
+      <div>
+        <h4 className="font-medium mb-3">Condition Breakdown:</h4>
+        <div className="space-y-2">
+          {explanation.condition_explanations.map((condition, idx) => (
+            <div
+              key={idx}
+              className={`p-3 border rounded-md ${condition.passed ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <div className="font-medium">{condition.field_name}</div>
+                  <div className="text-sm text-muted-foreground mt-1">
+                    {condition.operator} {JSON.stringify(condition.expected_value)}
+                  </div>
+                  <div className="text-sm mt-1">
+                    Actual value: {JSON.stringify(condition.actual_value)}
+                  </div>
+                  <div className="text-sm text-muted-foreground mt-1">
+                    {condition.reason}
+                  </div>
+                  {condition.closeness !== undefined && (
+                    <div className="text-sm mt-1">
+                      Closeness: {condition.closeness}%
+                    </div>
+                  )}
+                </div>
+                <div className={`font-medium ${condition.passed ? 'text-green-600' : 'text-red-600'}`}>
+                  {condition.passed ? '✓' : '✗'}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
