@@ -4,18 +4,24 @@
  */
 package com.helios.ruleengine.service.rest;
 
+import com.helios.ruleengine.api.CompilationListener;
 import com.helios.ruleengine.api.model.EngineStats;
 import com.helios.ruleengine.infra.management.EngineModelManager;
 import com.helios.ruleengine.runtime.model.EngineModel;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
+import io.smallrye.mutiny.Multi;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.jboss.resteasy.reactive.RestStreamElementType;
 
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * JAX-RS resource for compilation and model statistics endpoints.
@@ -177,4 +183,102 @@ public class CompilationResource {
             span.end();
         }
     }
+
+    /**
+     * Get compilation progress stream.
+     * Returns Server-Sent Events (SSE) with real-time compilation stage updates.
+     *
+     * @return SSE stream of compilation events
+     */
+    @GET
+    @Path("/progress")
+    @Produces(MediaType.SERVER_SENT_EVENTS)
+    @RestStreamElementType(MediaType.APPLICATION_JSON)
+    public Multi<CompilationEvent> getCompilationProgress() {
+        List<CompilationEvent> events = new CopyOnWriteArrayList<>();
+
+        // Create a compilation listener that captures events
+        CompilationListener listener = new CompilationListener() {
+            @Override
+            public void onStageStart(String stageName, int stageNumber, int totalStages) {
+                events.add(new CompilationEvent(
+                    "stage_start",
+                    stageName,
+                    stageNumber,
+                    totalStages,
+                    null,
+                    null,
+                    null
+                ));
+            }
+
+            @Override
+            public void onStageComplete(String stageName, StageResult result) {
+                events.add(new CompilationEvent(
+                    "stage_complete",
+                    stageName,
+                    null,
+                    null,
+                    result.durationMillis(),
+                    result.metrics(),
+                    null
+                ));
+            }
+
+            @Override
+            public void onError(String stageName, Exception error) {
+                events.add(new CompilationEvent(
+                    "error",
+                    stageName,
+                    null,
+                    null,
+                    null,
+                    null,
+                    error.getMessage()
+                ));
+            }
+        };
+
+        // Trigger recompilation in background with listener
+        new Thread(() -> {
+            try {
+                modelManager.recompile(listener);
+                events.add(new CompilationEvent(
+                    "complete",
+                    "COMPILATION",
+                    null,
+                    null,
+                    null,
+                    Map.of("success", true),
+                    null
+                ));
+            } catch (Exception e) {
+                events.add(new CompilationEvent(
+                    "error",
+                    "COMPILATION",
+                    null,
+                    null,
+                    null,
+                    null,
+                    e.getMessage()
+                ));
+            }
+        }).start();
+
+        // Stream events as they are added
+        return Multi.createFrom().iterable(events);
+    }
+
+    /**
+     * Compilation event for SSE streaming.
+     */
+    public record CompilationEvent(
+        String type,           // stage_start, stage_complete, error, complete
+        String stageName,
+        Integer stageNumber,
+        Integer totalStages,
+        Long durationMs,
+        Map<String, Object> metrics,
+        String error
+    ) {}
 }
