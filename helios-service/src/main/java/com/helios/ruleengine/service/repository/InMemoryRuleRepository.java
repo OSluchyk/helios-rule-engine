@@ -22,7 +22,12 @@ import java.util.concurrent.ConcurrentMap;
  * implementing a database-backed repository.
  *
  * <p><b>Thread Safety:</b> All operations are thread-safe.
+ *
+ * <p><b>Activation:</b> Disabled by default. Use JdbcRuleRepository instead.
+ * To enable, set: repository.type=memory
  */
+@jakarta.enterprise.inject.Alternative
+@jakarta.annotation.Priority(1)
 @ApplicationScoped
 public class InMemoryRuleRepository implements RuleRepository {
 
