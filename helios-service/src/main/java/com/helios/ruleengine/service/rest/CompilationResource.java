@@ -64,7 +64,43 @@ public class CompilationResource {
     }
 
     /**
-     * Get field dictionary information.
+     * Get complete dictionaries with all mappings.
+     *
+     * @return both field and value dictionaries with ID-to-string mappings
+     */
+    @GET
+    @Path("/dictionaries")
+    public Response getDictionaries() {
+        Span span = tracer.spanBuilder("http-get-dictionaries").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            EngineModel model = modelManager.getEngineModel();
+
+            Map<String, String> fieldMappings = toDictionaryMap(model.getFieldDictionary());
+            Map<String, String> valueMappings = toDictionaryMap(model.getValueDictionary());
+
+            return Response.ok(Map.of(
+                    "fields", Map.of(
+                            "size", model.getFieldDictionary().size(),
+                            "mappings", fieldMappings
+                    ),
+                    "values", Map.of(
+                            "size", model.getValueDictionary().size(),
+                            "mappings", valueMappings
+                    )
+            )).build();
+
+        } catch (Exception e) {
+            span.recordException(e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .build();
+        } finally {
+            span.end();
+        }
+    }
+
+    /**
+     * Get field dictionary information (legacy endpoint for backward compatibility).
      *
      * @return field dictionary size and sample entries
      */
@@ -122,7 +158,62 @@ public class CompilationResource {
     }
 
     /**
-     * Get unique predicates count.
+     * Get all unique predicates with details.
+     *
+     * @return list of all predicates with field names, operators, and values
+     */
+    @GET
+    @Path("/predicates")
+    public Response getPredicates() {
+        Span span = tracer.spanBuilder("http-get-predicates").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            EngineModel model = modelManager.getEngineModel();
+            var predicates = model.getUniquePredicates();
+            var fieldDict = model.getFieldDictionary();
+            var valueDict = model.getValueDictionary();
+
+            List<Map<String, Object>> predicateList = new java.util.ArrayList<>();
+            for (int i = 0; i < predicates.length; i++) {
+                var predicate = predicates[i];
+                String fieldName = fieldDict.decode(predicate.fieldId());
+                String operator = predicate.operator().toString();
+
+                // Decode value if it's an encoded string
+                Object value = predicate.value();
+                if (value instanceof Integer && predicate.operator().toString().contains("EQUAL")) {
+                    String decodedValue = valueDict.decode((Integer) value);
+                    if (decodedValue != null) {
+                        value = decodedValue;
+                    }
+                }
+
+                predicateList.add(Map.of(
+                    "id", i,
+                    "field", fieldName != null ? fieldName : "UNKNOWN",
+                    "operator", operator,
+                    "value", value != null ? value : "null",
+                    "weight", predicate.weight(),
+                    "selectivity", predicate.selectivity()
+                ));
+            }
+
+            return Response.ok(Map.of(
+                    "total", predicates.length,
+                    "predicates", predicateList
+            )).build();
+
+        } catch (Exception e) {
+            span.recordException(e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .build();
+        } finally {
+            span.end();
+        }
+    }
+
+    /**
+     * Get unique predicates count (legacy endpoint for backward compatibility).
      *
      * @return predicate count
      */
@@ -267,6 +358,23 @@ public class CompilationResource {
 
         // Stream events as they are added
         return Multi.createFrom().iterable(events);
+    }
+
+    /**
+     * Helper method to convert a Dictionary to a Map of ID -> String.
+     *
+     * @param dict the dictionary to convert
+     * @return map with string keys (ID) and string values
+     */
+    private Map<String, String> toDictionaryMap(com.helios.ruleengine.runtime.model.Dictionary dict) {
+        Map<String, String> map = new HashMap<>();
+        for (int i = 0; i < dict.size(); i++) {
+            String decoded = dict.decode(i);
+            if (decoded != null) {
+                map.put(String.valueOf(i), decoded);
+            }
+        }
+        return map;
     }
 
     /**
