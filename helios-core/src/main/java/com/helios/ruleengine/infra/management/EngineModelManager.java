@@ -1,5 +1,6 @@
 package com.helios.ruleengine.infra.management;
 
+import com.helios.ruleengine.api.CompilationListener;
 import com.helios.ruleengine.api.IEngineModelManager;
 import com.helios.ruleengine.api.exceptions.CompilationException;
 import com.helios.ruleengine.api.IRuleCompiler;
@@ -97,6 +98,59 @@ public class EngineModelManager implements IEngineModelManager {
 
     public void shutdown() {
         monitoringExecutor.shutdown();
+    }
+
+    /**
+     * Manually trigger a recompilation with a compilation listener.
+     * Used for monitoring compilation progress in real-time.
+     *
+     * @param listener compilation listener to receive stage events
+     * @throws CompilationException if compilation fails
+     * @throws IOException if rules file cannot be read
+     */
+    public void recompile(CompilationListener listener) throws CompilationException, IOException {
+        Span span = tracer.spanBuilder("manual-recompile").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            // Set the listener on the compiler
+            compiler.setCompilationListener(listener);
+
+            // Trigger recompilation
+            long modifiedTime = Files.getLastModifiedTime(rulesPath).toMillis();
+            EngineModel newModel = compiler.compile(rulesPath);
+            activeModel.set(newModel);
+            this.lastModifiedTime = modifiedTime;
+            span.setAttribute("newModel.uniqueCombinations", newModel.getNumRules());
+            logger.info("Successfully recompiled and swapped to new rule model.");
+
+            // Clear the listener after compilation
+            compiler.setCompilationListener(null);
+
+            // Trigger cache warmup if callback is configured
+            if (cacheWarmupCallback != null) {
+                Span warmupSpan = tracer.spanBuilder("cache-warmup").startSpan();
+                try (Scope warmupScope = warmupSpan.makeCurrent()) {
+                    logger.info("Starting cache warmup...");
+                    long warmupStart = System.nanoTime();
+                    cacheWarmupCallback.accept(newModel);
+                    long warmupDuration = System.nanoTime() - warmupStart;
+                    warmupSpan.setAttribute("warmupDurationMs", warmupDuration / 1_000_000.0);
+                    logger.info(String.format("Cache warmup completed in %.2f ms", warmupDuration / 1_000_000.0));
+                } catch (Exception e) {
+                    warmupSpan.recordException(e);
+                    logger.log(Level.WARNING, "Cache warmup failed, continuing with cold cache", e);
+                } finally {
+                    warmupSpan.end();
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            span.recordException(e);
+            throw e;
+        } catch (Exception e) {
+            span.recordException(e);
+            throw new RuntimeException("Unexpected error during manual recompile", e);
+        } finally {
+            span.end();
+        }
     }
 
     private void checkForUpdates() {
