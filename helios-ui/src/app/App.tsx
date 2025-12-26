@@ -4,6 +4,7 @@ import { RulesList } from './components/helios/RulesList'
 import { EvaluationView } from './components/helios/EvaluationView'
 import { BatchEvaluationView } from './components/helios/BatchEvaluationView'
 import { CompilationView } from './components/helios/CompilationView'
+import { MonitoringView } from './components/helios/MonitoringView'
 
 function App() {
   const [activeTab, setActiveTab] = useState('overview')
@@ -78,12 +79,7 @@ function App() {
           </TabsContent>
 
           <TabsContent value="monitoring">
-            <div className="rounded-lg border p-6">
-              <p className="text-muted-foreground">Monitoring dashboard will be implemented here.</p>
-              <p className="text-sm text-muted-foreground mt-2">
-                Reference: helios-mock-ui/src/app/components/helios/MonitoringView.tsx
-              </p>
-            </div>
+            <MonitoringView />
           </TabsContent>
         </Tabs>
       </main>

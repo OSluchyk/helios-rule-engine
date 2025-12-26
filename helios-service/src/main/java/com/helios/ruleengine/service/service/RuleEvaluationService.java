@@ -10,6 +10,7 @@ import com.helios.ruleengine.api.model.TraceLevel;
 import com.helios.ruleengine.infra.management.EngineModelManager;
 import com.helios.ruleengine.runtime.evaluation.RuleEvaluator;
 import com.helios.ruleengine.runtime.model.EngineModel;
+import com.helios.ruleengine.service.monitoring.RuleMetricsAggregator;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.api.trace.Span;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -22,12 +23,16 @@ import java.util.Map;
 /**
  * Service for rule evaluation.
  * Manages thread-local RuleEvaluator instances with hot-reload support.
+ * Collects per-rule metrics for monitoring.
  */
 @ApplicationScoped
 public class RuleEvaluationService {
 
     @Inject
     EngineModelManager modelManager;
+
+    @Inject
+    RuleMetricsAggregator metricsAggregator;
 
     @Inject
     Tracer tracer;
@@ -43,6 +48,7 @@ public class RuleEvaluationService {
 
     /**
      * Evaluates an event against the current rule engine model.
+     * Records per-rule metrics for monitoring.
      *
      * @param event the event to evaluate
      * @return match result containing matched rules
@@ -66,7 +72,19 @@ public class RuleEvaluationService {
             }
         }
 
-        return evaluator.evaluate(event);
+        // Evaluate and record metrics
+        long start = System.nanoTime();
+        MatchResult result = evaluator.evaluate(event);
+        long duration = System.nanoTime() - start;
+
+        // Record per-rule metrics
+        if (result.matchedRules() != null) {
+            for (MatchResult.MatchedRule matchedRule : result.matchedRules()) {
+                metricsAggregator.recordEvaluation(matchedRule.ruleCode(), true, duration);
+            }
+        }
+
+        return result;
     }
 
     /**
@@ -162,6 +180,11 @@ public class RuleEvaluationService {
             if (result.matchedRules() != null && !result.matchedRules().isEmpty()) {
                 eventsWithMatches++;
                 totalMatchedRules += result.matchedRules().size();
+
+                // Record per-rule metrics
+                for (MatchResult.MatchedRule matchedRule : result.matchedRules()) {
+                    metricsAggregator.recordEvaluation(matchedRule.ruleCode(), true, duration);
+                }
             }
 
             results.add(result);
