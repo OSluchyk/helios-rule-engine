@@ -321,8 +321,28 @@ public class RuleManagementService {
                 // Handle value based on type
                 Object value = condition.value();
                 if (value instanceof String) {
-                    sb.append("        \"value\": \"").append(value).append("\"\n");
+                    // Escape quotes in string values
+                    String escapedValue = ((String) value).replace("\"", "\\\"");
+                    sb.append("        \"value\": \"").append(escapedValue).append("\"\n");
+                } else if (value instanceof List<?>) {
+                    // Handle array values (for IN/NOT_IN operators)
+                    sb.append("        \"value\": [");
+                    List<?> list = (List<?>) value;
+                    for (int k = 0; k < list.size(); k++) {
+                        Object item = list.get(k);
+                        if (item instanceof String) {
+                            String escapedItem = ((String) item).replace("\"", "\\\"");
+                            sb.append("\"").append(escapedItem).append("\"");
+                        } else {
+                            sb.append(item);
+                        }
+                        if (k < list.size() - 1) {
+                            sb.append(", ");
+                        }
+                    }
+                    sb.append("]\n");
                 } else {
+                    // Handle numbers and other types
                     sb.append("        \"value\": ").append(value).append("\n");
                 }
 

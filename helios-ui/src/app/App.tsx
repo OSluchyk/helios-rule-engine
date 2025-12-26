@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs'
-import { RulesList } from './components/helios/RulesList'
+import { RuleListView } from './components/helios/RuleListView'
+import { RuleBuilder } from './components/helios/RuleBuilder'
 import { EvaluationView } from './components/helios/EvaluationView'
 import { BatchEvaluationView } from './components/helios/BatchEvaluationView'
 import { CompilationView } from './components/helios/CompilationView'
@@ -54,16 +55,11 @@ function App() {
           </TabsContent>
 
           <TabsContent value="rules">
-            <RulesList />
+            <RuleListView />
           </TabsContent>
 
           <TabsContent value="builder">
-            <div className="rounded-lg border p-6">
-              <p className="text-muted-foreground">Visual rule builder will be implemented here.</p>
-              <p className="text-sm text-muted-foreground mt-2">
-                Reference: helios-mock-ui/src/app/components/helios/VisualRuleBuilder.tsx
-              </p>
-            </div>
+            <RuleBuilder onRuleCreated={() => setActiveTab('rules')} />
           </TabsContent>
 
           <TabsContent value="evaluation">
