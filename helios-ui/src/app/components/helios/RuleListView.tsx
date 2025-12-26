@@ -66,7 +66,7 @@ export function RuleListView() {
   // Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFamily, setSelectedFamily] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<string[]>(['active']);
+  const [statusFilter, setStatusFilter] = useState<string[]>(['active', 'inactive', 'draft']);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [customTagInput, setCustomTagInput] = useState('');
 
@@ -201,6 +201,45 @@ export function RuleListView() {
       return;
     }
     toast.success(`${action} applied to ${selectedRules.size} rules`);
+  };
+
+  // Toggle rule activation
+  const toggleRuleActivation = async (ruleCode: string, currentlyEnabled: boolean) => {
+    try {
+      const action = currentlyEnabled ? 'deactivate' : 'activate';
+      const newEnabledStatus = !currentlyEnabled;
+
+      // Find the rule to get its full data
+      const rule = apiRules?.find(r => r.rule_code === ruleCode);
+      if (!rule) {
+        toast.error('Rule not found');
+        return;
+      }
+
+      // Update rule with new enabled status
+      const response = await fetch(`/api/v1/rules/${encodeURIComponent(ruleCode)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...rule,
+          enabled: newEnabledStatus
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update rule');
+      }
+
+      toast.success(`Rule ${action === 'activate' ? 'activated' : 'deactivated'} successfully`);
+
+      // Refetch rules to update UI
+      refetch();
+    } catch (error) {
+      toast.error(`Failed to ${currentlyEnabled ? 'deactivate' : 'activate'} rule`);
+      console.error('Error toggling rule activation:', error);
+    }
   };
 
   // UI helpers
@@ -899,6 +938,25 @@ export function RuleListView() {
                                     <div className="flex gap-2 pt-4 border-t flex-wrap">
                                       <Button
                                         size="sm"
+                                        variant={rule.status === 'active' ? 'outline' : 'default'}
+                                        onClick={() =>
+                                          toggleRuleActivation(rule.rule_code, rule.status === 'active')
+                                        }
+                                      >
+                                        {rule.status === 'active' ? (
+                                          <>
+                                            <Pause className="size-4 mr-2" />
+                                            Deactivate
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Play className="size-4 mr-2" />
+                                            Activate
+                                          </>
+                                        )}
+                                      </Button>
+                                      <Button
+                                        size="sm"
                                         variant="outline"
                                         onClick={() =>
                                           toast.info(`Editing ${rule.rule_code}`)
@@ -1106,6 +1164,25 @@ export function RuleListView() {
 
                             {/* Action Buttons */}
                             <div className="flex gap-2 pt-4 border-t flex-wrap">
+                              <Button
+                                size="sm"
+                                variant={rule.status === 'active' ? 'outline' : 'default'}
+                                onClick={() =>
+                                  toggleRuleActivation(rule.rule_code, rule.status === 'active')
+                                }
+                              >
+                                {rule.status === 'active' ? (
+                                  <>
+                                    <Pause className="size-4 mr-2" />
+                                    Deactivate
+                                  </>
+                                ) : (
+                                  <>
+                                    <Play className="size-4 mr-2" />
+                                    Activate
+                                  </>
+                                )}
+                              </Button>
                               <Button
                                 size="sm"
                                 variant="outline"
