@@ -1,0 +1,30 @@
+[
+  {
+    "rule_code": "HIGH_VALUE_TRANSACTION",
+    "priority": 1,
+    "enabled": true,
+    "description": "Alert on high value transactions",
+    "conditions": [
+      {"field": "amount", "operator": "GREATER_THAN", "value": 1000}
+    ]
+  },
+  {
+    "rule_code": "FRAUD_DETECTION",
+    "priority": 2,
+    "enabled": true,
+    "description": "Detect potential fraud patterns",
+    "conditions": [
+      {"field": "transaction_count", "operator": "GREATER_THAN", "value": 10},
+      {"field": "time_window", "operator": "LESS_THAN", "value": 60}
+    ]
+  },
+  {
+    "rule_code": "PREMIUM_CUSTOMER",
+    "priority": 3,
+    "enabled": true,
+    "description": "Identify premium customers",
+    "conditions": [
+      {"field": "total_spend", "operator": "GREATER_THAN", "value": 10000}
+    ]
+  }
+]

@@ -36,6 +36,10 @@ public class JdbcRuleRepository implements RuleRepository {
 
     private static final Logger logger = Logger.getLogger(JdbcRuleRepository.class.getName());
 
+    // SQL queries loaded from external files
+    private static final Map<String, String> SQL = SqlLoader.loadQueries("sql/queries.sql");
+    private static final String SCHEMA_SQL = SqlLoader.loadSchema("sql/schema.sql");
+
     @Inject
     DataSource dataSource;
 
@@ -57,36 +61,15 @@ public class JdbcRuleRepository implements RuleRepository {
      * Create database schema if it doesn't exist.
      */
     private void createSchemaIfNotExists() throws SQLException {
-        String createTable = """
-            CREATE TABLE IF NOT EXISTS rules (
-                id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                rule_code VARCHAR(255) NOT NULL UNIQUE,
-                description VARCHAR(1000),
-                conditions_json TEXT NOT NULL,
-                priority INT,
-                enabled BOOLEAN,
-                created_by VARCHAR(255),
-                created_at TIMESTAMP NOT NULL,
-                last_modified_by VARCHAR(255),
-                last_modified_at TIMESTAMP,
-                version INT,
-                tags VARCHAR(1000),
-                labels_json TEXT,
-                combination_ids VARCHAR(5000),
-                estimated_selectivity INT,
-                is_vectorizable BOOLEAN,
-                compilation_status VARCHAR(50)
-            )
-            """;
-
-        String createIndex1 = "CREATE INDEX IF NOT EXISTS idx_enabled ON rules(enabled)";
-        String createIndex2 = "CREATE INDEX IF NOT EXISTS idx_priority ON rules(priority)";
-
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
-            stmt.execute(createTable);
-            stmt.execute(createIndex1);
-            stmt.execute(createIndex2);
+            // Execute all statements from schema file
+            for (String sql : SCHEMA_SQL.split(";")) {
+                sql = sql.trim();
+                if (!sql.isEmpty() && !sql.startsWith("--")) {
+                    stmt.execute(sql);
+                }
+            }
         }
     }
 
@@ -110,16 +93,8 @@ public class JdbcRuleRepository implements RuleRepository {
     }
 
     private String insert(Connection conn, RuleMetadata rule) throws SQLException {
-        String sql = """
-            INSERT INTO rules (
-                rule_code, description, conditions_json, priority, enabled,
-                created_by, created_at, last_modified_by, last_modified_at, version,
-                tags, labels_json, combination_ids, estimated_selectivity,
-                is_vectorizable, compilation_status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """;
-
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        System.out.println(">>> INSERT: tags=" + rule.tags() + ", labels=" + rule.labels());
+        try (PreparedStatement stmt = conn.prepareStatement(SQL.get("insert_rule"))) {
             int idx = 1;
             stmt.setString(idx++, rule.ruleCode());
             stmt.setString(idx++, rule.description());
@@ -150,16 +125,7 @@ public class JdbcRuleRepository implements RuleRepository {
             throw new SQLException("Rule not found for update: " + rule.ruleCode());
         }
 
-        String sql = """
-            UPDATE rules SET
-                description = ?, conditions_json = ?, priority = ?, enabled = ?,
-                last_modified_by = ?, last_modified_at = ?, version = ?,
-                tags = ?, labels_json = ?, combination_ids = ?,
-                estimated_selectivity = ?, is_vectorizable = ?, compilation_status = ?
-            WHERE rule_code = ?
-            """;
-
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (PreparedStatement stmt = conn.prepareStatement(SQL.get("update_rule"))) {
             int idx = 1;
             stmt.setString(idx++, rule.description());
             stmt.setString(idx++, serializeConditions(rule.conditions()));
@@ -183,10 +149,8 @@ public class JdbcRuleRepository implements RuleRepository {
 
     @Override
     public Optional<RuleMetadata> findByCode(String ruleCode) {
-        String sql = "SELECT * FROM rules WHERE rule_code = ?";
-
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+             PreparedStatement stmt = conn.prepareStatement(SQL.get("select_by_code"))) {
 
             stmt.setString(1, ruleCode);
 
@@ -204,11 +168,10 @@ public class JdbcRuleRepository implements RuleRepository {
 
     @Override
     public List<RuleMetadata> findAll() {
-        String sql = "SELECT * FROM rules ORDER BY priority DESC, rule_code";
         List<RuleMetadata> rules = new ArrayList<>();
 
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql);
+             PreparedStatement stmt = conn.prepareStatement(SQL.get("select_all"));
              ResultSet rs = stmt.executeQuery()) {
 
             while (rs.next()) {
@@ -223,10 +186,8 @@ public class JdbcRuleRepository implements RuleRepository {
 
     @Override
     public boolean delete(String ruleCode) {
-        String sql = "DELETE FROM rules WHERE rule_code = ?";
-
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+             PreparedStatement stmt = conn.prepareStatement(SQL.get("delete_by_code"))) {
 
             stmt.setString(1, ruleCode);
             int rowsAffected = stmt.executeUpdate();
@@ -240,10 +201,8 @@ public class JdbcRuleRepository implements RuleRepository {
 
     @Override
     public boolean exists(String ruleCode) {
-        String sql = "SELECT COUNT(*) FROM rules WHERE rule_code = ?";
-
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+             PreparedStatement stmt = conn.prepareStatement(SQL.get("count_by_code"))) {
 
             stmt.setString(1, ruleCode);
 
@@ -261,10 +220,8 @@ public class JdbcRuleRepository implements RuleRepository {
 
     @Override
     public long count() {
-        String sql = "SELECT COUNT(*) FROM rules";
-
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql);
+             PreparedStatement stmt = conn.prepareStatement(SQL.get("count_all"));
              ResultSet rs = stmt.executeQuery()) {
 
             if (rs.next()) {
@@ -283,8 +240,8 @@ public class JdbcRuleRepository implements RuleRepository {
     public void loadRules(List<RuleMetadata> rulesList) {
         try (Connection conn = dataSource.getConnection()) {
             // Clear existing rules
-            try (Statement stmt = conn.createStatement()) {
-                stmt.execute("DELETE FROM rules");
+            try (PreparedStatement stmt = conn.prepareStatement(SQL.get("delete_all"))) {
+                stmt.execute();
             }
 
             // Insert all rules
@@ -455,8 +412,11 @@ public class JdbcRuleRepository implements RuleRepository {
     }
 
     private String serializeTags(Set<String> tags) {
+        logger.info("serializeTags called with: " + tags);
         if (tags == null || tags.isEmpty()) return "";
-        return String.join(",", tags);
+        String result = String.join(",", tags);
+        logger.info("serializeTags result: " + result);
+        return result;
     }
 
     private Set<String> parseTags(String tags) {
@@ -465,17 +425,24 @@ public class JdbcRuleRepository implements RuleRepository {
     }
 
     private String serializeLabels(Map<String, String> labels) {
+        logger.info("serializeLabels called with: " + labels);
         if (labels == null || labels.isEmpty()) return "{}";
         StringBuilder sb = new StringBuilder("{");
         int i = 0;
         for (Map.Entry<String, String> entry : labels.entrySet()) {
-            if (i > 0) sb.append(",");
-            sb.append("\"").append(escape(entry.getKey())).append("\":\"")
-                .append(escape(entry.getValue())).append("\"");
-            i++;
+            String key = entry.getKey();
+            String value = entry.getValue();
+            if (key != null) {
+                if (i > 0) sb.append(",");
+                sb.append("\"").append(escape(key)).append("\":\"")
+                    .append(escape(value != null ? value : "")).append("\"");
+                i++;
+            }
         }
         sb.append("}");
-        return sb.toString();
+        String result = sb.toString();
+        logger.info("serializeLabels result: " + result);
+        return result;
     }
 
     private Map<String, String> parseLabels(String json) {
@@ -491,7 +458,9 @@ public class JdbcRuleRepository implements RuleRepository {
             if (kv.length == 2) {
                 String key = kv[0].trim().replaceAll("^\"|\"$", "");
                 String value = kv[1].trim().replaceAll("^\"|\"$", "");
-                labels.put(unescape(key), unescape(value));
+                if (key != null && !key.isEmpty()) {
+                    labels.put(unescape(key), unescape(value != null ? value : ""));
+                }
             }
         }
 
