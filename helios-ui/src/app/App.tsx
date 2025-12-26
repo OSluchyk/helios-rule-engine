@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs'
 import { RulesList } from './components/helios/RulesList'
+import { EvaluationView } from './components/helios/EvaluationView'
 
 function App() {
   const [activeTab, setActiveTab] = useState('overview')
@@ -61,12 +62,7 @@ function App() {
           </TabsContent>
 
           <TabsContent value="evaluation">
-            <div className="rounded-lg border p-6">
-              <p className="text-muted-foreground">Evaluation console will be implemented here.</p>
-              <p className="text-sm text-muted-foreground mt-2">
-                Reference: helios-mock-ui/src/app/components/helios/EvaluationView.tsx
-              </p>
-            </div>
+            <EvaluationView />
           </TabsContent>
 
           <TabsContent value="compilation">
