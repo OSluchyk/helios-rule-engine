@@ -215,6 +215,7 @@ public class RuleManagementResource {
 
     /**
      * List all rules with metadata.
+     * Returns all rules from repository, including disabled/draft rules.
      *
      * @return collection of rule metadata
      */
@@ -222,8 +223,8 @@ public class RuleManagementResource {
     public Response listRules() {
         Span span = tracer.spanBuilder("http-list-rules").startSpan();
         try (Scope scope = span.makeCurrent()) {
-            EngineModel model = modelManager.getEngineModel();
-            Collection<RuleMetadata> allRules = model.getAllRuleMetadata();
+            // Get all rules from repository (includes disabled/draft rules)
+            Collection<RuleMetadata> allRules = ruleManagementService.getAllRules();
 
             span.setAttribute("ruleCount", allRules.size());
             return Response.ok(allRules).build();
