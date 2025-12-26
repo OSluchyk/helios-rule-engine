@@ -195,6 +195,22 @@ export interface ExplanationResult {
   condition_explanations: ConditionExplanation[];
 }
 
+// Batch Evaluation Types
+export interface BatchStats {
+  totalEvents: number;
+  avgEvaluationTimeNanos: number;
+  matchRate: number;
+  minEvaluationTimeNanos: number;
+  maxEvaluationTimeNanos: number;
+  totalMatchedRules: number;
+  avgRulesMatchedPerEvent: number;
+}
+
+export interface BatchEvaluationResult {
+  results: MatchResult[];
+  stats: BatchStats;
+}
+
 // API Error Types
 export interface ApiError {
   error: string;
