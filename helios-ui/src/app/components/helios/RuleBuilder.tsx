@@ -964,7 +964,7 @@ export function RuleBuilder({ onRuleCreated }: RuleBuilderProps) {
               ) : (
                 <>
                   <Save className="size-4 mr-2" />
-                  Save as Inactive
+                  Save as Draft
                 </>
               )}
             </Button>
