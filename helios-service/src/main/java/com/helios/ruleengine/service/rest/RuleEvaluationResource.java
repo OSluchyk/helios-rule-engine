@@ -5,6 +5,8 @@ import com.helios.ruleengine.api.model.EvaluationResult;
 import com.helios.ruleengine.api.model.ExplanationResult;
 import com.helios.ruleengine.api.model.MatchResult;
 import com.helios.ruleengine.api.model.TraceLevel;
+import com.helios.ruleengine.api.model.BatchEvaluationResult;
+import com.helios.ruleengine.api.model.BatchStats;
 import com.helios.ruleengine.service.service.RuleEvaluationService;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
@@ -138,10 +140,18 @@ public class RuleEvaluationResource {
     }
 
     /**
-     * Evaluate multiple events in batch.
+     * Evaluate multiple events in batch with aggregated statistics.
+     *
+     * <p>Returns individual match results plus batch-level metrics:
+     * <ul>
+     *   <li>Average evaluation time</li>
+     *   <li>Match rate (% of events with matches)</li>
+     *   <li>Min/max evaluation times</li>
+     *   <li>Total and average matched rules</li>
+     * </ul>
      *
      * @param events list of events to evaluate
-     * @return list of match results
+     * @return batch evaluation result with statistics
      */
     @POST
     @Path("/batch")
@@ -150,8 +160,12 @@ public class RuleEvaluationResource {
         try (Scope scope = span.makeCurrent()) {
             span.setAttribute("eventCount", events.size());
 
-            List<MatchResult> results = evaluationService.evaluateBatch(events);
-            return Response.ok(results).build();
+            BatchEvaluationResult result = evaluationService.evaluateBatchWithStats(events);
+
+            span.setAttribute("matchRate", result.stats().matchRate());
+            span.setAttribute("avgEvaluationTimeNanos", result.stats().avgEvaluationTimeNanos());
+
+            return Response.ok(result).build();
 
         } catch (Exception e) {
             span.recordException(e);

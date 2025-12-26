@@ -9,6 +9,7 @@ import type {
   MatchResult,
   EvaluationResult,
   ExplanationResult,
+  BatchEvaluationResult,
   TraceLevel,
   ApiError,
 } from '../types/api';
@@ -67,12 +68,12 @@ export const useExplainRule = (
 };
 
 /**
- * Hook for batch evaluation
+ * Hook for batch evaluation with aggregated statistics
  */
 export const useEvaluateBatch = (
-  options?: UseMutationOptions<MatchResult[], ApiError, Event[]>
+  options?: UseMutationOptions<BatchEvaluationResult, ApiError, Event[]>
 ) => {
-  return useMutation<MatchResult[], ApiError, Event[]>({
+  return useMutation<BatchEvaluationResult, ApiError, Event[]>({
     mutationFn: (events: Event[]) => evaluationApi.evaluateBatch(events),
     ...options,
   });

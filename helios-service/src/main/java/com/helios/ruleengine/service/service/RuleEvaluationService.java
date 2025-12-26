@@ -1,5 +1,7 @@
 package com.helios.ruleengine.service.service;
 
+import com.helios.ruleengine.api.model.BatchEvaluationResult;
+import com.helios.ruleengine.api.model.BatchStats;
 import com.helios.ruleengine.api.model.Event;
 import com.helios.ruleengine.api.model.EvaluationResult;
 import com.helios.ruleengine.api.model.ExplanationResult;
@@ -13,6 +15,7 @@ import io.opentelemetry.api.trace.Span;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -124,6 +127,71 @@ public class RuleEvaluationService {
         EngineModel currentModel = modelManager.getEngineModel();
         RuleEvaluator evaluator = getOrRefreshEvaluator(currentModel);
         return evaluator.evaluateBatch(events);
+    }
+
+    /**
+     * Evaluates multiple events in batch with aggregated statistics.
+     *
+     * @param events list of events to evaluate
+     * @return batch evaluation result with individual results and statistics
+     */
+    public BatchEvaluationResult evaluateBatchWithStats(List<Event> events) {
+        if (events == null || events.isEmpty()) {
+            return new BatchEvaluationResult(List.of(), BatchStats.empty());
+        }
+
+        EngineModel currentModel = modelManager.getEngineModel();
+        RuleEvaluator evaluator = getOrRefreshEvaluator(currentModel);
+
+        List<MatchResult> results = new ArrayList<>(events.size());
+        long totalNanos = 0;
+        long minNanos = Long.MAX_VALUE;
+        long maxNanos = Long.MIN_VALUE;
+        int eventsWithMatches = 0;
+        int totalMatchedRules = 0;
+
+        for (Event event : events) {
+            long start = System.nanoTime();
+            MatchResult result = evaluator.evaluate(event);
+            long duration = System.nanoTime() - start;
+
+            totalNanos += duration;
+            minNanos = Math.min(minNanos, duration);
+            maxNanos = Math.max(maxNanos, duration);
+
+            if (result.matchedRules() != null && !result.matchedRules().isEmpty()) {
+                eventsWithMatches++;
+                totalMatchedRules += result.matchedRules().size();
+            }
+
+            results.add(result);
+        }
+
+        // Calculate statistics
+        int totalEvents = events.size();
+        long avgNanos = totalNanos / totalEvents;
+        double matchRate = (double) eventsWithMatches / totalEvents;
+        double avgRulesPerEvent = (double) totalMatchedRules / totalEvents;
+
+        // Handle edge case where no events were processed
+        if (minNanos == Long.MAX_VALUE) {
+            minNanos = 0;
+        }
+        if (maxNanos == Long.MIN_VALUE) {
+            maxNanos = 0;
+        }
+
+        BatchStats stats = new BatchStats(
+            totalEvents,
+            avgNanos,
+            matchRate,
+            minNanos,
+            maxNanos,
+            totalMatchedRules,
+            avgRulesPerEvent
+        );
+
+        return new BatchEvaluationResult(results, stats);
     }
 
     /**

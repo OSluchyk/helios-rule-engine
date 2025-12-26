@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs'
 import { RulesList } from './components/helios/RulesList'
 import { EvaluationView } from './components/helios/EvaluationView'
+import { BatchEvaluationView } from './components/helios/BatchEvaluationView'
 
 function App() {
   const [activeTab, setActiveTab] = useState('overview')
@@ -22,6 +23,7 @@ function App() {
             <TabsTrigger value="rules">Rules</TabsTrigger>
             <TabsTrigger value="builder">Rule Builder</TabsTrigger>
             <TabsTrigger value="evaluation">Evaluation</TabsTrigger>
+            <TabsTrigger value="batch">Batch Testing</TabsTrigger>
             <TabsTrigger value="compilation">Compilation</TabsTrigger>
             <TabsTrigger value="monitoring">Monitoring</TabsTrigger>
           </TabsList>
@@ -35,7 +37,8 @@ function App() {
               <ul className="list-disc list-inside mt-4 space-y-2 text-muted-foreground">
                 <li><strong>Rules:</strong> Browse and manage existing rules</li>
                 <li><strong>Rule Builder:</strong> Create new rules with a visual interface</li>
-                <li><strong>Evaluation:</strong> Test rules and debug execution traces</li>
+                <li><strong>Evaluation:</strong> Test individual rules and debug execution traces</li>
+                <li><strong>Batch Testing:</strong> Evaluate multiple events and view aggregated statistics</li>
                 <li><strong>Compilation:</strong> View compilation pipeline and optimization metrics</li>
                 <li><strong>Monitoring:</strong> Monitor real-time performance and system health</li>
               </ul>
@@ -63,6 +66,10 @@ function App() {
 
           <TabsContent value="evaluation">
             <EvaluationView />
+          </TabsContent>
+
+          <TabsContent value="batch">
+            <BatchEvaluationView />
           </TabsContent>
 
           <TabsContent value="compilation">
