@@ -101,6 +101,44 @@ public class EngineModelManager implements IEngineModelManager {
     }
 
     /**
+     * Update the active model directly (used for dynamic rule updates).
+     * This method atomically swaps in a new model without file-based monitoring.
+     *
+     * @param newModel the new engine model to activate
+     */
+    public void updateModel(EngineModel newModel) {
+        Span span = tracer.spanBuilder("update-model").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            activeModel.set(newModel);
+            span.setAttribute("newModel.uniqueCombinations", newModel.getNumRules());
+            logger.info("Successfully updated to new rule model (CRUD operation).");
+
+            // Trigger cache warmup if callback is configured
+            if (cacheWarmupCallback != null) {
+                Span warmupSpan = tracer.spanBuilder("cache-warmup").startSpan();
+                try (Scope warmupScope = warmupSpan.makeCurrent()) {
+                    logger.info("Starting cache warmup...");
+                    long warmupStart = System.nanoTime();
+                    cacheWarmupCallback.accept(newModel);
+                    long warmupDuration = System.nanoTime() - warmupStart;
+                    warmupSpan.setAttribute("warmupDurationMs", warmupDuration / 1_000_000.0);
+                    logger.info(String.format("Cache warmup completed in %.2f ms", warmupDuration / 1_000_000.0));
+                } catch (Exception e) {
+                    warmupSpan.recordException(e);
+                    logger.log(Level.WARNING, "Cache warmup failed, continuing with cold cache", e);
+                } finally {
+                    warmupSpan.end();
+                }
+            }
+        } catch (Exception e) {
+            span.recordException(e);
+            logger.log(Level.SEVERE, "Failed to update model", e);
+        } finally {
+            span.end();
+        }
+    }
+
+    /**
      * Manually trigger a recompilation with a compilation listener.
      * Used for monitoring compilation progress in real-time.
      *

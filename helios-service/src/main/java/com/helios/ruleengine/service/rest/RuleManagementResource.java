@@ -7,6 +7,7 @@ package com.helios.ruleengine.service.rest;
 import com.helios.ruleengine.api.model.RuleMetadata;
 import com.helios.ruleengine.infra.management.EngineModelManager;
 import com.helios.ruleengine.runtime.model.EngineModel;
+import com.helios.ruleengine.service.service.RuleManagementService;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
@@ -22,7 +23,7 @@ import java.util.stream.Collectors;
 
 /**
  * JAX-RS resource for rule management and metadata endpoints.
- * Provides access to rule metadata, combination mappings, and predicate usage.
+ * Provides CRUD operations for rules plus metadata access.
  */
 @Path("/rules")
 @Produces(MediaType.APPLICATION_JSON)
@@ -33,7 +34,184 @@ public class RuleManagementResource {
     EngineModelManager modelManager;
 
     @Inject
+    RuleManagementService ruleManagementService;
+
+    @Inject
     Tracer tracer;
+
+    // ========================================
+    // CRUD Operations
+    // ========================================
+
+    /**
+     * Create a new rule.
+     *
+     * @param rule the rule metadata to create
+     * @return created rule response
+     */
+    @POST
+    public Response createRule(RuleMetadata rule) {
+        Span span = tracer.spanBuilder("http-create-rule").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            span.setAttribute("ruleCode", rule.ruleCode());
+
+            var result = ruleManagementService.createRule(rule);
+
+            if (!result.isValid()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(Map.of(
+                                "error", "Validation failed",
+                                "errors", result.errors()
+                        ))
+                        .build();
+            }
+
+            return Response.status(Response.Status.CREATED)
+                    .entity(Map.of(
+                            "ruleCode", result.ruleCode(),
+                            "message", "Rule created successfully. Recompilation in progress."
+                    ))
+                    .build();
+
+        } catch (Exception e) {
+            span.recordException(e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .build();
+        } finally {
+            span.end();
+        }
+    }
+
+    /**
+     * Update an existing rule.
+     *
+     * @param ruleCode the rule code to update
+     * @param rule the updated rule metadata
+     * @return update response
+     */
+    @PUT
+    @Path("/{ruleCode}")
+    public Response updateRule(@PathParam("ruleCode") String ruleCode, RuleMetadata rule) {
+        Span span = tracer.spanBuilder("http-update-rule").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            span.setAttribute("ruleCode", ruleCode);
+
+            // Ensure ruleCode in path matches ruleCode in body
+            if (!ruleCode.equals(rule.ruleCode())) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(Map.of(
+                                "error", "Rule code mismatch",
+                                "message", "Rule code in path (" + ruleCode + ") does not match rule code in body (" + rule.ruleCode() + ")"
+                        ))
+                        .build();
+            }
+
+            var result = ruleManagementService.updateRule(ruleCode, rule);
+
+            if (!result.isValid()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(Map.of(
+                                "error", "Validation failed",
+                                "errors", result.errors()
+                        ))
+                        .build();
+            }
+
+            return Response.ok(Map.of(
+                    "ruleCode", result.ruleCode(),
+                    "message", "Rule updated successfully. Recompilation in progress."
+            )).build();
+
+        } catch (Exception e) {
+            span.recordException(e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .build();
+        } finally {
+            span.end();
+        }
+    }
+
+    /**
+     * Delete a rule.
+     *
+     * @param ruleCode the rule code to delete
+     * @return deletion response
+     */
+    @DELETE
+    @Path("/{ruleCode}")
+    public Response deleteRule(@PathParam("ruleCode") String ruleCode) {
+        Span span = tracer.spanBuilder("http-delete-rule").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            span.setAttribute("ruleCode", ruleCode);
+
+            boolean deleted = ruleManagementService.deleteRule(ruleCode);
+
+            if (!deleted) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity(Map.of(
+                                "error", "Rule not found",
+                                "ruleCode", ruleCode
+                        ))
+                        .build();
+            }
+
+            return Response.ok(Map.of(
+                    "ruleCode", ruleCode,
+                    "message", "Rule deleted successfully. Recompilation in progress."
+            )).build();
+
+        } catch (Exception e) {
+            span.recordException(e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .build();
+        } finally {
+            span.end();
+        }
+    }
+
+    /**
+     * Validate a rule without persisting it.
+     *
+     * @param rule the rule to validate
+     * @return validation result
+     */
+    @POST
+    @Path("/validate")
+    public Response validateRule(RuleMetadata rule) {
+        Span span = tracer.spanBuilder("http-validate-rule").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            span.setAttribute("ruleCode", rule.ruleCode());
+
+            var result = ruleManagementService.validateRule(rule);
+
+            if (!result.isValid()) {
+                return Response.ok(Map.of(
+                        "valid", false,
+                        "errors", result.errors()
+                )).build();
+            }
+
+            return Response.ok(Map.of(
+                    "valid", true,
+                    "message", "Rule is valid"
+            )).build();
+
+        } catch (Exception e) {
+            span.recordException(e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .build();
+        } finally {
+            span.end();
+        }
+    }
+
+    // ========================================
+    // Metadata & Query Operations
+    // ========================================
 
     /**
      * List all rules with metadata.

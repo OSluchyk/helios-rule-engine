@@ -74,6 +74,20 @@
             <artifactId>quarkus-smallrye-health</artifactId>
         </dependency>
 
+        <!-- JDBC (no JPA/Hibernate) -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jdbc-h2</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jdbc-postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-agroal</artifactId>
+        </dependency>
+
         <!-- Compiler dependency (needed for ServiceLoader to find IRuleCompiler) -->
         <dependency>
             <groupId>com.helios</groupId>
