@@ -3,6 +3,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs'
 import { RulesList } from './components/helios/RulesList'
 import { EvaluationView } from './components/helios/EvaluationView'
 import { BatchEvaluationView } from './components/helios/BatchEvaluationView'
+import { CompilationView } from './components/helios/CompilationView'
 
 function App() {
   const [activeTab, setActiveTab] = useState('overview')
@@ -73,12 +74,7 @@ function App() {
           </TabsContent>
 
           <TabsContent value="compilation">
-            <div className="rounded-lg border p-6">
-              <p className="text-muted-foreground">Compilation pipeline view will be implemented here.</p>
-              <p className="text-sm text-muted-foreground mt-2">
-                Reference: helios-mock-ui/src/app/components/helios/CompilationView.tsx
-              </p>
-            </div>
+            <CompilationView />
           </TabsContent>
 
           <TabsContent value="monitoring">
