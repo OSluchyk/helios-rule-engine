@@ -109,33 +109,90 @@ export interface HealthCheck {
 }
 
 // Evaluation Types
-export interface EvaluationRequest {
-  trace_level?: 'NONE' | 'BASIC' | 'STANDARD' | 'FULL';
-  context: Record<string, any>;
+export type TraceLevel = 'NONE' | 'BASIC' | 'STANDARD' | 'FULL';
+
+export interface Event {
+  eventId: string;
+  timestamp: number;
+  attributes: Record<string, any>;
 }
 
-export interface EvaluationResult {
-  matched_rules: string[];
-  execution_time_ms: number;
-  trace?: EvaluationTrace;
+export interface MatchedRule {
+  ruleId: number;
+  ruleCode: string;
+  priority: number;
+  description: string;
+}
+
+export interface MatchResult {
+  eventId: string;
+  matchedRules: MatchedRule[];
+  evaluationTimeNanos: number;
+  predicatesEvaluated: number;
+  rulesEvaluated: number;
+}
+
+export interface TimingBreakdown {
+  dictEncodingPercent: number;
+  baseConditionPercent: number;
+  predicateEvalPercent: number;
+  counterUpdatePercent: number;
+  matchDetectionPercent: number;
+}
+
+export interface PredicateOutcome {
+  predicate_id: number;
+  field_name: string;
+  operator: string;
+  expected_value: any;
+  actual_value?: any; // Only present in FULL trace level
+  matched: boolean;
+  evaluation_nanos: number;
+}
+
+export interface RuleDetail {
+  combination_id: number;
+  rule_code: string;
+  priority: number;
+  predicates_matched: number;
+  predicates_required: number;
+  final_match: boolean;
+  failed_predicates: string[];
 }
 
 export interface EvaluationTrace {
-  trace_level: string;
-  matched_rule_ids: string[];
-  evaluated_predicate_count: number;
-  total_predicate_count: number;
-  execution_time_ns: number;
-  predicate_results?: PredicateResult[];
+  event_id: string;
+  total_duration_nanos: number;
+  dict_encoding_nanos: number;
+  base_condition_nanos: number;
+  predicate_eval_nanos: number;
+  counter_update_nanos: number;
+  match_detection_nanos: number;
+  timingBreakdown: TimingBreakdown;
+  predicate_outcomes: PredicateOutcome[];
+  rule_details: RuleDetail[];
 }
 
-export interface PredicateResult {
-  predicate_id: number;
-  field: string;
+export interface EvaluationResult {
+  match_result: MatchResult;
+  trace?: EvaluationTrace;
+}
+
+export interface ConditionExplanation {
+  field_name: string;
   operator: string;
-  value: any;
+  expected_value: any;
+  actual_value: any;
+  passed: boolean;
+  reason: string;
+  closeness?: number; // 0-100, how close the value was to passing
+}
+
+export interface ExplanationResult {
+  rule_code: string;
   matched: boolean;
-  evaluation_time_ns: number;
+  summary: string;
+  condition_explanations: ConditionExplanation[];
 }
 
 // API Error Types
