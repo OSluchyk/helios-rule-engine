@@ -4,6 +4,7 @@ import com.helios.ruleengine.api.model.Event;
 import com.helios.ruleengine.api.model.EvaluationResult;
 import com.helios.ruleengine.api.model.ExplanationResult;
 import com.helios.ruleengine.api.model.MatchResult;
+import com.helios.ruleengine.api.model.TraceLevel;
 import com.helios.ruleengine.service.service.RuleEvaluationService;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
@@ -18,9 +19,9 @@ import java.util.Map;
 
 /**
  * JAX-RS resource for rule evaluation endpoints.
- * Replaces the custom HttpServer handlers with standard REST endpoints.
+ * Provides evaluation with optional tracing and explanations for debugging.
  */
-@Path("/")
+@Path("/evaluate")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class RuleEvaluationResource {
@@ -38,7 +39,6 @@ public class RuleEvaluationResource {
      * @return the match result containing matched rules
      */
     @POST
-    @Path("/evaluate")
     public Response evaluate(Event event) {
         Span span = tracer.spanBuilder("http-evaluate").startSpan();
         try (Scope scope = span.makeCurrent()) {
@@ -60,19 +60,32 @@ public class RuleEvaluationResource {
     /**
      * Evaluate an event with detailed execution tracing.
      *
-     * <p><b>Performance Impact:</b> ~10% overhead. Use for debugging only.
+     * <p><b>Performance Impact:</b> Varies by trace level:
+     * <ul>
+     *   <li>BASIC: ~34% overhead - Rule matches only</li>
+     *   <li>STANDARD: ~51% overhead - Rule + predicate outcomes</li>
+     *   <li>FULL: ~53% overhead - All details + field values</li>
+     * </ul>
      *
      * @param event the event to evaluate
+     * @param level trace detail level (default: FULL)
+     * @param conditionalTracing only generate trace if rules match (default: false)
      * @return evaluation result with trace data
      */
     @POST
-    @Path("/evaluate/trace")
-    public Response evaluateWithTrace(Event event) {
+    @Path("/trace")
+    public Response evaluateWithTrace(
+            Event event,
+            @QueryParam("level") @DefaultValue("FULL") TraceLevel level,
+            @QueryParam("conditionalTracing") @DefaultValue("false") boolean conditionalTracing) {
+
         Span span = tracer.spanBuilder("http-evaluate-trace").startSpan();
         try (Scope scope = span.makeCurrent()) {
             span.setAttribute("eventId", event.eventId());
+            span.setAttribute("traceLevel", level.name());
+            span.setAttribute("conditionalTracing", conditionalTracing);
 
-            EvaluationResult result = evaluationService.evaluateWithTrace(event);
+            EvaluationResult result = evaluationService.evaluateWithTrace(event, level, conditionalTracing);
             return Response.ok(result).build();
 
         } catch (Exception e) {
@@ -88,12 +101,19 @@ public class RuleEvaluationResource {
     /**
      * Explain why a specific rule matched or didn't match an event.
      *
-     * @param event the event to evaluate
+     * <p>Provides human-readable explanation with:
+     * <ul>
+     *   <li>Which conditions passed/failed</li>
+     *   <li>Actual field values from the event</li>
+     *   <li>"Closeness" metric for near-misses</li>
+     * </ul>
+     *
      * @param ruleCode the rule to explain
-     * @return explanation result
+     * @param event the event to evaluate
+     * @return explanation result with condition-level details
      */
     @POST
-    @Path("/evaluate/explain/{ruleCode}")
+    @Path("/explain/{ruleCode}")
     public Response explainRule(@PathParam("ruleCode") String ruleCode, Event event) {
         Span span = tracer.spanBuilder("http-explain-rule").startSpan();
         try (Scope scope = span.makeCurrent()) {
@@ -124,7 +144,7 @@ public class RuleEvaluationResource {
      * @return list of match results
      */
     @POST
-    @Path("/evaluate/batch")
+    @Path("/batch")
     public Response evaluateBatch(List<Event> events) {
         Span span = tracer.spanBuilder("http-evaluate-batch").startSpan();
         try (Scope scope = span.makeCurrent()) {
@@ -140,24 +160,6 @@ public class RuleEvaluationResource {
                     .build();
         } finally {
             span.end();
-        }
-    }
-
-    /**
-     * Get detailed metrics from the rule evaluator.
-     *
-     * @return evaluator metrics
-     */
-    @GET
-    @Path("/metrics")
-    public Response getMetrics() {
-        try {
-            Map<String, Object> metrics = evaluationService.getMetrics();
-            return Response.ok(metrics).build();
-        } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
-                    .build();
         }
     }
 }

@@ -4,6 +4,7 @@ import com.helios.ruleengine.api.model.Event;
 import com.helios.ruleengine.api.model.EvaluationResult;
 import com.helios.ruleengine.api.model.ExplanationResult;
 import com.helios.ruleengine.api.model.MatchResult;
+import com.helios.ruleengine.api.model.TraceLevel;
 import com.helios.ruleengine.infra.management.EngineModelManager;
 import com.helios.ruleengine.runtime.evaluation.RuleEvaluator;
 import com.helios.ruleengine.runtime.model.EngineModel;
@@ -71,12 +72,33 @@ public class RuleEvaluationService {
      * <p><b>Performance Impact:</b> ~10% overhead. Use for debugging only.
      *
      * @param event the event to evaluate
-     * @return evaluation result with trace data
+     * @return evaluation result with trace data (FULL level)
      */
     public EvaluationResult evaluateWithTrace(Event event) {
         EngineModel currentModel = modelManager.getEngineModel();
         RuleEvaluator evaluator = getOrRefreshEvaluator(currentModel);
         return evaluator.evaluateWithTrace(event);
+    }
+
+    /**
+     * Evaluates an event with configurable trace level.
+     *
+     * <p><b>Performance Impact:</b>
+     * <ul>
+     *   <li>BASIC: ~34% overhead - Rule matches only</li>
+     *   <li>STANDARD: ~51% overhead - Rule + predicate outcomes</li>
+     *   <li>FULL: ~53% overhead - All details + field values</li>
+     * </ul>
+     *
+     * @param event the event to evaluate
+     * @param level trace detail level
+     * @param conditionalTracing only generate trace if at least one rule matches
+     * @return evaluation result with trace data
+     */
+    public EvaluationResult evaluateWithTrace(Event event, TraceLevel level, boolean conditionalTracing) {
+        EngineModel currentModel = modelManager.getEngineModel();
+        RuleEvaluator evaluator = getOrRefreshEvaluator(currentModel);
+        return evaluator.evaluateWithTrace(event, level, conditionalTracing);
     }
 
     /**
