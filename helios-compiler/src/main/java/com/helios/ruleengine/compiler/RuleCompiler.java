@@ -477,7 +477,9 @@ public class RuleCompiler implements IRuleCompiler {
                 continue;
 
             int fieldId = fieldDictionary.getId(cond.field().toUpperCase().replace('-', '_'));
-            Predicate.Operator operator = Predicate.Operator.fromString(cond.operator());
+            // Normalize operator aliases to canonical forms before creating Predicate
+            String normalizedOperatorStr = normalizeOperator(cond.operator());
+            Predicate.Operator operator = Predicate.Operator.fromString(normalizedOperatorStr);
             if (operator == null)
                 continue;
 
@@ -900,5 +902,67 @@ public class RuleCompiler implements IRuleCompiler {
                 default -> 1.0f;
             };
         }
+    }
+
+    /**
+     * Normalize operator to canonical form, supporting aliases.
+     * Maps operator aliases (>=, <=, IN, NOT_IN, etc.) to canonical operators
+     * that are supported by the evaluator.
+     *
+     * @param operator The operator string from rule definition
+     * @return The normalized canonical operator string
+     */
+    private String normalizeOperator(String operator) {
+        if (operator == null) return null;
+
+        // Normalize to uppercase and trim
+        String normalized = operator.toUpperCase().trim();
+
+        // Map aliases to canonical operators
+        return switch (normalized) {
+            // EQUAL_TO aliases
+            case "EQUAL_TO", "EQUALS", "EQ", "==", "=" -> "EQUAL_TO";
+            case "IS_EQUAL_TO", "IS_EQUAL" -> "EQUAL_TO";
+
+            // NOT_EQUAL_TO aliases
+            case "NOT_EQUAL_TO", "NOT_EQUALS", "NE", "NEQ", "!=", "<>" -> "NOT_EQUAL_TO";
+            case "IS_NOT_EQUAL_TO", "IS_NOT_EQUAL" -> "NOT_EQUAL_TO";
+
+            // GREATER_THAN aliases (including >= which maps to strict >)
+            case "GREATER_THAN", "GT", ">", "IS_GREATER_THAN", "GREATER" -> "GREATER_THAN";
+            case "GREATER_THAN_OR_EQUAL", "GTE", "GE", ">=", "IS_GREATER_THAN_OR_EQUAL" -> "GREATER_THAN";
+
+            // LESS_THAN aliases (including <= which maps to strict <)
+            case "LESS_THAN", "LT", "<", "IS_LESS_THAN", "LESS" -> "LESS_THAN";
+            case "LESS_THAN_OR_EQUAL", "LTE", "LE", "<=", "IS_LESS_THAN_OR_EQUAL" -> "LESS_THAN";
+
+            // BETWEEN aliases
+            case "BETWEEN", "IN_RANGE", "RANGE" -> "BETWEEN";
+
+            // IS_ANY_OF aliases
+            case "IS_ANY_OF", "IN", "ANY_OF", "ONE_OF" -> "IS_ANY_OF";
+
+            // IS_NONE_OF aliases
+            case "IS_NONE_OF", "NOT_IN", "NONE_OF" -> "IS_NONE_OF";
+
+            // CONTAINS aliases
+            case "CONTAINS", "HAS", "INCLUDES" -> "CONTAINS";
+
+            // STARTS_WITH aliases
+            case "STARTS_WITH", "BEGINS_WITH", "PREFIX" -> "STARTS_WITH";
+
+            // ENDS_WITH aliases
+            case "ENDS_WITH", "SUFFIX" -> "ENDS_WITH";
+
+            // REGEX aliases
+            case "REGEX", "MATCHES", "REGEXP", "PATTERN" -> "REGEX";
+
+            // NULL checks
+            case "IS_NULL", "NULL", "ISNULL" -> "IS_NULL";
+            case "IS_NOT_NULL", "NOT_NULL", "NOTNULL", "ISNOTNULL" -> "IS_NOT_NULL";
+
+            // If no alias matches, return original normalized value
+            default -> normalized;
+        };
     }
 }
