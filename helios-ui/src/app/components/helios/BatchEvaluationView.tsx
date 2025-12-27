@@ -3,11 +3,14 @@
  * Allows users to evaluate multiple events and view aggregated statistics
  */
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useEvaluateBatch } from '../../../hooks/useEvaluation';
+import { useRules } from '../../../hooks/useRules';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Alert } from '../ui/alert';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Label } from '../ui/label';
 import type { Event, BatchEvaluationResult, MatchResult } from '../../../types/api';
 
 export function BatchEvaluationView() {
@@ -17,6 +20,21 @@ export function BatchEvaluationView() {
   const [sortBy, setSortBy] = useState<'eventId' | 'time' | 'matches'>('eventId');
   const [savedSuites, setSavedSuites] = useState<Record<string, Event[]>>({});
   const [suiteName, setSuiteName] = useState('');
+  const [selectedFamily, setSelectedFamily] = useState<string>('all');
+
+  // Fetch all rules to get families
+  const { data: allRules } = useRules();
+
+  // Extract unique families
+  const families = useMemo(() => {
+    if (!allRules) return [];
+    const familySet = new Set<string>();
+    allRules.forEach(rule => {
+      const family = rule.rule_code.split('.')[0];
+      if (family) familySet.add(family);
+    });
+    return Array.from(familySet).sort();
+  }, [allRules]);
 
   const evaluateBatch = useEvaluateBatch({
     onSuccess: (data) => {
@@ -244,6 +262,28 @@ export function BatchEvaluationView() {
             className="w-full h-64 p-3 font-mono text-sm border rounded-md bg-muted/50"
             spellCheck={false}
           />
+
+          <div>
+            <Label htmlFor="batch-family-filter" className="block text-sm font-medium mb-2">
+              Rule Family Filter
+            </Label>
+            <Select value={selectedFamily} onValueChange={setSelectedFamily}>
+              <SelectTrigger id="batch-family-filter">
+                <SelectValue placeholder="All families" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Families</SelectItem>
+                {families.map(family => (
+                  <SelectItem key={family} value={family}>
+                    {family}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground mt-1">
+              Evaluate against specific rule family or all rules
+            </p>
+          </div>
 
           <div className="flex items-center gap-4">
             <Button

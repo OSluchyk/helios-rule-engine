@@ -154,6 +154,17 @@ public class RuleEvaluationService {
      * @return batch evaluation result with individual results and statistics
      */
     public BatchEvaluationResult evaluateBatchWithStats(List<Event> events) {
+        return evaluateBatchWithStats(events, TraceLevel.NONE);
+    }
+
+    /**
+     * Evaluate multiple events in batch with optional tracing and aggregated statistics.
+     *
+     * @param events list of events to evaluate
+     * @param level trace detail level (NONE, BASIC, STANDARD, FULL)
+     * @return batch evaluation result with statistics
+     */
+    public BatchEvaluationResult evaluateBatchWithStats(List<Event> events, TraceLevel level) {
         if (events == null || events.isEmpty()) {
             return new BatchEvaluationResult(List.of(), BatchStats.empty());
         }
@@ -170,7 +181,17 @@ public class RuleEvaluationService {
 
         for (Event event : events) {
             long start = System.nanoTime();
-            MatchResult result = evaluator.evaluate(event);
+
+            // Use trace evaluation if trace level is not NONE
+            MatchResult result;
+            if (level == TraceLevel.NONE) {
+                result = evaluator.evaluate(event);
+            } else {
+                // Evaluate with trace and extract just the match result
+                EvaluationResult traceResult = evaluator.evaluateWithTrace(event, level, false);
+                result = traceResult.matchResult();
+            }
+
             long duration = System.nanoTime() - start;
 
             totalNanos += duration;

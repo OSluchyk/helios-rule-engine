@@ -59,7 +59,11 @@ import {
 } from '../../../types/rules-ui';
 // import type { RuleMetadata } from '../../../types/api';
 
-export function RuleListView() {
+interface RuleListViewProps {
+  onNewRule?: () => void;
+}
+
+export function RuleListView({ onNewRule }: RuleListViewProps) {
   // API data fetching
   const { data: apiRules, isLoading, error, refetch } = useRules();
 
@@ -579,7 +583,7 @@ export function RuleListView() {
           <CardContent className="space-y-2">
             <Button
               className="w-full justify-start"
-              onClick={() => toast.success('Opening rule builder...')}
+              onClick={() => onNewRule?.()}
             >
               <Plus className="size-4 mr-2" />
               New Rule
@@ -744,7 +748,7 @@ export function RuleListView() {
                     Try adjusting your filters or create a new rule
                   </p>
                 </div>
-                <Button onClick={() => toast.success('Opening rule builder...')}>
+                <Button onClick={() => onNewRule?.()}>
                   <Plus className="size-4 mr-2" />
                   Create New Rule
                 </Button>
