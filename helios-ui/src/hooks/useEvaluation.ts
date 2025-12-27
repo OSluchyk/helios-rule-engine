@@ -71,10 +71,18 @@ export const useExplainRule = (
  * Hook for batch evaluation with aggregated statistics
  */
 export const useEvaluateBatch = (
-  options?: UseMutationOptions<BatchEvaluationResult, ApiError, Event[]>
+  options?: UseMutationOptions<
+    BatchEvaluationResult,
+    ApiError,
+    { events: Event[]; level?: TraceLevel }
+  >
 ) => {
-  return useMutation<BatchEvaluationResult, ApiError, Event[]>({
-    mutationFn: (events: Event[]) => evaluationApi.evaluateBatch(events),
+  return useMutation<
+    BatchEvaluationResult,
+    ApiError,
+    { events: Event[]; level?: TraceLevel }
+  >({
+    mutationFn: ({ events, level = 'NONE' }) => evaluationApi.evaluateBatch(events, level),
     ...options,
   });
 };

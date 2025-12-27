@@ -53,9 +53,15 @@ export const explainRule = async (
 
 /**
  * Evaluate multiple events in batch with aggregated statistics
+ *
+ * @param events - Array of events to evaluate
+ * @param level - Trace detail level (default: NONE for performance)
  */
-export const evaluateBatch = async (events: Event[]): Promise<BatchEvaluationResult> => {
-  return post<BatchEvaluationResult>('/evaluate/batch', events);
+export const evaluateBatch = async (
+  events: Event[],
+  level: TraceLevel = 'NONE'
+): Promise<BatchEvaluationResult> => {
+  return post<BatchEvaluationResult>(`/evaluate/batch?level=${level}`, events);
 };
 
 /**

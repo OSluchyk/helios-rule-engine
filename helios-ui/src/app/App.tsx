@@ -2,8 +2,7 @@ import { useState } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs'
 import { RuleListView } from './components/helios/RuleListView'
 import { RuleBuilder } from './components/helios/RuleBuilder'
-import { EvaluationView } from './components/helios/EvaluationView'
-import { BatchEvaluationView } from './components/helios/BatchEvaluationView'
+import { UnifiedEvaluationView } from './components/helios/UnifiedEvaluationView'
 import { CompilationView } from './components/helios/CompilationView'
 import { MonitoringView } from './components/helios/MonitoringView'
 
@@ -26,7 +25,6 @@ function App() {
             <TabsTrigger value="rules">Rules</TabsTrigger>
             <TabsTrigger value="builder">Rule Builder</TabsTrigger>
             <TabsTrigger value="evaluation">Evaluation</TabsTrigger>
-            <TabsTrigger value="batch">Batch Testing</TabsTrigger>
             <TabsTrigger value="compilation">Compilation</TabsTrigger>
             <TabsTrigger value="monitoring">Monitoring</TabsTrigger>
           </TabsList>
@@ -40,8 +38,7 @@ function App() {
               <ul className="list-disc list-inside mt-4 space-y-2 text-muted-foreground">
                 <li><strong>Rules:</strong> Browse and manage existing rules</li>
                 <li><strong>Rule Builder:</strong> Create new rules with a visual interface</li>
-                <li><strong>Evaluation:</strong> Test individual rules and debug execution traces</li>
-                <li><strong>Batch Testing:</strong> Evaluate multiple events and view aggregated statistics</li>
+                <li><strong>Evaluation:</strong> Test single events with traces or run batch evaluations</li>
                 <li><strong>Compilation:</strong> View compilation pipeline and optimization metrics</li>
                 <li><strong>Monitoring:</strong> Monitor real-time performance and system health</li>
               </ul>
@@ -55,7 +52,7 @@ function App() {
           </TabsContent>
 
           <TabsContent value="rules">
-            <RuleListView />
+            <RuleListView onNewRule={() => setActiveTab('builder')} />
           </TabsContent>
 
           <TabsContent value="builder">
@@ -63,11 +60,7 @@ function App() {
           </TabsContent>
 
           <TabsContent value="evaluation">
-            <EvaluationView />
-          </TabsContent>
-
-          <TabsContent value="batch">
-            <BatchEvaluationView />
+            <UnifiedEvaluationView />
           </TabsContent>
 
           <TabsContent value="compilation">

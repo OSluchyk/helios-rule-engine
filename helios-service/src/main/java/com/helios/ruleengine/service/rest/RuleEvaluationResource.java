@@ -150,17 +150,30 @@ public class RuleEvaluationResource {
      *   <li>Total and average matched rules</li>
      * </ul>
      *
+     * <p>Optional trace level parameter for detailed execution traces.
+     * When specified, uses the same trace levels as single event evaluation:
+     * <ul>
+     *   <li>NONE: No tracing (fastest)</li>
+     *   <li>BASIC: Rule matches only (~34% overhead)</li>
+     *   <li>STANDARD: + Predicate outcomes (~51% overhead)</li>
+     *   <li>FULL: + Field values (~53% overhead)</li>
+     * </ul>
+     *
      * @param events list of events to evaluate
+     * @param level trace detail level (default: NONE for performance)
      * @return batch evaluation result with statistics
      */
     @POST
     @Path("/batch")
-    public Response evaluateBatch(List<Event> events) {
+    public Response evaluateBatch(
+            List<Event> events,
+            @QueryParam("level") @DefaultValue("NONE") TraceLevel level) {
         Span span = tracer.spanBuilder("http-evaluate-batch").startSpan();
         try (Scope scope = span.makeCurrent()) {
             span.setAttribute("eventCount", events.size());
+            span.setAttribute("traceLevel", level.name());
 
-            BatchEvaluationResult result = evaluationService.evaluateBatchWithStats(events);
+            BatchEvaluationResult result = evaluationService.evaluateBatchWithStats(events, level);
 
             span.setAttribute("matchRate", result.stats().matchRate());
             span.setAttribute("avgEvaluationTimeNanos", result.stats().avgEvaluationTimeNanos());
