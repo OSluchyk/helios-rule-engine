@@ -227,3 +227,58 @@ export interface RuleQueryParams {
   limit?: number;
   offset?: number;
 }
+
+// Rule Import Types
+export interface ImportValidationRequest {
+  format: 'json' | 'yaml' | 'csv';
+  content?: string;
+  rules: RuleMetadata[];
+}
+
+export type ImportedRuleStatusType = 'VALID' | 'WARNING' | 'ERROR';
+export type ConflictType = 'DUPLICATE_CODE' | 'DUPLICATE_NAME' | 'PRIORITY_CONFLICT';
+export type ConflictResolution = 'SKIP' | 'OVERWRITE' | 'RENAME';
+
+export interface RuleConflict {
+  type: ConflictType;
+  existingRuleCode: string;
+}
+
+export interface ImportedRuleStatus {
+  importId: string;
+  rule: RuleMetadata;
+  status: ImportedRuleStatusType;
+  issues: string[];
+  conflict?: RuleConflict;
+}
+
+export interface ValidationStats {
+  total: number;
+  valid: number;
+  warnings: number;
+  errors: number;
+}
+
+export interface ImportValidationResponse {
+  rules: ImportedRuleStatus[];
+  stats: ValidationStats;
+}
+
+export interface ImportExecutionRequest {
+  importIds: string[];
+  rules: RuleMetadata[];
+  conflictResolution: ConflictResolution;
+}
+
+export interface ImportResult {
+  ruleCode: string;
+  success: boolean;
+  message: string;
+}
+
+export interface ImportExecutionResponse {
+  imported: number;
+  skipped: number;
+  failed: number;
+  results: ImportResult[];
+}
