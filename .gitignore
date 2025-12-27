@@ -53,7 +53,7 @@ debug_output*.txt
 /cliff_compilation.log
 /OPTIMIZATIONS.md
 /PERFORMANCE_FIX_SUMMARY.md
-/rules.json
+/data/rules/rules.json
 /TRACE_OPTIMIZATION_FINAL_RESULTS.md
 /TRACE_OPTIMIZATION_FIXED.md
 /TRACE_OPTIMIZATION_RESULTS.md
