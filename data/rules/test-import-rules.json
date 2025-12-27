@@ -1,0 +1,54 @@
+[
+  {
+    "rule_code": "test.import_rule_1",
+    "description": "Test Import Rule - High Value Transaction",
+    "conditions": [
+      {
+        "field": "amount",
+        "operator": "GREATER_THAN",
+        "value": 1000
+      },
+      {
+        "field": "country",
+        "operator": "IS_ANY_OF",
+        "value": ["US", "UK", "CA"]
+      }
+    ],
+    "priority": 50,
+    "enabled": true,
+    "tags": ["imported", "test", "high-value"]
+  },
+  {
+    "rule_code": "test.import_rule_2",
+    "description": "Test Import Rule - Status Check",
+    "conditions": [
+      {
+        "field": "status",
+        "operator": "EQUAL_TO",
+        "value": "ACTIVE"
+      }
+    ],
+    "priority": 75,
+    "enabled": true,
+    "tags": ["imported", "test"]
+  },
+  {
+    "rule_code": "test.import_rule_3",
+    "description": "Test Import Rule - Premium Customer",
+    "conditions": [
+      {
+        "field": "customer_tier",
+        "operator": "IS_ANY_OF",
+        "value": ["GOLD", "PLATINUM"]
+      },
+      {
+        "field": "account_age_days",
+        "operator": "GREATER_THAN",
+        "value": 365
+      }
+    ],
+    "priority": 100,
+    "enabled": true,
+    "tags": ["imported", "test", "premium"]
+  }
+]
