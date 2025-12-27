@@ -57,6 +57,7 @@ import {
   type SortOption,
   type PredefinedTagKey
 } from '../../../types/rules-ui';
+import { RuleImportDialog } from './RuleImportDialog';
 // import type { RuleMetadata } from '../../../types/api';
 
 interface RuleListViewProps {
@@ -79,6 +80,7 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [sortBy, setSortBy] = useState<SortOption>('match-rate');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   // Convert API rules to UI rules with computed properties
   const uiRules = useMemo(() => {
@@ -591,7 +593,7 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
             <Button
               className="w-full justify-start"
               variant="outline"
-              onClick={() => toast.info('Import dialog opened')}
+              onClick={() => setImportDialogOpen(true)}
             >
               <Upload className="size-4 mr-2" />
               Import Rules
@@ -1252,6 +1254,12 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Import Dialog */}
+      <RuleImportDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+      />
     </div>
   );
 }
