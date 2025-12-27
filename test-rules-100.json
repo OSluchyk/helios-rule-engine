@@ -1,0 +1,2842 @@
+[
+  {
+    "rule_code": "pricing_engine.rule_1673",
+    "description": "Pricing Engine Rule 1673",
+    "conditions": [
+      {
+        "field": "competitor_price",
+        "operator": "NOT_EQUAL_TO",
+        "value": "INACTIVE"
+      }
+    ],
+    "priority": 865,
+    "enabled": true,
+    "tags": [
+      "pricing_engine",
+      "batch_16",
+      "vectorized"
+    ]
+  },
+  {
+    "rule_code": "inventory_management.rule_0408",
+    "description": "Inventory Management Rule 408",
+    "conditions": [
+      {
+        "field": "warehouse_location",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "JP",
+          "FR"
+        ]
+      },
+      {
+        "field": "warehouse_location",
+        "operator": "NOT_EQUAL_TO",
+        "value": "SUSPENDED"
+      },
+      {
+        "field": "warehouse_location",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "AU",
+          "JP",
+          "FR",
+          "US"
+        ]
+      },
+      {
+        "field": "warehouse_location",
+        "operator": "NOT_EQUAL_TO",
+        "value": "PENDING"
+      }
+    ],
+    "priority": 489,
+    "enabled": true,
+    "tags": [
+      "inventory_management",
+      "batch_4"
+    ]
+  },
+  {
+    "rule_code": "marketing_automation.rule_2518",
+    "description": "Marketing Automation Rule 2834",
+    "conditions": [
+      {
+        "field": "customer_engagement_score",
+        "operator": "GREATER_THAN",
+        "value": 8348
+      },
+      {
+        "field": "customer_engagement_score",
+        "operator": "GREATER_THAN",
+        "value": 8976
+      },
+      {
+        "field": "customer_engagement_score",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "CA",
+          "AU",
+          "JP"
+        ]
+      },
+      {
+        "field": "campaign_type",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "US",
+          "UK",
+          "CA"
+        ]
+      }
+    ],
+    "priority": 5,
+    "enabled": true,
+    "tags": [
+      "marketing_automation",
+      "batch_28"
+    ]
+  },
+  {
+    "rule_code": "compliance_check.rule_1756",
+    "description": "Compliance Check Rule 1756",
+    "conditions": [
+      {
+        "field": "kyc_level",
+        "operator": "EQUAL_TO",
+        "value": "ACTIVE"
+      },
+      {
+        "field": "kyc_level",
+        "operator": "EQUAL_TO",
+        "value": "INACTIVE"
+      },
+      {
+        "field": "kyc_level",
+        "operator": "GREATER_THAN",
+        "value": 8256
+      },
+      {
+        "field": "jurisdiction",
+        "operator": "BETWEEN",
+        "value": [
+          4242,
+          8547
+        ]
+      }
+    ],
+    "priority": 163,
+    "enabled": true,
+    "tags": [
+      "compliance_check",
+      "batch_17"
+    ]
+  },
+  {
+    "rule_code": "user_authentication.rule_1790",
+    "description": "User Authentication Rule 1790",
+    "conditions": [
+      {
+        "field": "account_status",
+        "operator": "NOT_EQUAL_TO",
+        "value": "PENDING"
+      },
+      {
+        "field": "mfa_enabled",
+        "operator": "LESS_THAN",
+        "value": 7822
+      },
+      {
+        "field": "login_attempts",
+        "operator": "GREATER_THAN",
+        "value": 7149
+      }
+    ],
+    "priority": 995,
+    "enabled": true,
+    "tags": [
+      "user_authentication",
+      "batch_17",
+      "production-critical",
+      "high-priority"
+    ]
+  },
+  {
+    "rule_code": "inventory_management.rule_2588",
+    "description": "Inventory Management Rule 2588",
+    "conditions": [
+      {
+        "field": "reorder_point",
+        "operator": "GREATER_THAN",
+        "value": 8670
+      }
+    ],
+    "priority": 400,
+    "enabled": false,
+    "tags": [
+      "inventory_management",
+      "batch_25"
+    ]
+  },
+  {
+    "rule_code": "risk_assessment.rule_1395",
+    "description": "Risk Assessment Rule 1395",
+    "conditions": [
+      {
+        "field": "credit_score",
+        "operator": "EQUAL_TO",
+        "value": "SUSPENDED"
+      },
+      {
+        "field": "employment_status",
+        "operator": "GREATER_THAN",
+        "value": 6196
+      },
+      {
+        "field": "payment_history_score",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "FR",
+          "AU",
+          "CA",
+          "JP"
+        ]
+      },
+      {
+        "field": "debt_to_income_ratio",
+        "operator": "LESS_THAN",
+        "value": 9762
+      }
+    ],
+    "priority": 533,
+    "enabled": true,
+    "tags": [
+      "risk_assessment",
+      "batch_13"
+    ]
+  },
+  {
+    "rule_code": "risk_assessment.rule_2935",
+    "conditions": [
+      {
+        "field": "credit_score",
+        "operator": "LESS_THAN",
+        "value": 6426
+      },
+      {
+        "field": "employment_status",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "CA",
+          "AU",
+          "JP",
+          "UK"
+        ]
+      },
+      {
+        "field": "credit_score",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "JP",
+          "AU",
+          "FR"
+        ]
+      },
+      {
+        "field": "debt_to_income_ratio",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "JP",
+          "UK",
+          "DE",
+          "CA"
+        ]
+      }
+    ],
+    "priority": 31,
+    "enabled": true,
+    "tags": [
+      "risk_assessment",
+      "batch_29"
+    ]
+  },
+  {
+    "rule_code": "payment_processing.rule_1607",
+    "description": "Payment Processing Rule 1607",
+    "conditions": [
+      {
+        "field": "payment_method",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "AU",
+          "UK"
+        ]
+      }
+    ],
+    "priority": 677,
+    "enabled": true,
+    "tags": [
+      "payment_processing",
+      "batch_16"
+    ]
+  },
+  {
+    "rule_code": "user_authentication.rule_2340",
+    "description": "User Authentication Rule 2340",
+    "conditions": [
+      {
+        "field": "last_login_days_ago",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "JP",
+          "UK",
+          "US",
+          "CA"
+        ]
+      },
+      {
+        "field": "mfa_enabled",
+        "operator": "EQUAL_TO",
+        "value": false
+      }
+    ],
+    "priority": 500,
+    "enabled": false,
+    "tags": [
+      "user_authentication",
+      "batch_23",
+      "production-critical",
+      "high-priority"
+    ]
+  },
+  {
+    "rule_code": "user_authentication.rule_1250",
+    "description": "User Authentication Rule 1250",
+    "conditions": [
+      {
+        "field": "login_attempts",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "US",
+          "FR"
+        ]
+      }
+    ],
+    "priority": 867,
+    "enabled": false,
+    "tags": [
+      "user_authentication",
+      "batch_12",
+      "production-critical",
+      "high-priority"
+    ]
+  },
+  {
+    "rule_code": "user_authentication.rule_1330",
+    "description": "User Authentication Rule 1330",
+    "conditions": [
+      {
+        "field": "last_login_days_ago",
+        "operator": "BETWEEN",
+        "value": [
+          4799,
+          6370
+        ]
+      },
+      {
+        "field": "last_login_days_ago",
+        "operator": "BETWEEN",
+        "value": [
+          3346,
+          4680
+        ]
+      },
+      {
+        "field": "account_status",
+        "operator": "EQUAL_TO",
+        "value": "ACTIVE"
+      }
+    ],
+    "priority": 533,
+    "enabled": true,
+    "tags": [
+      "user_authentication",
+      "batch_13",
+      "production-critical",
+      "high-priority",
+      "vectorized"
+    ]
+  },
+  {
+    "rule_code": "inventory_management.rule_0278",
+    "description": "Inventory Management Rule 278",
+    "conditions": [
+      {
+        "field": "reorder_point",
+        "operator": "LESS_THAN",
+        "value": 9054
+      },
+      {
+        "field": "reorder_point",
+        "operator": "NOT_EQUAL_TO",
+        "value": "ACTIVE"
+      },
+      {
+        "field": "warehouse_location",
+        "operator": "EQUAL_TO",
+        "value": "INACTIVE"
+      },
+      {
+        "field": "product_category",
+        "operator": "LESS_THAN",
+        "value": 257
+      }
+    ],
+    "priority": 974,
+    "enabled": true,
+    "tags": [
+      "inventory_management",
+      "batch_2"
+    ]
+  },
+  {
+    "rule_code": "risk_assessment.rule_0015",
+    "description": "Risk Assessment Rule 15",
+    "conditions": [
+      {
+        "field": "debt_to_income_ratio",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "AU",
+          "FR",
+          "DE",
+          "UK"
+        ]
+      },
+      {
+        "field": "debt_to_income_ratio",
+        "operator": "LESS_THAN",
+        "value": 5207
+      },
+      {
+        "field": "payment_history_score",
+        "operator": "LESS_THAN",
+        "value": 6218
+      },
+      {
+        "field": "payment_history_score",
+        "operator": "GREATER_THAN",
+        "value": 7497
+      }
+    ],
+    "priority": 124,
+    "enabled": true,
+    "tags": [
+      "risk_assessment",
+      "batch_0"
+    ]
+  },
+  {
+    "rule_code": "fraud_detection.rule_1361",
+    "description": "Fraud Detection Rule 1361",
+    "conditions": [
+      {
+        "field": "transaction_amount",
+        "operator": "NOT_EQUAL_TO",
+        "value": "PENDING"
+      }
+    ],
+    "priority": 951,
+    "enabled": false,
+    "tags": [
+      "fraud_detection",
+      "batch_13"
+    ]
+  },
+  {
+    "rule_code": "payment_processing.rule_2137",
+    "description": "Payment Processing Rule 2137",
+    "conditions": [
+      {
+        "field": "currency",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "JP",
+          "FR",
+          "UK"
+        ]
+      },
+      {
+        "field": "payment_method",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "JP",
+          "FR",
+          "AU"
+        ]
+      },
+      {
+        "field": "currency",
+        "operator": "LESS_THAN",
+        "value": 4774
+      }
+    ],
+    "priority": 948,
+    "enabled": true,
+    "tags": [
+      "payment_processing",
+      "batch_21"
+    ]
+  },
+  {
+    "rule_code": "fraud_detection.rule_0561",
+    "description": "Fraud Detection Rule 561",
+    "conditions": [
+      {
+        "field": "country",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "US",
+          "DE",
+          "FR",
+          "AU"
+        ]
+      }
+    ],
+    "priority": 249,
+    "enabled": true,
+    "tags": [
+      "fraud_detection",
+      "batch_5"
+    ]
+  },
+  {
+    "rule_code": "compliance_check.rule_2986",
+    "conditions": [
+      {
+        "field": "verification_status",
+        "operator": "BETWEEN",
+        "value": [
+          1660,
+          5422
+        ]
+      },
+      {
+        "field": "verification_status",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "AU",
+          "DE",
+          "FR"
+        ]
+      }
+    ],
+    "priority": 88,
+    "enabled": true,
+    "tags": [
+      "compliance_check",
+      "batch_29"
+    ]
+  },
+  {
+    "rule_code": "order_fulfillment.rule_2299",
+    "description": "Order Fulfillment Rule 2299",
+    "conditions": [
+      {
+        "field": "package_weight",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "JP",
+          "UK",
+          "FR",
+          "US"
+        ]
+      },
+      {
+        "field": "shipping_method",
+        "operator": "EQUAL_TO",
+        "value": "INACTIVE"
+      },
+      {
+        "field": "order_status",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "AU",
+          "CA"
+        ]
+      },
+      {
+        "field": "package_weight",
+        "operator": "GREATER_THAN",
+        "value": 508
+      }
+    ],
+    "priority": 690,
+    "enabled": true,
+    "tags": [
+      "order_fulfillment",
+      "batch_22"
+    ]
+  },
+  {
+    "rule_code": "pricing_engine.rule_2223",
+    "description": "Pricing Engine Rule 2223",
+    "conditions": [
+      {
+        "field": "product_category",
+        "operator": "LESS_THAN",
+        "value": 9779
+      },
+      {
+        "field": "customer_segment",
+        "operator": "BETWEEN",
+        "value": [
+          4707,
+          6540
+        ]
+      },
+      {
+        "field": "season",
+        "operator": "BETWEEN",
+        "value": [
+          3784,
+          5962
+        ]
+      },
+      {
+        "field": "product_category",
+        "operator": "LESS_THAN",
+        "value": 2204
+      }
+    ],
+    "priority": 606,
+    "enabled": true,
+    "tags": [
+      "pricing_engine",
+      "batch_22"
+    ]
+  },
+  {
+    "rule_code": "pricing_engine.rule_2563",
+    "description": "Pricing Engine Rule 2563",
+    "conditions": [
+      {
+        "field": "season",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "FR",
+          "UK",
+          "US"
+        ]
+      },
+      {
+        "field": "quantity",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "DE",
+          "CA"
+        ]
+      },
+      {
+        "field": "quantity",
+        "operator": "GREATER_THAN",
+        "value": 6174
+      },
+      {
+        "field": "season",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "FR",
+          "CA",
+          "JP",
+          "DE"
+        ]
+      }
+    ],
+    "priority": 3,
+    "enabled": false,
+    "tags": [
+      "pricing_engine",
+      "batch_25"
+    ]
+  },
+  {
+    "rule_code": "compliance_check.rule_1666",
+    "description": "Compliance Check Rule 1666",
+    "conditions": [
+      {
+        "field": "document_type",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "JP",
+          "FR",
+          "AU",
+          "DE"
+        ]
+      },
+      {
+        "field": "document_type",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "DE",
+          "US",
+          "FR",
+          "UK"
+        ]
+      },
+      {
+        "field": "kyc_level",
+        "operator": "GREATER_THAN",
+        "value": 9200
+      }
+    ],
+    "priority": 533,
+    "enabled": true,
+    "tags": [
+      "compliance_check",
+      "batch_16",
+      "vectorized"
+    ]
+  },
+  {
+    "rule_code": "compliance_check.rule_0236",
+    "description": "Compliance Check Rule 236",
+    "conditions": [
+      {
+        "field": "jurisdiction",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "CA",
+          "DE"
+        ]
+      },
+      {
+        "field": "jurisdiction",
+        "operator": "EQUAL_TO",
+        "value": "INACTIVE"
+      },
+      {
+        "field": "verification_status",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "DE",
+          "UK",
+          "FR"
+        ]
+      }
+    ],
+    "priority": 495,
+    "enabled": true,
+    "tags": [
+      "compliance_check",
+      "batch_2"
+    ]
+  },
+  {
+    "rule_code": "customer_segmentation.rule_0632",
+    "description": "Customer Segmentation Rule 632",
+    "conditions": [
+      {
+        "field": "customer_tier",
+        "operator": "LESS_THAN",
+        "value": 8557
+      },
+      {
+        "field": "lifetime_value",
+        "operator": "GREATER_THAN",
+        "value": 8278
+      }
+    ],
+    "priority": 219,
+    "enabled": false,
+    "tags": [
+      "customer_segmentation",
+      "batch_6"
+    ]
+  },
+  {
+    "rule_code": "risk_assessment.rule_0935",
+    "description": "Risk Assessment Rule 935",
+    "conditions": [
+      {
+        "field": "credit_score",
+        "operator": "GREATER_THAN",
+        "value": 6365
+      }
+    ],
+    "priority": 26,
+    "enabled": true,
+    "tags": [
+      "risk_assessment",
+      "batch_9"
+    ]
+  },
+  {
+    "rule_code": "user_authentication.rule_1010",
+    "description": "User Authentication Rule 1010",
+    "conditions": [
+      {
+        "field": "account_status",
+        "operator": "EQUAL_TO",
+        "value": "SUSPENDED"
+      }
+    ],
+    "priority": 785,
+    "enabled": false,
+    "tags": [
+      "user_authentication",
+      "batch_10",
+      "production-critical",
+      "high-priority"
+    ]
+  },
+  {
+    "rule_code": "fraud_detection.rule_0451",
+    "description": "Fraud Detection Rule 451",
+    "conditions": [
+      {
+        "field": "device_fingerprint",
+        "operator": "LESS_THAN",
+        "value": 2621
+      }
+    ],
+    "priority": 719,
+    "enabled": true,
+    "tags": [
+      "fraud_detection",
+      "batch_4"
+    ]
+  },
+  {
+    "rule_code": "marketing_automation.rule_1604",
+    "description": "Marketing Automation Rule 1604",
+    "conditions": [
+      {
+        "field": "click_through_rate",
+        "operator": "BETWEEN",
+        "value": [
+          1527,
+          5648
+        ]
+      },
+      {
+        "field": "campaign_type",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "UK",
+          "JP"
+        ]
+      }
+    ],
+    "priority": 706,
+    "enabled": true,
+    "tags": [
+      "marketing_automation",
+      "batch_16"
+    ]
+  },
+  {
+    "rule_code": "fraud_detection.rule_0351",
+    "description": "Fraud Detection Rule 351",
+    "conditions": [
+      {
+        "field": "ip_address",
+        "operator": "GREATER_THAN",
+        "value": 8008
+      }
+    ],
+    "priority": 822,
+    "enabled": false,
+    "tags": [
+      "fraud_detection",
+      "batch_3"
+    ]
+  },
+  {
+    "rule_code": "payment_processing.rule_0187",
+    "description": "Payment Processing Rule 187",
+    "conditions": [
+      {
+        "field": "amount",
+        "operator": "EQUAL_TO",
+        "value": "SUSPENDED"
+      },
+      {
+        "field": "merchant_category",
+        "operator": "NOT_EQUAL_TO",
+        "value": "PENDING"
+      },
+      {
+        "field": "payment_method",
+        "operator": "EQUAL_TO",
+        "value": "PENDING"
+      },
+      {
+        "field": "card_type",
+        "operator": "GREATER_THAN",
+        "value": 1858
+      }
+    ],
+    "priority": 951,
+    "enabled": true,
+    "tags": [
+      "payment_processing",
+      "batch_1"
+    ]
+  },
+  {
+    "rule_code": "pricing_engine.rule_0003",
+    "description": "Pricing Engine Rule 3",
+    "conditions": [
+      {
+        "field": "quantity",
+        "operator": "NOT_EQUAL_TO",
+        "value": "ACTIVE"
+      }
+    ],
+    "priority": 575,
+    "enabled": true,
+    "tags": [
+      "pricing_engine",
+      "batch_0"
+    ]
+  },
+  {
+    "rule_code": "compliance_check.rule_0576",
+    "description": "Compliance Check Rule 576",
+    "conditions": [
+      {
+        "field": "document_type",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "US",
+          "JP"
+        ]
+      },
+      {
+        "field": "jurisdiction",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "US",
+          "DE"
+        ]
+      },
+      {
+        "field": "kyc_level",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "AU",
+          "CA"
+        ]
+      }
+    ],
+    "priority": 226,
+    "enabled": true,
+    "tags": [
+      "compliance_check",
+      "batch_5"
+    ]
+  },
+  {
+    "rule_code": "marketing_automation.rule_0694",
+    "description": "Marketing Automation Rule 694",
+    "conditions": [
+      {
+        "field": "click_through_rate",
+        "operator": "GREATER_THAN",
+        "value": 1047
+      }
+    ],
+    "priority": 647,
+    "enabled": true,
+    "tags": [
+      "marketing_automation",
+      "batch_6"
+    ]
+  },
+  {
+    "rule_code": "pricing_engine.rule_2983",
+    "description": "Pricing Engine Rule 2983",
+    "conditions": [
+      {
+        "field": "competitor_price",
+        "operator": "EQUAL_TO",
+        "value": "SUSPENDED"
+      },
+      {
+        "field": "quantity",
+        "operator": "LESS_THAN",
+        "value": 7583
+      },
+      {
+        "field": "customer_segment",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "DE",
+          "FR",
+          "JP"
+        ]
+      }
+    ],
+    "priority": 1500,
+    "enabled": true,
+    "tags": [
+      "pricing_engine",
+      "batch_29"
+    ]
+  },
+  {
+    "rule_code": "payment_processing.rule_2257",
+    "description": "Payment Processing Rule 2257",
+    "conditions": [
+      {
+        "field": "currency",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "AU",
+          "DE",
+          "JP"
+        ]
+      },
+      {
+        "field": "currency",
+        "operator": "LESS_THAN",
+        "value": 3922
+      }
+    ],
+    "priority": 347,
+    "enabled": true,
+    "tags": [
+      "payment_processing",
+      "batch_22"
+    ]
+  },
+  {
+    "rule_code": "compliance_check.rule_0186",
+    "description": "Compliance Check Rule 186",
+    "conditions": [
+      {
+        "field": "verification_status",
+        "operator": "LESS_THAN",
+        "value": 1069
+      },
+      {
+        "field": "jurisdiction",
+        "operator": "LESS_THAN",
+        "value": 9506
+      },
+      {
+        "field": "document_type",
+        "operator": "GREATER_THAN",
+        "value": 711
+      }
+    ],
+    "priority": 936,
+    "enabled": true,
+    "tags": [
+      "compliance_check",
+      "batch_1"
+    ]
+  },
+  {
+    "rule_code": "user_authentication.rule_0590",
+    "description": "User Authentication Rule 590",
+    "conditions": [
+      {
+        "field": "mfa_enabled",
+        "operator": "BETWEEN",
+        "value": [
+          487,
+          2094
+        ]
+      },
+      {
+        "field": "mfa_enabled",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "UK",
+          "FR",
+          "AU"
+        ]
+      },
+      {
+        "field": "mfa_enabled",
+        "operator": "NOT_EQUAL_TO",
+        "value": true
+      }
+    ],
+    "priority": 860,
+    "enabled": true,
+    "tags": [
+      "user_authentication",
+      "batch_5",
+      "production-critical",
+      "high-priority"
+    ]
+  },
+  {
+    "rule_code": "risk_assessment.rule_1035",
+    "description": "Risk Assessment Rule 1035",
+    "conditions": [
+      {
+        "field": "debt_to_income_ratio",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "US",
+          "JP",
+          "UK",
+          "DE"
+        ]
+      },
+      {
+        "field": "credit_score",
+        "operator": "EQUAL_TO",
+        "value": "INACTIVE"
+      },
+      {
+        "field": "payment_history_score",
+        "operator": "GREATER_THAN",
+        "value": 2086
+      }
+    ],
+    "priority": 868,
+    "enabled": true,
+    "tags": [
+      "risk_assessment",
+      "batch_10"
+    ]
+  },
+  {
+    "rule_code": "risk_assessment.rule_1735",
+    "description": "Risk Assessment Rule 1735",
+    "conditions": [
+      {
+        "field": "employment_status",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "CA",
+          "JP"
+        ]
+      },
+      {
+        "field": "credit_score",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "UK",
+          "AU",
+          "JP",
+          "CA"
+        ]
+      }
+    ],
+    "priority": 973,
+    "enabled": true,
+    "tags": [
+      "risk_assessment",
+      "batch_17"
+    ]
+  },
+  {
+    "rule_code": "inventory_management.rule_1398",
+    "description": "Inventory Management Rule 1398",
+    "conditions": [
+      {
+        "field": "warehouse_location",
+        "operator": "NOT_EQUAL_TO",
+        "value": "ACTIVE"
+      },
+      {
+        "field": "product_category",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "DE",
+          "AU",
+          "FR",
+          "CA"
+        ]
+      }
+    ],
+    "priority": 307,
+    "enabled": true,
+    "tags": [
+      "inventory_management",
+      "batch_13"
+    ]
+  },
+  {
+    "rule_code": "inventory_management.rule_0458",
+    "description": "Inventory Management Rule 458",
+    "conditions": [
+      {
+        "field": "stock_level",
+        "operator": "GREATER_THAN",
+        "value": 6466
+      }
+    ],
+    "priority": 674,
+    "enabled": false,
+    "tags": [
+      "inventory_management",
+      "batch_4"
+    ]
+  },
+  {
+    "rule_code": "customer_segmentation.rule_1442",
+    "description": "Customer Segmentation Rule 1442",
+    "conditions": [
+      {
+        "field": "customer_tier",
+        "operator": "LESS_THAN",
+        "value": 6567
+      }
+    ],
+    "priority": 137,
+    "enabled": true,
+    "tags": [
+      "customer_segmentation",
+      "batch_14",
+      "vectorized"
+    ]
+  },
+  {
+    "rule_code": "payment_processing.rule_0987",
+    "description": "Payment Processing Rule 987",
+    "conditions": [
+      {
+        "field": "card_type",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "US",
+          "AU"
+        ]
+      },
+      {
+        "field": "currency",
+        "operator": "BETWEEN",
+        "value": [
+          976,
+          3341
+        ]
+      },
+      {
+        "field": "card_type",
+        "operator": "EQUAL_TO",
+        "value": "PENDING"
+      },
+      {
+        "field": "card_type",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "CA",
+          "US",
+          "JP",
+          "FR"
+        ]
+      }
+    ],
+    "priority": 719,
+    "enabled": true,
+    "tags": [
+      "payment_processing",
+      "batch_9",
+      "vectorized"
+    ]
+  },
+  {
+    "rule_code": "order_fulfillment.rule_1129",
+    "description": "Order Fulfillment Rule 1129",
+    "conditions": [
+      {
+        "field": "order_status",
+        "operator": "LESS_THAN",
+        "value": 9952
+      },
+      {
+        "field": "package_weight",
+        "operator": "GREATER_THAN",
+        "value": 8477
+      },
+      {
+        "field": "shipping_method",
+        "operator": "BETWEEN",
+        "value": [
+          1422,
+          4297
+        ]
+      }
+    ],
+    "priority": 378,
+    "enabled": true,
+    "tags": [
+      "order_fulfillment",
+      "batch_11"
+    ]
+  },
+  {
+    "rule_code": "user_authentication.rule_0990",
+    "description": "User Authentication Rule 990",
+    "conditions": [
+      {
+        "field": "last_login_days_ago",
+        "operator": "NOT_EQUAL_TO",
+        "value": "ACTIVE"
+      }
+    ],
+    "priority": 486,
+    "enabled": true,
+    "tags": [
+      "user_authentication",
+      "batch_9",
+      "production-critical",
+      "high-priority"
+    ]
+  },
+  {
+    "rule_code": "marketing_automation.rule_2544",
+    "description": "Marketing Automation Rule 2544",
+    "conditions": [
+      {
+        "field": "campaign_type",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "FR",
+          "AU",
+          "UK",
+          "US"
+        ]
+      },
+      {
+        "field": "click_through_rate",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "US",
+          "DE",
+          "UK",
+          "FR"
+        ]
+      },
+      {
+        "field": "email_open_rate",
+        "operator": "EQUAL_TO",
+        "value": "ACTIVE"
+      },
+      {
+        "field": "click_through_rate",
+        "operator": "GREATER_THAN",
+        "value": 6361
+      }
+    ],
+    "priority": 10,
+    "enabled": true,
+    "tags": [
+      "marketing_automation",
+      "batch_25"
+    ]
+  },
+  {
+    "rule_code": "pricing_engine.rule_2582",
+    "description": "Pricing Engine Rule 2893",
+    "conditions": [
+      {
+        "field": "customer_segment",
+        "operator": "GREATER_THAN",
+        "value": 7157
+      },
+      {
+        "field": "season",
+        "operator": "LESS_THAN",
+        "value": 4454
+      },
+      {
+        "field": "product_category",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "DE",
+          "US"
+        ]
+      },
+      {
+        "field": "quantity",
+        "operator": "EQUAL_TO",
+        "value": "SUSPENDED"
+      }
+    ],
+    "priority": 234,
+    "enabled": true,
+    "tags": [
+      "pricing_engine",
+      "batch_28"
+    ]
+  },
+  {
+    "rule_code": "fraud_detection.rule_1391",
+    "description": "Fraud Detection Rule 1391",
+    "conditions": [
+      {
+        "field": "transaction_amount",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "CA",
+          "FR",
+          "DE"
+        ]
+      },
+      {
+        "field": "device_fingerprint",
+        "operator": "GREATER_THAN",
+        "value": 5450
+      },
+      {
+        "field": "device_fingerprint",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "AU",
+          "FR"
+        ]
+      }
+    ],
+    "priority": 600,
+    "enabled": true,
+    "tags": [
+      "fraud_detection",
+      "batch_13"
+    ]
+  },
+  {
+    "rule_code": "order_fulfillment.rule_0139",
+    "description": "Order Fulfillment Rule 139",
+    "conditions": [
+      {
+        "field": "package_weight",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "AU",
+          "DE",
+          "FR"
+        ]
+      },
+      {
+        "field": "package_weight",
+        "operator": "NOT_EQUAL_TO",
+        "value": "INACTIVE"
+      },
+      {
+        "field": "shipping_method",
+        "operator": "BETWEEN",
+        "value": [
+          2148,
+          3361
+        ]
+      }
+    ],
+    "priority": 657,
+    "enabled": false,
+    "tags": [
+      "order_fulfillment",
+      "batch_1"
+    ]
+  },
+  {
+    "rule_code": "risk_assessment.rule_0645",
+    "description": "Risk Assessment Rule 645",
+    "conditions": [
+      {
+        "field": "payment_history_score",
+        "operator": "LESS_THAN",
+        "value": 6865
+      },
+      {
+        "field": "employment_status",
+        "operator": "LESS_THAN",
+        "value": 7020
+      },
+      {
+        "field": "credit_score",
+        "operator": "BETWEEN",
+        "value": [
+          1413,
+          5273
+        ]
+      },
+      {
+        "field": "employment_status",
+        "operator": "GREATER_THAN",
+        "value": 1187
+      }
+    ],
+    "priority": 361,
+    "enabled": false,
+    "tags": [
+      "risk_assessment",
+      "batch_6"
+    ]
+  },
+  {
+    "rule_code": "customer_segmentation.rule_2672",
+    "description": "Customer Segmentation Rule 2672",
+    "conditions": [
+      {
+        "field": "customer_tier",
+        "operator": "NOT_EQUAL_TO",
+        "value": "INACTIVE"
+      },
+      {
+        "field": "lifetime_value",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "AU",
+          "US"
+        ]
+      },
+      {
+        "field": "purchase_frequency",
+        "operator": "LESS_THAN",
+        "value": 1570
+      },
+      {
+        "field": "account_age_days",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "FR",
+          "DE",
+          "US"
+        ]
+      }
+    ],
+    "priority": 824,
+    "enabled": true,
+    "tags": [
+      "customer_segmentation",
+      "batch_26"
+    ]
+  },
+  {
+    "rule_code": "customer_segmentation.rule_1952",
+    "description": "Customer Segmentation Rule 1952",
+    "conditions": [
+      {
+        "field": "lifetime_value",
+        "operator": "BETWEEN",
+        "value": [
+          2781,
+          5198
+        ]
+      }
+    ],
+    "priority": 579,
+    "enabled": true,
+    "tags": [
+      "customer_segmentation",
+      "batch_19"
+    ]
+  },
+  {
+    "rule_code": "customer_segmentation.rule_0722",
+    "description": "Customer Segmentation Rule 722",
+    "conditions": [
+      {
+        "field": "customer_tier",
+        "operator": "BETWEEN",
+        "value": [
+          1244,
+          5213
+        ]
+      },
+      {
+        "field": "avg_order_value",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "UK",
+          "FR",
+          "JP"
+        ]
+      },
+      {
+        "field": "account_age_days",
+        "operator": "LESS_THAN",
+        "value": 5713
+      },
+      {
+        "field": "account_age_days",
+        "operator": "BETWEEN",
+        "value": [
+          3808,
+          5926
+        ]
+      }
+    ],
+    "priority": 252,
+    "enabled": true,
+    "tags": [
+      "customer_segmentation",
+      "batch_7"
+    ]
+  },
+  {
+    "rule_code": "fraud_detection.rule_1311",
+    "description": "Fraud Detection Rule 1311",
+    "conditions": [
+      {
+        "field": "country",
+        "operator": "BETWEEN",
+        "value": [
+          2005,
+          6896
+        ]
+      }
+    ],
+    "priority": 157,
+    "enabled": true,
+    "tags": [
+      "fraud_detection",
+      "batch_13"
+    ]
+  },
+  {
+    "rule_code": "compliance_check.rule_2076",
+    "description": "Compliance Check Rule 2076",
+    "conditions": [
+      {
+        "field": "verification_status",
+        "operator": "EQUAL_TO",
+        "value": "INACTIVE"
+      }
+    ],
+    "priority": 963,
+    "enabled": false,
+    "tags": [
+      "compliance_check",
+      "batch_20"
+    ]
+  },
+  {
+    "rule_code": "payment_processing.rule_2517",
+    "description": "Payment Processing Rule 2517",
+    "conditions": [
+      {
+        "field": "currency",
+        "operator": "LESS_THAN",
+        "value": 2788
+      }
+    ],
+    "priority": 719,
+    "enabled": true,
+    "tags": [
+      "payment_processing",
+      "batch_25"
+    ]
+  },
+  {
+    "rule_code": "pricing_engine.rule_1353",
+    "description": "Pricing Engine Rule 1353",
+    "conditions": [
+      {
+        "field": "competitor_price",
+        "operator": "EQUAL_TO",
+        "value": "INACTIVE"
+      }
+    ],
+    "priority": 792,
+    "enabled": true,
+    "tags": [
+      "pricing_engine",
+      "batch_13"
+    ]
+  },
+  {
+    "rule_code": "marketing_automation.rule_1054",
+    "description": "Marketing Automation Rule 1054",
+    "conditions": [
+      {
+        "field": "customer_engagement_score",
+        "operator": "BETWEEN",
+        "value": [
+          4107,
+          7568
+        ]
+      },
+      {
+        "field": "customer_engagement_score",
+        "operator": "LESS_THAN",
+        "value": 3947
+      }
+    ],
+    "priority": 30,
+    "enabled": true,
+    "tags": [
+      "marketing_automation",
+      "batch_10"
+    ]
+  },
+  {
+    "rule_code": "user_authentication.rule_0950",
+    "description": "User Authentication Rule 950",
+    "conditions": [
+      {
+        "field": "last_login_days_ago",
+        "operator": "EQUAL_TO",
+        "value": "SUSPENDED"
+      },
+      {
+        "field": "account_status",
+        "operator": "EQUAL_TO",
+        "value": "PENDING"
+      }
+    ],
+    "priority": 432,
+    "enabled": true,
+    "tags": [
+      "user_authentication",
+      "batch_9",
+      "production-critical",
+      "high-priority"
+    ]
+  },
+  {
+    "rule_code": "risk_assessment.rule_2333",
+    "description": "Risk Assessment Rule 2785",
+    "conditions": [
+      {
+        "field": "credit_score",
+        "operator": "BETWEEN",
+        "value": [
+          2222,
+          4243
+        ]
+      },
+      {
+        "field": "employment_status",
+        "operator": "GREATER_THAN",
+        "value": 8544
+      },
+      {
+        "field": "debt_to_income_ratio",
+        "operator": "GREATER_THAN",
+        "value": 8549
+      },
+      {
+        "field": "employment_status",
+        "operator": "LESS_THAN",
+        "value": 9401
+      }
+    ],
+    "priority": 759,
+    "enabled": true,
+    "tags": [
+      "risk_assessment",
+      "batch_27"
+    ]
+  },
+  {
+    "rule_code": "pricing_engine.rule_1853",
+    "description": "Pricing Engine Rule 1853",
+    "conditions": [
+      {
+        "field": "season",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "AU",
+          "FR",
+          "JP",
+          "UK"
+        ]
+      },
+      {
+        "field": "competitor_price",
+        "operator": "GREATER_THAN",
+        "value": 7861
+      },
+      {
+        "field": "customer_segment",
+        "operator": "BETWEEN",
+        "value": [
+          968,
+          4234
+        ]
+      }
+    ],
+    "priority": 356,
+    "enabled": false,
+    "tags": [
+      "pricing_engine",
+      "batch_18"
+    ]
+  },
+  {
+    "rule_code": "compliance_check.rule_1066",
+    "description": "Compliance Check Rule 1066",
+    "conditions": [
+      {
+        "field": "verification_status",
+        "operator": "BETWEEN",
+        "value": [
+          4577,
+          8503
+        ]
+      },
+      {
+        "field": "jurisdiction",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "FR",
+          "US"
+        ]
+      },
+      {
+        "field": "kyc_level",
+        "operator": "BETWEEN",
+        "value": [
+          2001,
+          4832
+        ]
+      },
+      {
+        "field": "verification_status",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "US",
+          "JP",
+          "CA",
+          "FR"
+        ]
+      }
+    ],
+    "priority": 148,
+    "enabled": true,
+    "tags": [
+      "compliance_check",
+      "batch_10"
+    ]
+  },
+  {
+    "rule_code": "order_fulfillment.rule_1069",
+    "description": "Order Fulfillment Rule 1069",
+    "conditions": [
+      {
+        "field": "package_weight",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "CA",
+          "JP",
+          "AU"
+        ]
+      }
+    ],
+    "priority": 855,
+    "enabled": true,
+    "tags": [
+      "order_fulfillment",
+      "batch_10"
+    ]
+  },
+  {
+    "rule_code": "risk_assessment.rule_2741",
+    "description": "Risk Assessment Rule 2855",
+    "conditions": [
+      {
+        "field": "payment_history_score",
+        "operator": "NOT_EQUAL_TO",
+        "value": "INACTIVE"
+      }
+    ],
+    "priority": 694,
+    "enabled": true,
+    "tags": [
+      "risk_assessment",
+      "batch_28"
+    ]
+  },
+  {
+    "rule_code": "inventory_management.rule_1268",
+    "description": "Inventory Management Rule 1268",
+    "conditions": [
+      {
+        "field": "product_category",
+        "operator": "NOT_EQUAL_TO",
+        "value": "INACTIVE"
+      },
+      {
+        "field": "reorder_point",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "CA",
+          "FR"
+        ]
+      },
+      {
+        "field": "product_category",
+        "operator": "GREATER_THAN",
+        "value": 7417
+      }
+    ],
+    "priority": 487,
+    "enabled": true,
+    "tags": [
+      "inventory_management",
+      "batch_12"
+    ]
+  },
+  {
+    "rule_code": "inventory_management.rule_0708",
+    "description": "Inventory Management Rule 708",
+    "conditions": [
+      {
+        "field": "reorder_point",
+        "operator": "BETWEEN",
+        "value": [
+          2764,
+          4129
+        ]
+      },
+      {
+        "field": "warehouse_location",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "DE",
+          "CA"
+        ]
+      },
+      {
+        "field": "stock_level",
+        "operator": "LESS_THAN",
+        "value": 7359
+      },
+      {
+        "field": "product_category",
+        "operator": "LESS_THAN",
+        "value": 1550
+      }
+    ],
+    "priority": 887,
+    "enabled": true,
+    "tags": [
+      "inventory_management",
+      "batch_7"
+    ]
+  },
+  {
+    "rule_code": "order_fulfillment.rule_0199",
+    "description": "Order Fulfillment Rule 199",
+    "conditions": [
+      {
+        "field": "package_weight",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "DE",
+          "US",
+          "FR"
+        ]
+      },
+      {
+        "field": "shipping_method",
+        "operator": "LESS_THAN",
+        "value": 5797
+      },
+      {
+        "field": "order_status",
+        "operator": "NOT_EQUAL_TO",
+        "value": "SUSPENDED"
+      }
+    ],
+    "priority": 542,
+    "enabled": true,
+    "tags": [
+      "order_fulfillment",
+      "batch_1"
+    ]
+  },
+  {
+    "rule_code": "inventory_management.rule_2038",
+    "description": "Inventory Management Rule 2038",
+    "conditions": [
+      {
+        "field": "stock_level",
+        "operator": "NOT_EQUAL_TO",
+        "value": "SUSPENDED"
+      },
+      {
+        "field": "warehouse_location",
+        "operator": "EQUAL_TO",
+        "value": "PENDING"
+      },
+      {
+        "field": "product_category",
+        "operator": "BETWEEN",
+        "value": [
+          531,
+          5474
+        ]
+      },
+      {
+        "field": "product_category",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "UK",
+          "US"
+        ]
+      }
+    ],
+    "priority": 489,
+    "enabled": true,
+    "tags": [
+      "inventory_management",
+      "batch_20"
+    ]
+  },
+  {
+    "rule_code": "order_fulfillment.rule_1099",
+    "description": "Order Fulfillment Rule 1099",
+    "conditions": [
+      {
+        "field": "order_status",
+        "operator": "NOT_EQUAL_TO",
+        "value": "ACTIVE"
+      },
+      {
+        "field": "package_weight",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "FR",
+          "DE",
+          "AU"
+        ]
+      },
+      {
+        "field": "order_status",
+        "operator": "NOT_EQUAL_TO",
+        "value": "INACTIVE"
+      }
+    ],
+    "priority": 945,
+    "enabled": true,
+    "tags": [
+      "order_fulfillment",
+      "batch_10",
+      "vectorized"
+    ]
+  },
+  {
+    "rule_code": "marketing_automation.rule_2924",
+    "description": "Marketing Automation Rule 2924",
+    "conditions": [],
+    "priority": 999,
+    "enabled": true,
+    "tags": [
+      "marketing_automation",
+      "batch_29"
+    ]
+  },
+  {
+    "rule_code": "marketing_automation.rule_1234",
+    "description": "Marketing Automation Rule 1234",
+    "conditions": [
+      {
+        "field": "email_open_rate",
+        "operator": "BETWEEN",
+        "value": [
+          1367,
+          4823
+        ]
+      },
+      {
+        "field": "campaign_type",
+        "operator": "GREATER_THAN",
+        "value": 2998
+      },
+      {
+        "field": "customer_engagement_score",
+        "operator": "LESS_THAN",
+        "value": 3008
+      }
+    ],
+    "priority": 520,
+    "enabled": true,
+    "tags": [
+      "marketing_automation",
+      "batch_12"
+    ]
+  },
+  {
+    "rule_code": "order_fulfillment.rule_1579",
+    "description": "Order Fulfillment Rule 1579",
+    "conditions": [
+      {
+        "field": "package_weight",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "UK",
+          "US",
+          "JP",
+          "FR"
+        ]
+      },
+      {
+        "field": "order_status",
+        "operator": "EQUAL_TO",
+        "value": "SUSPENDED"
+      },
+      {
+        "field": "package_weight",
+        "operator": "EQUAL_TO",
+        "value": "INACTIVE"
+      },
+      {
+        "field": "shipping_method",
+        "operator": "EQUAL_TO",
+        "value": "ACTIVE"
+      }
+    ],
+    "priority": 633,
+    "enabled": true,
+    "tags": [
+      "order_fulfillment",
+      "batch_15"
+    ]
+  },
+  {
+    "rule_code": "user_authentication.rule_2190",
+    "description": "User Authentication Rule 2190",
+    "conditions": [
+      {
+        "field": "mfa_enabled",
+        "operator": "GREATER_THAN",
+        "value": 387
+      },
+      {
+        "field": "account_status",
+        "operator": "NOT_EQUAL_TO",
+        "value": "PENDING"
+      },
+      {
+        "field": "last_login_days_ago",
+        "operator": "EQUAL_TO",
+        "value": "INACTIVE"
+      }
+    ],
+    "priority": 99,
+    "enabled": false,
+    "tags": [
+      "user_authentication",
+      "batch_21",
+      "production-critical",
+      "high-priority"
+    ]
+  },
+  {
+    "rule_code": "order_fulfillment.rule_1469",
+    "description": "Order Fulfillment Rule 1469",
+    "conditions": [
+      {
+        "field": "package_weight",
+        "operator": "LESS_THAN",
+        "value": 9613
+      },
+      {
+        "field": "shipping_method",
+        "operator": "EQUAL_TO",
+        "value": "INACTIVE"
+      },
+      {
+        "field": "shipping_method",
+        "operator": "BETWEEN",
+        "value": [
+          1135,
+          3120
+        ]
+      },
+      {
+        "field": "order_status",
+        "operator": "GREATER_THAN",
+        "value": 9007
+      }
+    ],
+    "priority": 906,
+    "enabled": true,
+    "tags": [
+      "order_fulfillment",
+      "batch_14"
+    ]
+  },
+  {
+    "rule_code": "fraud_detection.rule_0201",
+    "description": "Fraud Detection Rule 201",
+    "conditions": [
+      {
+        "field": "country",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "UK",
+          "CA",
+          "AU"
+        ]
+      },
+      {
+        "field": "transaction_amount",
+        "operator": "EQUAL_TO",
+        "value": "SUSPENDED"
+      }
+    ],
+    "priority": 630,
+    "enabled": true,
+    "tags": [
+      "fraud_detection",
+      "batch_2"
+    ]
+  },
+  {
+    "rule_code": "fraud_detection.rule_2661",
+    "description": "Fraud Detection Rule 2661",
+    "conditions": [
+      {
+        "field": "device_fingerprint",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "DE",
+          "FR",
+          "US"
+        ]
+      }
+    ],
+    "priority": 900,
+    "enabled": true,
+    "tags": [
+      "fraud_detection",
+      "batch_26"
+    ]
+  },
+  {
+    "rule_code": "risk_assessment.rule_2645",
+    "description": "Risk Assessment Rule 2645",
+    "conditions": [
+      {
+        "field": "credit_score",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "AU",
+          "US"
+        ]
+      },
+      {
+        "field": "employment_status",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "FR",
+          "UK",
+          "JP"
+        ]
+      },
+      {
+        "field": "debt_to_income_ratio",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "US",
+          "CA",
+          "FR"
+        ]
+      },
+      {
+        "field": "employment_status",
+        "operator": "GREATER_THAN",
+        "value": 1733
+      }
+    ],
+    "priority": 636,
+    "enabled": false,
+    "tags": [
+      "risk_assessment",
+      "batch_26"
+    ]
+  },
+  {
+    "rule_code": "fraud_detection.rule_0331",
+    "description": "Fraud Detection Rule 331",
+    "conditions": [
+      {
+        "field": "device_fingerprint",
+        "operator": "LESS_THAN",
+        "value": 3743
+      },
+      {
+        "field": "transaction_count_24h",
+        "operator": "LESS_THAN",
+        "value": 7894
+      }
+    ],
+    "priority": 929,
+    "enabled": true,
+    "tags": [
+      "fraud_detection",
+      "batch_3"
+    ]
+  },
+  {
+    "rule_code": "inventory_management.rule_0288",
+    "description": "Inventory Management Rule 288",
+    "conditions": [
+      {
+        "field": "product_category",
+        "operator": "EQUAL_TO",
+        "value": "ACTIVE"
+      }
+    ],
+    "priority": 965,
+    "enabled": false,
+    "tags": [
+      "inventory_management",
+      "batch_2"
+    ]
+  },
+  {
+    "rule_code": "marketing_automation.rule_2512",
+    "description": "Marketing Automation Rule 2904",
+    "conditions": [
+      {
+        "field": "campaign_type",
+        "operator": "LESS_THAN",
+        "value": 2133
+      },
+      {
+        "field": "campaign_type",
+        "operator": "BETWEEN",
+        "value": [
+          1584,
+          5016
+        ]
+      },
+      {
+        "field": "campaign_type",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "FR",
+          "JP",
+          "DE"
+        ]
+      }
+    ],
+    "priority": 439,
+    "enabled": true,
+    "tags": [
+      "marketing_automation",
+      "batch_29"
+    ]
+  },
+  {
+    "rule_code": "customer_segmentation.rule_2752",
+    "description": "Customer Segmentation Rule 2752",
+    "conditions": [
+      {
+        "field": "customer_tier",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "UK",
+          "DE",
+          "JP",
+          "US"
+        ]
+      }
+    ],
+    "priority": 224,
+    "enabled": false,
+    "tags": [
+      "customer_segmentation",
+      "batch_27"
+    ]
+  },
+  {
+    "rule_code": "user_authentication.rule_2040",
+    "description": "User Authentication Rule 2040",
+    "conditions": [
+      {
+        "field": "login_attempts",
+        "operator": "GREATER_THAN",
+        "value": 3698
+      }
+    ],
+    "priority": 252,
+    "enabled": true,
+    "tags": [
+      "user_authentication",
+      "batch_20",
+      "production-critical",
+      "high-priority"
+    ]
+  },
+  {
+    "rule_code": "risk_assessment.rule_2665",
+    "description": "Risk Assessment Rule 2665",
+    "conditions": [
+      {
+        "field": "employment_status",
+        "operator": "EQUAL_TO",
+        "value": "ACTIVE"
+      },
+      {
+        "field": "debt_to_income_ratio",
+        "operator": "NOT_EQUAL_TO",
+        "value": "ACTIVE"
+      },
+      {
+        "field": "credit_score",
+        "operator": "LESS_THAN",
+        "value": 1010
+      },
+      {
+        "field": "payment_history_score",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "DE",
+          "US",
+          "CA"
+        ]
+      }
+    ],
+    "priority": 309,
+    "enabled": true,
+    "tags": [
+      "risk_assessment",
+      "batch_26"
+    ]
+  },
+  {
+    "rule_code": "pricing_engine.rule_2243",
+    "description": "Pricing Engine Rule 2243",
+    "conditions": [
+      {
+        "field": "customer_segment",
+        "operator": "LESS_THAN",
+        "value": 1665
+      },
+      {
+        "field": "product_category",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "US",
+          "DE"
+        ]
+      }
+    ],
+    "priority": 419,
+    "enabled": false,
+    "tags": [
+      "pricing_engine",
+      "batch_22"
+    ]
+  },
+  {
+    "rule_code": "order_fulfillment.rule_0289",
+    "description": "Order Fulfillment Rule 289",
+    "conditions": [
+      {
+        "field": "shipping_method",
+        "operator": "GREATER_THAN",
+        "value": 7196
+      }
+    ],
+    "priority": 842,
+    "enabled": false,
+    "tags": [
+      "order_fulfillment",
+      "batch_2"
+    ]
+  },
+  {
+    "rule_code": "payment_processing.rule_1767",
+    "description": "Payment Processing Rule 1767",
+    "conditions": [
+      {
+        "field": "merchant_category",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "FR",
+          "JP"
+        ]
+      },
+      {
+        "field": "payment_method",
+        "operator": "GREATER_THAN",
+        "value": 6259
+      },
+      {
+        "field": "card_type",
+        "operator": "NOT_EQUAL_TO",
+        "value": "PENDING"
+      }
+    ],
+    "priority": 462,
+    "enabled": false,
+    "tags": [
+      "payment_processing",
+      "batch_17"
+    ]
+  },
+  {
+    "rule_code": "marketing_automation.rule_0114",
+    "description": "Marketing Automation Rule 114",
+    "conditions": [
+      {
+        "field": "email_open_rate",
+        "operator": "EQUAL_TO",
+        "value": "ACTIVE"
+      },
+      {
+        "field": "email_open_rate",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "JP",
+          "AU"
+        ]
+      },
+      {
+        "field": "campaign_type",
+        "operator": "BETWEEN",
+        "value": [
+          1165,
+          4443
+        ]
+      },
+      {
+        "field": "email_open_rate",
+        "operator": "GREATER_THAN",
+        "value": 9301
+      }
+    ],
+    "priority": 576,
+    "enabled": true,
+    "tags": [
+      "marketing_automation",
+      "batch_1"
+    ]
+  },
+  {
+    "rule_code": "fraud_detection.rule_2581",
+    "description": "Fraud Detection Rule 2581",
+    "conditions": [
+      {
+        "field": "ip_address",
+        "operator": "EQUAL_TO",
+        "value": "SUSPENDED"
+      }
+    ],
+    "priority": 132,
+    "enabled": true,
+    "tags": [
+      "fraud_detection",
+      "batch_25"
+    ]
+  },
+  {
+    "rule_code": "customer_segmentation.rule_1142",
+    "description": "Customer Segmentation Rule 1142",
+    "conditions": [
+      {
+        "field": "lifetime_value",
+        "operator": "GREATER_THAN",
+        "value": 8309
+      },
+      {
+        "field": "account_age_days",
+        "operator": "GREATER_THAN",
+        "value": 6233
+      },
+      {
+        "field": "purchase_frequency",
+        "operator": "BETWEEN",
+        "value": [
+          4075,
+          7730
+        ]
+      }
+    ],
+    "priority": 174,
+    "enabled": false,
+    "tags": [
+      "customer_segmentation",
+      "batch_11"
+    ]
+  },
+  {
+    "rule_code": "customer_segmentation.rule_0812",
+    "description": "Customer Segmentation Rule 812",
+    "conditions": [
+      {
+        "field": "avg_order_value",
+        "operator": "NOT_EQUAL_TO",
+        "value": "INACTIVE"
+      },
+      {
+        "field": "avg_order_value",
+        "operator": "GREATER_THAN",
+        "value": 8367
+      },
+      {
+        "field": "customer_tier",
+        "operator": "NOT_EQUAL_TO",
+        "value": "SUSPENDED"
+      }
+    ],
+    "priority": 816,
+    "enabled": true,
+    "tags": [
+      "customer_segmentation",
+      "batch_8",
+      "vectorized"
+    ]
+  },
+  {
+    "rule_code": "risk_assessment.rule_1805",
+    "description": "Risk Assessment Rule 1805",
+    "conditions": [
+      {
+        "field": "employment_status",
+        "operator": "GREATER_THAN",
+        "value": 1150
+      },
+      {
+        "field": "debt_to_income_ratio",
+        "operator": "NOT_EQUAL_TO",
+        "value": "PENDING"
+      }
+    ],
+    "priority": 614,
+    "enabled": true,
+    "tags": [
+      "risk_assessment",
+      "batch_18"
+    ]
+  },
+  {
+    "rule_code": "risk_assessment.rule_1245",
+    "description": "Risk Assessment Rule 1245",
+    "conditions": [
+      {
+        "field": "employment_status",
+        "operator": "BETWEEN",
+        "value": [
+          3392,
+          4575
+        ]
+      },
+      {
+        "field": "debt_to_income_ratio",
+        "operator": "NOT_EQUAL_TO",
+        "value": "INACTIVE"
+      }
+    ],
+    "priority": 637,
+    "enabled": true,
+    "tags": [
+      "risk_assessment",
+      "batch_12"
+    ]
+  },
+  {
+    "rule_code": "compliance_check.rule_1526",
+    "description": "Compliance Check Rule 1526",
+    "conditions": [
+      {
+        "field": "jurisdiction",
+        "operator": "BETWEEN",
+        "value": [
+          4321,
+          6046
+        ]
+      },
+      {
+        "field": "verification_status",
+        "operator": "IS_NONE_OF",
+        "value": [
+          "CA",
+          "UK"
+        ]
+      }
+    ],
+    "priority": 587,
+    "enabled": false,
+    "tags": [
+      "compliance_check",
+      "batch_15",
+      "vectorized"
+    ]
+  },
+  {
+    "rule_code": "pricing_engine.rule_0243",
+    "description": "Pricing Engine Rule 243",
+    "conditions": [
+      {
+        "field": "product_category",
+        "operator": "NOT_EQUAL_TO",
+        "value": "PENDING"
+      },
+      {
+        "field": "product_category",
+        "operator": "NOT_EQUAL_TO",
+        "value": "PENDING"
+      },
+      {
+        "field": "quantity",
+        "operator": "GREATER_THAN",
+        "value": 6464
+      }
+    ],
+    "priority": 429,
+    "enabled": true,
+    "tags": [
+      "pricing_engine",
+      "batch_2"
+    ]
+  },
+  {
+    "rule_code": "user_authentication.rule_1640",
+    "description": "User Authentication Rule 1640",
+    "conditions": [
+      {
+        "field": "last_login_days_ago",
+        "operator": "LESS_THAN",
+        "value": 6793
+      },
+      {
+        "field": "mfa_enabled",
+        "operator": "BETWEEN",
+        "value": [
+          1444,
+          5059
+        ]
+      },
+      {
+        "field": "account_status",
+        "operator": "EQUAL_TO",
+        "value": "INACTIVE"
+      },
+      {
+        "field": "login_attempts",
+        "operator": "NOT_EQUAL_TO",
+        "value": "ACTIVE"
+      }
+    ],
+    "priority": 209,
+    "enabled": true,
+    "tags": [
+      "user_authentication",
+      "batch_16",
+      "production-critical",
+      "high-priority"
+    ]
+  },
+  {
+    "rule_code": "inventory_management.rule_2188",
+    "description": "Inventory Management Rule 2188",
+    "conditions": [
+      {
+        "field": "reorder_point",
+        "operator": "LESS_THAN",
+        "value": 4211
+      }
+    ],
+    "priority": 277,
+    "enabled": true,
+    "tags": [
+      "inventory_management",
+      "batch_21"
+    ]
+  },
+  {
+    "rule_code": "payment_processing.rule_1717",
+    "description": "Payment Processing Rule 1717",
+    "conditions": [
+      {
+        "field": "card_type",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "CA",
+          "US",
+          "JP"
+        ]
+      },
+      {
+        "field": "card_type",
+        "operator": "NOT_EQUAL_TO",
+        "value": "INACTIVE"
+      }
+    ],
+    "priority": 740,
+    "enabled": false,
+    "tags": [
+      "payment_processing",
+      "batch_17"
+    ]
+  },
+  {
+    "rule_code": "pricing_engine.rule_1183",
+    "description": "Pricing Engine Rule 1183",
+    "conditions": [
+      {
+        "field": "customer_segment",
+        "operator": "EQUAL_TO",
+        "value": "SUSPENDED"
+      }
+    ],
+    "priority": 36,
+    "enabled": true,
+    "tags": [
+      "pricing_engine",
+      "batch_11",
+      "vectorized"
+    ]
+  },
+  {
+    "rule_code": "compliance_check.rule_2156",
+    "description": "Compliance Check Rule 2156",
+    "conditions": [
+      {
+        "field": "document_type",
+        "operator": "BETWEEN",
+        "value": [
+          1535,
+          4649
+        ]
+      },
+      {
+        "field": "verification_status",
+        "operator": "IS_ANY_OF",
+        "value": [
+          "UK",
+          "CA"
+        ]
+      }
+    ],
+    "priority": 507,
+    "enabled": true,
+    "tags": [
+      "compliance_check",
+      "batch_21",
+      "vectorized"
+    ]
+  },
+  {
+    "rule_code": "compliance_check.rule_1676",
+    "description": "Compliance Check Rule 1676",
+    "conditions": [
+      {
+        "field": "kyc_level",
+        "operator": "NOT_EQUAL_TO",
+        "value": "INACTIVE"
+      },
+      {
+        "field": "verification_status",
+        "operator": "LESS_THAN",
+        "value": 4687
+      },
+      {
+        "field": "jurisdiction",
+        "operator": "EQUAL_TO",
+        "value": "ACTIVE"
+      }
+    ],
+    "priority": 498,
+    "enabled": true,
+    "tags": [
+      "compliance_check",
+      "batch_16"
+    ]
+  }
+]
