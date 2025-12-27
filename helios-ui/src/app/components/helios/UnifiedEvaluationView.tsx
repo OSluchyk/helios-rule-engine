@@ -5,13 +5,14 @@
 import { useState, useMemo } from 'react';
 import { useEvaluateWithTrace, useExplainRule, useEvaluateBatch } from '../../../hooks/useEvaluation';
 import { useRules } from '../../../hooks/useRules';
-import type { Event, TraceLevel, EvaluationResult, ExplanationResult, BatchEvaluationResult, MatchResult } from '../../../types/api';
+import type { Event, TraceLevel, BatchEvaluationResult, MatchResult } from '../../../types/api';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Alert, AlertDescription } from '../ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Label } from '../ui/label';
+import { SearchableSelect, SearchableSelectOption } from '../ui/searchable-select';
 
 export function UnifiedEvaluationView() {
   // Mode toggle
@@ -53,6 +54,22 @@ export function UnifiedEvaluationView() {
     });
     return Array.from(familySet).sort();
   }, [allRules]);
+
+  // Convert rules to searchable select options
+  const ruleOptions = useMemo<SearchableSelectOption[]>(() => {
+    if (!allRules) return [];
+    return allRules.map(rule => ({
+      value: rule.rule_code,
+      label: rule.rule_code,
+      description: rule.description
+    }));
+  }, [allRules]);
+
+  // Get selected rule data
+  const selectedRule = useMemo(() => {
+    if (!allRules || !selectedRuleForExplanation) return null;
+    return allRules.find(rule => rule.rule_code === selectedRuleForExplanation);
+  }, [allRules, selectedRuleForExplanation]);
 
   const evaluateMutation = useEvaluateWithTrace();
   const explainMutation = useExplainRule();
@@ -462,20 +479,18 @@ export function UnifiedEvaluationView() {
                   </TabsContent>
 
                   <TabsContent value="explain" className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="rule-select">Select Rule to Explain</Label>
-                      <Select value={selectedRuleForExplanation} onValueChange={setSelectedRuleForExplanation}>
-                        <SelectTrigger id="rule-select">
-                          <SelectValue placeholder="Choose a rule..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {allRules?.map(rule => (
-                            <SelectItem key={rule.rule_code} value={rule.rule_code}>
-                              {rule.rule_code}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label>Select Rule to Explain</Label>
+                        <SearchableSelect
+                          options={ruleOptions}
+                          value={selectedRuleForExplanation}
+                          onChange={setSelectedRuleForExplanation}
+                          placeholder="Search and select a rule..."
+                          searchPlaceholder="Type to search by code or description..."
+                          emptyMessage="No rules found"
+                        />
+                      </div>
                       <Button
                         onClick={handleExplain}
                         disabled={!selectedRuleForExplanation || explainMutation.isPending}
@@ -485,34 +500,87 @@ export function UnifiedEvaluationView() {
                       </Button>
                     </div>
 
-                    {explainMutation.isSuccess && explainMutation.data && (
+                    {explainMutation.isSuccess && explainMutation.data && selectedRule && (
                       <div className="space-y-4">
-                        <div className={`p-4 border rounded-lg ${explainMutation.data.matched ? 'bg-green-50' : 'bg-yellow-50'}`}>
-                          <h3 className="font-semibold mb-2">
-                            {explainMutation.data.matched ? '✓ Rule Matched' : '✗ Rule Did Not Match'}
-                          </h3>
-                          <p className="text-sm">{explainMutation.data.summary}</p>
+                        {/* Selected Rule Info */}
+                        <div className="p-3 bg-gray-50 border rounded-lg">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs text-muted-foreground mb-1">Rule Being Explained</div>
+                              <div className="font-mono text-sm font-semibold">{selectedRule.rule_code}</div>
+                              {selectedRule.description && (
+                                <div className="text-sm text-muted-foreground mt-1">{selectedRule.description}</div>
+                              )}
+                            </div>
+                          </div>
                         </div>
 
-                        <div className="space-y-2">
-                          <h3 className="font-semibold">Condition Breakdown:</h3>
-                          {explainMutation.data.condition_explanations.map((cond, idx) => (
-                            <div key={idx} className={`p-3 border rounded ${cond.passed ? 'bg-green-50' : 'bg-red-50'}`}>
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                  <div className="font-mono text-sm">
-                                    {cond.field_name} {cond.operator} {JSON.stringify(cond.expected_value)}
+                        {/* Overall Match Status */}
+                        <div className={`p-4 border rounded-lg ${explainMutation.data.matched ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                          <div className="flex items-center justify-between">
+                            <h3 className="font-semibold text-lg">
+                              {explainMutation.data.matched ? '✓ Rule Matched' : '✗ Rule Did Not Match'}
+                            </h3>
+                            <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                              explainMutation.data.matched
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-red-100 text-red-800'
+                            }`}>
+                              {explainMutation.data.matched ? 'PASS' : 'FAIL'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Condition Evaluation Results */}
+                        <div className="space-y-3">
+                          <h3 className="font-semibold text-base">
+                            Condition Evaluation Results
+                            <span className="text-sm font-normal text-muted-foreground ml-2">
+                              ({explainMutation.data.condition_explanations.length} {explainMutation.data.condition_explanations.length === 1 ? 'condition' : 'conditions'})
+                            </span>
+                          </h3>
+                          <div className="space-y-2">
+                            {explainMutation.data.condition_explanations.map((cond, idx) => (
+                              <div
+                                key={idx}
+                                className={`p-3 border rounded-lg ${
+                                  cond.passed
+                                    ? 'bg-green-50 border-green-200'
+                                    : 'bg-red-50 border-red-200'
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex-1 min-w-0">
+                                    {/* Condition */}
+                                    <div className="font-mono text-sm font-medium mb-1">
+                                      {cond.field_name} {cond.operator} {JSON.stringify(cond.expected_value)}
+                                    </div>
+
+                                    {/* Actual value from event */}
+                                    <div className="text-sm text-muted-foreground">
+                                      Actual: <span className="font-mono">{JSON.stringify(cond.actual_value)}</span>
+                                    </div>
+
+                                    {/* Result reason */}
+                                    <div className={`text-sm mt-1 ${
+                                      cond.passed ? 'text-green-700' : 'text-red-700'
+                                    }`}>
+                                      {cond.passed ? '✓ ' : '✗ '}{cond.reason}
+                                    </div>
                                   </div>
-                                  <div className="text-sm text-muted-foreground mt-1">
-                                    {cond.reason}
+
+                                  {/* Pass/Fail badge */}
+                                  <div className={`flex-shrink-0 px-2 py-1 rounded text-xs font-semibold ${
+                                    cond.passed
+                                      ? 'bg-green-100 text-green-800'
+                                      : 'bg-red-100 text-red-800'
+                                  }`}>
+                                    {cond.passed ? 'PASS' : 'FAIL'}
                                   </div>
                                 </div>
-                                <span className={`text-sm ${cond.passed ? 'text-green-700' : 'text-red-700'}`}>
-                                  {cond.passed ? '✓' : '✗'}
-                                </span>
                               </div>
-                            </div>
-                          ))}
+                            ))}
+                          </div>
                         </div>
                       </div>
                     )}
