@@ -1,0 +1,44 @@
+{
+  "format": "json",
+  "rules": [
+    {
+      "rule_code": "test.normal_comparison",
+      "description": "Normal GREATER_THAN - should have NO warning",
+      "conditions": [{"field": "amount", "operator": "GREATER_THAN", "value": 1000}],
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "rule_code": "test.multiple_equals_actionable",
+      "description": "Multiple EQUAL_TO on same field - SHOULD warn to use IS_ANY_OF",
+      "conditions": [
+        {"field": "status", "operator": "EQUAL_TO", "value": "ACTIVE"},
+        {"field": "status", "operator": "EQUAL_TO", "value": "PENDING"},
+        {"field": "status", "operator": "EQUAL_TO", "value": "APPROVED"}
+      ],
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "rule_code": "test.equal_null_actionable",
+      "description": "EQUAL_TO with null - SHOULD warn to use IS_NULL",
+      "conditions": [{"field": "optional_field", "operator": "EQUAL_TO", "value": null}],
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "rule_code": "test.not_equal_null_actionable",
+      "description": "NOT_EQUAL_TO with null - SHOULD warn to use IS_NOT_NULL",
+      "conditions": [{"field": "required_field", "operator": "NOT_EQUAL_TO", "value": null}],
+      "priority": 100,
+      "enabled": true
+    },
+    {
+      "rule_code": "test.regex_no_warning",
+      "description": "REGEX operator - should have NO warning",
+      "conditions": [{"field": "email", "operator": "REGEX", "value": ".*@company\\.com"}],
+      "priority": 100,
+      "enabled": true
+    }
+  ]
+}
