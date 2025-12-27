@@ -75,7 +75,6 @@ export function RuleBuilder({ onRuleCreated }: RuleBuilderProps) {
   // UI state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
-  const [showPreview, setShowPreview] = useState(false);
 
   // Computed rule code from family + name
   const ruleCode = family && ruleName ? `${family}.${ruleName}` : '';
@@ -451,15 +450,16 @@ export function RuleBuilder({ onRuleCreated }: RuleBuilderProps) {
     return error || null;
   };
 
-  // Calculate optimization metrics
+  // Calculate optimization metrics (only for filled conditions)
+  const filledConditions = conditions.filter(c => c.field && c.value);
   const optimizationMetrics = {
-    vectorizedCount: conditions.filter(
+    vectorizedCount: filledConditions.filter(
       c => getConditionType(c.operator) === 'vectorized'
     ).length,
-    baseCount: conditions.filter(
+    baseCount: filledConditions.filter(
       c => getConditionType(c.operator) === 'base'
     ).length,
-    estimatedLatency: 0.2 + conditions.length * 0.05
+    estimatedLatency: filledConditions.length > 0 ? 0.2 + filledConditions.length * 0.05 : 0
   };
 
   return (
@@ -645,32 +645,26 @@ export function RuleBuilder({ onRuleCreated }: RuleBuilderProps) {
 
           {/* Conditions */}
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-semibold flex items-center gap-2">
-                  Conditions
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger>
-                        <Info className="size-4 text-gray-400" />
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-xs">
-                        <p className="text-sm">
-                          All conditions must be true for the rule to match (AND logic).
-                          Condition type is auto-detected based on operator.
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  All conditions must be true (AND logic)
-                </p>
-              </div>
-              <Button size="sm" variant="outline" onClick={addCondition}>
-                <Plus className="size-4 mr-2" />
-                Add Condition
-              </Button>
+            <div>
+              <h3 className="font-semibold flex items-center gap-2">
+                Conditions
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Info className="size-4 text-gray-400" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs">
+                      <p className="text-sm">
+                        All conditions must be true for the rule to match (AND logic).
+                        Condition type is auto-detected based on operator.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </h3>
+              <p className="text-sm text-gray-600 mt-1">
+                All conditions must be true (AND logic)
+              </p>
             </div>
 
             <div className="space-y-3">
@@ -860,6 +854,14 @@ export function RuleBuilder({ onRuleCreated }: RuleBuilderProps) {
                 );
               })}
             </div>
+
+            {/* Add Condition Button */}
+            <div className="flex justify-start">
+              <Button size="sm" variant="outline" onClick={addCondition}>
+                <Plus className="size-4 mr-2" />
+                Add Condition
+              </Button>
+            </div>
           </div>
 
           <Separator />
@@ -977,31 +979,22 @@ export function RuleBuilder({ onRuleCreated }: RuleBuilderProps) {
               <Play className="size-4 mr-2" />
               Validate
             </Button>
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={() => setShowPreview(!showPreview)}
-            >
-              {showPreview ? 'Hide' : 'Show'} JSON
-            </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* Generated Code Preview */}
-      {showPreview && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Generated JSON Preview</CardTitle>
-            <CardDescription>API payload that will be sent</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-sm font-mono overflow-x-auto">
-              {JSON.stringify(buildPayload(), null, 2)}
-            </pre>
-          </CardContent>
-        </Card>
-      )}
+      {/* Generated Code Preview - Always Visible */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Generated JSON Preview</CardTitle>
+          <CardDescription>API payload that will be sent</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-sm font-mono overflow-x-auto">
+            {JSON.stringify(buildPayload(), null, 2)}
+          </pre>
+        </CardContent>
+      </Card>
     </div>
   );
 }
