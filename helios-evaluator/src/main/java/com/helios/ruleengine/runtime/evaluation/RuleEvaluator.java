@@ -360,8 +360,22 @@ public final class RuleEvaluator implements IRuleEvaluator {
             // Get combination IDs for this rule
             Set<Integer> combinationIds = model.getCombinationIdsForRule(ruleCode);
 
-            // Examine predicate outcomes for this rule's combinations
+            // Collect all predicate IDs that belong to this rule's combinations
+            Set<Integer> rulePredicateIds = new java.util.HashSet<>();
+            for (int combinationId : combinationIds) {
+                var predicateIds = model.getCombinationPredicateIds(combinationId);
+                if (predicateIds != null) {
+                    predicateIds.forEach(rulePredicateIds::add);
+                }
+            }
+
+            // Examine predicate outcomes ONLY for this rule's predicates
             for (var outcome : result.trace().predicateOutcomes()) {
+                // Filter: only include predicates that belong to this rule
+                if (!rulePredicateIds.contains(outcome.predicateId())) {
+                    continue;
+                }
+
                 String reason = outcome.matched()
                         ? "Passed"
                         : ExplanationResult.ConditionExplanation.REASON_VALUE_MISMATCH;
