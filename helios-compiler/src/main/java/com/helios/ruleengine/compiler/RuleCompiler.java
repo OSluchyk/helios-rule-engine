@@ -192,6 +192,124 @@ public class RuleCompiler implements IRuleCompiler {
     }
 
     /**
+     * Compiles rules from a list of rule definitions.
+     * This method is useful when rules are loaded from a database or other source.
+     *
+     * @param definitions List of rule definitions to compile
+     * @return compiled engine model
+     * @throws CompilationException if compilation fails
+     */
+    @Override
+    public EngineModel compile(List<RuleDefinition> definitions) throws CompilationException {
+        return compile(definitions, SelectionStrategy.FIRST_MATCH);
+    }
+
+    /**
+     * Compiles rules from a list of rule definitions with a specific selection strategy.
+     *
+     * @param definitions List of rule definitions to compile
+     * @param strategy    The selection strategy for the engine
+     * @return compiled engine model
+     * @throws CompilationException if compilation fails
+     */
+    public EngineModel compile(List<RuleDefinition> definitions, SelectionStrategy strategy)
+            throws CompilationException {
+        Span span = tracer.spanBuilder("compile-rules-from-list").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            span.setAttribute("inputRuleCount", definitions.size());
+            long startTime = System.nanoTime();
+            final int TOTAL_STAGES = 6; // One less stage (no PARSING)
+
+            // Stage 1: VALIDATION
+            notifyStageStart("VALIDATION", 1, TOTAL_STAGES);
+            long stageStart = System.nanoTime();
+            List<RuleDefinition> validRules = validateAndCanonize(definitions);
+            span.setAttribute("logicalRuleCount", validRules.size());
+            notifyStageComplete("VALIDATION", stageStart, Map.of("validRuleCount", validRules.size()));
+
+            // Stage 2: FACTORIZATION
+            notifyStageStart("FACTORIZATION", 2, TOTAL_STAGES);
+            stageStart = System.nanoTime();
+            SmartIsAnyOfFactorizer factorizer = new SmartIsAnyOfFactorizer();
+            List<RuleDefinition> factoredRules = factorizer.factorize(validRules);
+            span.setAttribute("factoredRuleCount", factoredRules.size());
+            notifyStageComplete("FACTORIZATION", stageStart, Map.of("factoredRuleCount", factoredRules.size()));
+
+            // Stage 3: DICTIONARY_ENCODING
+            notifyStageStart("DICTIONARY_ENCODING", 3, TOTAL_STAGES);
+            stageStart = System.nanoTime();
+            Dictionary fieldDictionary = new Dictionary();
+            Dictionary valueDictionary = new Dictionary();
+            buildDictionaries(factoredRules, fieldDictionary, valueDictionary);
+            notifyStageComplete("DICTIONARY_ENCODING", stageStart, Map.of(
+                "fieldCount", fieldDictionary.size(),
+                "valueCount", valueDictionary.size()));
+
+            // Stage 4: SELECTIVITY_PROFILING
+            notifyStageStart("SELECTIVITY_PROFILING", 4, TOTAL_STAGES);
+            stageStart = System.nanoTime();
+            SelectivityProfile profile = profileSelectivity(factoredRules, fieldDictionary, valueDictionary);
+            notifyStageComplete("SELECTIVITY_PROFILING", stageStart, Map.of());
+
+            // Stage 5: MODEL_BUILDING
+            notifyStageStart("MODEL_BUILDING", 5, TOTAL_STAGES);
+            stageStart = System.nanoTime();
+            EngineModel.Builder builder = buildCoreModelWithDeduplication(factoredRules, profile, fieldDictionary,
+                    valueDictionary);
+            notifyStageComplete("MODEL_BUILDING", stageStart, Map.of(
+                "totalCombinations", builder.getTotalExpandedCombinations(),
+                "uniqueCombinations", builder.getUniqueCombinationCount()));
+
+            // Stage 6: INDEX_BUILDING (happens in builder.build())
+            notifyStageStart("INDEX_BUILDING", 6, TOTAL_STAGES);
+            stageStart = System.nanoTime();
+
+            long compilationTime = System.nanoTime() - startTime;
+            span.setAttribute("compilationTimeMs", TimeUnit.NANOSECONDS.toMillis(compilationTime));
+
+            Map<String, Object> metadata = new HashMap<>();
+            int logicalRuleCount = validRules.size();
+            int totalExpandedCombinations = builder.getTotalExpandedCombinations();
+            int uniqueCombinations = builder.getUniqueCombinationCount();
+            double deduplicationRate = totalExpandedCombinations > 0
+                    ? (1.0 - (double) uniqueCombinations / totalExpandedCombinations) * 100
+                    : 0;
+
+            metadata.put("logicalRules", logicalRuleCount);
+            metadata.put("totalExpandedCombinations", totalExpandedCombinations);
+            metadata.put("uniqueCombinations", uniqueCombinations);
+            metadata.put("deduplicationRatePercent", String.format("%.2f", deduplicationRate));
+            metadata.put("deduplicationRatePercent", deduplicationRate);
+
+            EngineStats stats = new EngineStats(
+                    uniqueCombinations,
+                    builder.getPredicateCount(),
+                    compilationTime,
+                    metadata);
+
+            EngineModel model = builder.withStats(stats)
+                    .withFieldDictionary(fieldDictionary)
+                    .withValueDictionary(valueDictionary)
+                    .withSelectionStrategy(strategy)
+                    .build();
+
+            notifyStageComplete("INDEX_BUILDING", stageStart, Map.of(
+                "predicateCount", builder.getPredicateCount()));
+
+            return model;
+
+        } catch (CompilationException e) {
+            span.recordException(e);
+            if (listener != null) {
+                listener.onError("COMPILATION", e);
+            }
+            throw e;
+        } finally {
+            span.end();
+        }
+    }
+
+    /**
      * Helper method to notify listener when a stage starts.
      * No-op if listener is null (zero overhead).
      */

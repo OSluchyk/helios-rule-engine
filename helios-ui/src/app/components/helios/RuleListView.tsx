@@ -10,7 +10,7 @@
  * - Real-time API data with loading/error states
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useRules } from '../../../hooks/useRules';
 import { getErrorMessage } from '../../../api/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
@@ -42,15 +42,30 @@ import {
   Zap,
   Filter,
   ChevronRight,
+  ChevronLeft,
+  ChevronsLeft,
+  ChevronsRight,
   Tag,
-  X
+  X,
+  Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { compileFromDatabase } from '../../../api/compilation';
+import { deleteRule, deleteRulesBatch } from '../../../api/rules';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
 import {
   PREDEFINED_TAGS,
   getTagStyle,
   getAllTags,
   toUIRule,
+  validateRule,
   type UIRule,
   type RuleFamily,
   type ViewMode,
@@ -74,6 +89,7 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
   const [statusFilter, setStatusFilter] = useState<string[]>(['active', 'inactive', 'draft']);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [customTagInput, setCustomTagInput] = useState('');
+  const [compilationStatusFilter, setCompilationStatusFilter] = useState<string>('all');
 
   // UI state
   const [selectedRules, setSelectedRules] = useState<Set<string>>(new Set());
@@ -81,6 +97,14 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
   const [sortBy, setSortBy] = useState<SortOption>('match-rate');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [isCompiling, setIsCompiling] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'single' | 'batch'; ruleCode?: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   // Convert API rules to UI rules with computed properties
   const uiRules = useMemo(() => {
@@ -141,9 +165,14 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
         selectedTags.length === 0 ||
         selectedTags.every(tag => rule.tags && rule.tags.includes(tag));
 
-      return matchesSearch && matchesFamily && matchesStatus && matchesTags;
+      // Compilation status filter
+      const matchesCompilationStatus =
+        compilationStatusFilter === 'all' ||
+        (rule.compilation_status || 'PENDING') === compilationStatusFilter;
+
+      return matchesSearch && matchesFamily && matchesStatus && matchesTags && matchesCompilationStatus;
     });
-  }, [uiRules, searchQuery, selectedFamily, statusFilter, selectedTags]);
+  }, [uiRules, searchQuery, selectedFamily, statusFilter, selectedTags, compilationStatusFilter]);
 
   // Group rules by family for tree view
   const groupedRules = useMemo(() => {
@@ -155,6 +184,18 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
     });
     return groups;
   }, [filteredRules]);
+
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredRules.length / pageSize);
+  const paginatedRules = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredRules.slice(startIndex, startIndex + pageSize);
+  }, [filteredRules, currentPage, pageSize]);
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedFamily, statusFilter, selectedTags, compilationStatusFilter]);
 
   // Filter actions
   const toggleTagFilter = (tag: string) => {
@@ -177,6 +218,7 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
     setSelectedFamily('all');
     setStatusFilter(['active', 'inactive', 'draft']);
     setSelectedTags([]);
+    setCompilationStatusFilter('all');
   };
 
   // Rule selection actions
@@ -207,6 +249,85 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
       return;
     }
     toast.success(`${action} applied to ${selectedRules.size} rules`);
+  };
+
+  // Compile all rules from database
+  const handleCompileAll = async () => {
+    setIsCompiling(true);
+    try {
+      const result = await compileFromDatabase();
+      if (result.success) {
+        toast.success(result.message, {
+          description: `Compiled ${result.compiledRules} rules in ${result.compilationTimeMs}ms`,
+        });
+        // Refetch rules to update compilation status
+        refetch();
+      } else {
+        toast.error('Compilation failed', {
+          description: result.message || result.error,
+        });
+      }
+    } catch (error) {
+      toast.error('Compilation failed', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setIsCompiling(false);
+    }
+  };
+
+  // Open delete confirmation dialog for a single rule
+  const confirmDeleteRule = (ruleCode: string) => {
+    setDeleteTarget({ type: 'single', ruleCode });
+    setDeleteDialogOpen(true);
+  };
+
+  // Open delete confirmation dialog for batch deletion
+  const confirmBatchDelete = () => {
+    if (selectedRules.size === 0) {
+      toast.error('No rules selected');
+      return;
+    }
+    setDeleteTarget({ type: 'batch' });
+    setDeleteDialogOpen(true);
+  };
+
+  // Handle the actual deletion
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+
+    setIsDeleting(true);
+    try {
+      if (deleteTarget.type === 'single' && deleteTarget.ruleCode) {
+        await deleteRule(deleteTarget.ruleCode);
+        toast.success(`Rule "${deleteTarget.ruleCode}" deleted successfully`);
+      } else if (deleteTarget.type === 'batch') {
+        const ruleCodesToDelete = Array.from(selectedRules);
+        const result = await deleteRulesBatch(ruleCodesToDelete);
+
+        if (result.totalDeleted > 0) {
+          toast.success(`Deleted ${result.totalDeleted} rule${result.totalDeleted !== 1 ? 's' : ''}`);
+        }
+        if (result.totalFailed > 0) {
+          toast.error(`Failed to delete ${result.totalFailed} rule${result.totalFailed !== 1 ? 's' : ''}`, {
+            description: result.failed.map(f => f.ruleCode).join(', '),
+          });
+        }
+        // Clear selection after batch delete
+        setSelectedRules(new Set());
+      }
+
+      // Refetch rules to update the list
+      refetch();
+    } catch (error) {
+      toast.error('Delete failed', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setIsDeleting(false);
+      setDeleteDialogOpen(false);
+      setDeleteTarget(null);
+    }
   };
 
   // Toggle rule activation
@@ -540,11 +661,54 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
               </div>
             </div>
 
+            {/* Compilation Status Filter */}
+            <div className="space-y-2">
+              <label className="font-medium flex items-center gap-2">
+                <Zap className="size-4" />
+                Compilation Status
+              </label>
+              <Select value={compilationStatusFilter} onValueChange={setCompilationStatusFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">
+                    All ({uiRules.length})
+                  </SelectItem>
+                  <SelectItem value="OK">
+                    <span className="flex items-center gap-2">
+                      <CheckCircle2 className="size-3 text-green-600" />
+                      Compiled ({uiRules.filter(r => r.compilation_status === 'OK').length})
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="PENDING">
+                    <span className="flex items-center gap-2">
+                      <AlertCircle className="size-3 text-yellow-600" />
+                      Pending ({uiRules.filter(r => !r.compilation_status || r.compilation_status === 'PENDING').length})
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="ERROR">
+                    <span className="flex items-center gap-2">
+                      <XCircle className="size-3 text-red-600" />
+                      Error ({uiRules.filter(r => r.compilation_status === 'ERROR').length})
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="WARNING">
+                    <span className="flex items-center gap-2">
+                      <AlertTriangle className="size-3 text-orange-600" />
+                      Warning ({uiRules.filter(r => r.compilation_status === 'WARNING').length})
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Applied Filters Summary */}
             {(searchQuery ||
               selectedFamily !== 'all' ||
               statusFilter.length < 3 ||
-              selectedTags.length > 0) && (
+              selectedTags.length > 0 ||
+              compilationStatusFilter !== 'all') && (
               <div className="pt-4 border-t">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium">Active Filters</span>
@@ -569,6 +733,13 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
                     <Badge variant="secondary" className="gap-1">
                       <Tag className="size-3" />
                       {selectedTags.length} tag{selectedTags.length !== 1 ? 's' : ''}
+                    </Badge>
+                  )}
+                  {compilationStatusFilter !== 'all' && (
+                    <Badge variant="secondary" className="gap-1">
+                      <Zap className="size-3" />
+                      {compilationStatusFilter}
+                      <button onClick={() => setCompilationStatusFilter('all')}>×</button>
                     </Badge>
                   )}
                 </div>
@@ -605,6 +776,19 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
             >
               <Download className="size-4 mr-2" />
               Export Selected
+            </Button>
+            <Button
+              className="w-full justify-start"
+              variant="outline"
+              onClick={handleCompileAll}
+              disabled={isCompiling}
+            >
+              {isCompiling ? (
+                <Loader2 className="size-4 mr-2 animate-spin" />
+              ) : (
+                <Zap className="size-4 mr-2" />
+              )}
+              {isCompiling ? 'Compiling...' : 'Compile All Rules'}
             </Button>
           </CardContent>
         </Card>
@@ -707,6 +891,15 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
                         <TestTube className="size-4 mr-1" />
                         Test
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        onClick={confirmBatchDelete}
+                      >
+                        <Trash2 className="size-4 mr-1" />
+                        Delete
+                      </Button>
                       <Button size="sm" variant="outline" onClick={deselectAll}>
                         Clear
                       </Button>
@@ -737,7 +930,7 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
             </div>
           </CardHeader>
 
-          <CardContent className="flex-1 overflow-hidden">
+          <CardContent className="flex-1 overflow-hidden flex flex-col">
             {filteredRules.length === 0 ? (
               // Empty State
               <div className="flex flex-col items-center justify-center h-full text-center space-y-4">
@@ -757,7 +950,7 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
               </div>
             ) : viewMode === 'tree' ? (
               // Tree View - Grouped by Family
-              <ScrollArea className="h-full pr-4">
+              <ScrollArea className="flex-1 pr-4">
                 <div className="space-y-6">
                   {Object.entries(groupedRules).map(([family, rules]) => {
                     const familyData = families.find(f => f.name === family);
@@ -940,6 +1133,68 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
                                       </div>
                                     </div>
 
+                                    {/* Validation Issues */}
+                                    {(() => {
+                                      const issues = validateRule(rule);
+                                      if (issues.length === 0) return null;
+                                      const errors = issues.filter(i => i.type === 'error');
+                                      const warnings = issues.filter(i => i.type === 'warning');
+                                      return (
+                                        <div className="space-y-3">
+                                          {errors.length > 0 && (
+                                            <Alert className="bg-red-50 border-red-200">
+                                              <XCircle className="size-4 text-red-600" />
+                                              <AlertDescription>
+                                                <div className="font-medium text-red-800 mb-2">
+                                                  {errors.length} Error{errors.length !== 1 ? 's' : ''}
+                                                </div>
+                                                <ul className="space-y-1 text-sm text-red-700">
+                                                  {errors.map((issue, idx) => (
+                                                    <li key={idx} className="flex items-start gap-2">
+                                                      <span className="text-red-500 mt-0.5">•</span>
+                                                      <span>
+                                                        {issue.message}
+                                                        {issue.field && (
+                                                          <code className="ml-1 px-1 py-0.5 bg-red-100 rounded text-xs">
+                                                            {issue.field}
+                                                          </code>
+                                                        )}
+                                                      </span>
+                                                    </li>
+                                                  ))}
+                                                </ul>
+                                              </AlertDescription>
+                                            </Alert>
+                                          )}
+                                          {warnings.length > 0 && (
+                                            <Alert className="bg-yellow-50 border-yellow-200">
+                                              <AlertTriangle className="size-4 text-yellow-600" />
+                                              <AlertDescription>
+                                                <div className="font-medium text-yellow-800 mb-2">
+                                                  {warnings.length} Warning{warnings.length !== 1 ? 's' : ''}
+                                                </div>
+                                                <ul className="space-y-1 text-sm text-yellow-700">
+                                                  {warnings.map((issue, idx) => (
+                                                    <li key={idx} className="flex items-start gap-2">
+                                                      <span className="text-yellow-500 mt-0.5">•</span>
+                                                      <span>
+                                                        {issue.message}
+                                                        {issue.field && (
+                                                          <code className="ml-1 px-1 py-0.5 bg-yellow-100 rounded text-xs">
+                                                            {issue.field}
+                                                          </code>
+                                                        )}
+                                                      </span>
+                                                    </li>
+                                                  ))}
+                                                </ul>
+                                              </AlertDescription>
+                                            </Alert>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
+
                                     {/* Action Buttons */}
                                     <div className="flex gap-2 pt-4 border-t flex-wrap">
                                       <Button
@@ -1006,10 +1261,8 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
                                       <Button
                                         size="sm"
                                         variant="outline"
-                                        className="ml-auto text-red-600 hover:text-red-700"
-                                        onClick={() =>
-                                          toast.error('Delete confirmation required')
-                                        }
+                                        className="ml-auto text-red-600 hover:text-red-700 hover:bg-red-50"
+                                        onClick={() => confirmDeleteRule(rule.rule_code)}
                                       >
                                         <Trash2 className="size-4 mr-2" />
                                         Delete
@@ -1027,10 +1280,10 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
                 </div>
               </ScrollArea>
             ) : (
-              // List View - No grouping
-              <ScrollArea className="h-full pr-4">
+              // List View - No grouping with pagination
+              <ScrollArea className="flex-1 pr-4">
                 <Accordion type="single" collapsible className="space-y-4">
-                  {filteredRules.map(rule => {
+                  {paginatedRules.map(rule => {
                     const health = getRuleHealth(rule);
                     return (
                       <AccordionItem
@@ -1168,6 +1421,68 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
                               </div>
                             </div>
 
+                            {/* Validation Issues */}
+                            {(() => {
+                              const issues = validateRule(rule);
+                              if (issues.length === 0) return null;
+                              const errors = issues.filter(i => i.type === 'error');
+                              const warnings = issues.filter(i => i.type === 'warning');
+                              return (
+                                <div className="space-y-3">
+                                  {errors.length > 0 && (
+                                    <Alert className="bg-red-50 border-red-200">
+                                      <XCircle className="size-4 text-red-600" />
+                                      <AlertDescription>
+                                        <div className="font-medium text-red-800 mb-2">
+                                          {errors.length} Error{errors.length !== 1 ? 's' : ''}
+                                        </div>
+                                        <ul className="space-y-1 text-sm text-red-700">
+                                          {errors.map((issue, idx) => (
+                                            <li key={idx} className="flex items-start gap-2">
+                                              <span className="text-red-500 mt-0.5">•</span>
+                                              <span>
+                                                {issue.message}
+                                                {issue.field && (
+                                                  <code className="ml-1 px-1 py-0.5 bg-red-100 rounded text-xs">
+                                                    {issue.field}
+                                                  </code>
+                                                )}
+                                              </span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </AlertDescription>
+                                    </Alert>
+                                  )}
+                                  {warnings.length > 0 && (
+                                    <Alert className="bg-yellow-50 border-yellow-200">
+                                      <AlertTriangle className="size-4 text-yellow-600" />
+                                      <AlertDescription>
+                                        <div className="font-medium text-yellow-800 mb-2">
+                                          {warnings.length} Warning{warnings.length !== 1 ? 's' : ''}
+                                        </div>
+                                        <ul className="space-y-1 text-sm text-yellow-700">
+                                          {warnings.map((issue, idx) => (
+                                            <li key={idx} className="flex items-start gap-2">
+                                              <span className="text-yellow-500 mt-0.5">•</span>
+                                              <span>
+                                                {issue.message}
+                                                {issue.field && (
+                                                  <code className="ml-1 px-1 py-0.5 bg-yellow-100 rounded text-xs">
+                                                    {issue.field}
+                                                  </code>
+                                                )}
+                                              </span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </AlertDescription>
+                                    </Alert>
+                                  )}
+                                </div>
+                              );
+                            })()}
+
                             {/* Action Buttons */}
                             <div className="flex gap-2 pt-4 border-t flex-wrap">
                               <Button
@@ -1234,10 +1549,8 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="ml-auto text-red-600 hover:text-red-700"
-                                onClick={() =>
-                                  toast.error('Delete confirmation required')
-                                }
+                                className="ml-auto text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => confirmDeleteRule(rule.rule_code)}
                               >
                                 <Trash2 className="size-4 mr-2" />
                                 Delete
@@ -1251,6 +1564,96 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
                 </Accordion>
               </ScrollArea>
             )}
+
+            {/* Pagination Controls */}
+            {filteredRules.length > 0 && viewMode === 'list' && (
+              <div className="flex-shrink-0 flex items-center justify-between pt-4 border-t mt-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600">Rows per page:</span>
+                  <Select
+                    value={pageSize.toString()}
+                    onValueChange={(value) => {
+                      setPageSize(Number(value));
+                      setCurrentPage(1);
+                    }}
+                  >
+                    <SelectTrigger className="w-20 h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="10">10</SelectItem>
+                      <SelectItem value="25">25</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                      <SelectItem value="100">100</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600">
+                    {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, filteredRules.length)} of {filteredRules.length}
+                  </span>
+
+                  <div className="flex gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(1)}
+                      disabled={currentPage === 1}
+                      className="h-8 w-8 p-0"
+                    >
+                      <ChevronsLeft className="size-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      disabled={currentPage === 1}
+                      className="h-8 w-8 p-0"
+                    >
+                      <ChevronLeft className="size-4" />
+                    </Button>
+
+                    <div className="flex items-center gap-1 px-2">
+                      <span className="text-sm">Page</span>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={totalPages}
+                        value={currentPage}
+                        onChange={(e) => {
+                          const page = parseInt(e.target.value);
+                          if (page >= 1 && page <= totalPages) {
+                            setCurrentPage(page);
+                          }
+                        }}
+                        className="w-14 h-8 text-center"
+                      />
+                      <span className="text-sm">of {totalPages}</span>
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                      disabled={currentPage === totalPages}
+                      className="h-8 w-8 p-0"
+                    >
+                      <ChevronRight className="size-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(totalPages)}
+                      disabled={currentPage === totalPages}
+                      className="h-8 w-8 p-0"
+                    >
+                      <ChevronsRight className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -1260,6 +1663,64 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
         open={importDialogOpen}
         onOpenChange={setImportDialogOpen}
       />
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600">
+              {deleteTarget?.type === 'batch'
+                ? `Delete ${selectedRules.size} Rules`
+                : 'Delete Rule'}
+            </DialogTitle>
+            <DialogDescription>
+              {deleteTarget?.type === 'batch' ? (
+                <>
+                  Are you sure you want to delete{' '}
+                  <span className="font-semibold">{selectedRules.size}</span>{' '}
+                  selected rule{selectedRules.size !== 1 ? 's' : ''}? This action
+                  cannot be undone.
+                </>
+              ) : (
+                <>
+                  Are you sure you want to delete the rule{' '}
+                  <span className="font-semibold">{deleteTarget?.ruleCode}</span>?
+                  This action cannot be undone.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteDialogOpen(false);
+                setDeleteTarget(null);
+              }}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="size-4 mr-2" />
+                  Delete
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
