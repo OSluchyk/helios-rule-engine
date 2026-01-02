@@ -173,3 +173,176 @@ const extractFamily = (rule: RuleMetadata): string => {
   // Default to 'general'
   return 'general';
 };
+
+// Validation issue types
+export interface RuleValidationIssue {
+  type: 'error' | 'warning';
+  message: string;
+  field?: string;
+}
+
+// Supported operators (canonical form)
+const SUPPORTED_OPERATORS = [
+  'EQUAL_TO', 'NOT_EQUAL_TO', 'IS_ANY_OF', 'IS_NONE_OF',
+  'GREATER_THAN', 'LESS_THAN', 'BETWEEN',
+  'CONTAINS', 'STARTS_WITH', 'ENDS_WITH', 'REGEX',
+  'IS_NULL', 'IS_NOT_NULL'
+];
+
+// Normalize operator to canonical form
+const normalizeOperator = (operator: string): string => {
+  if (!operator) return '';
+  const normalized = operator.toUpperCase().trim();
+
+  // Map aliases to canonical operators
+  switch (normalized) {
+    case 'EQUALS': case 'EQ': case '==': case '=':
+    case 'IS_EQUAL_TO': case 'IS_EQUAL':
+      return 'EQUAL_TO';
+    case 'NOT_EQUALS': case 'NE': case 'NEQ': case '!=': case '<>':
+    case 'IS_NOT_EQUAL_TO': case 'IS_NOT_EQUAL':
+      return 'NOT_EQUAL_TO';
+    case 'GT': case '>': case 'IS_GREATER_THAN': case 'GREATER':
+    case 'GTE': case 'GE': case '>=': case 'IS_GREATER_THAN_OR_EQUAL':
+    case 'GREATER_THAN_OR_EQUAL':
+      return 'GREATER_THAN';
+    case 'LT': case '<': case 'IS_LESS_THAN': case 'LESS':
+    case 'LTE': case 'LE': case '<=': case 'IS_LESS_THAN_OR_EQUAL':
+    case 'LESS_THAN_OR_EQUAL':
+      return 'LESS_THAN';
+    case 'IN_RANGE': case 'RANGE':
+      return 'BETWEEN';
+    case 'IN': case 'ANY_OF': case 'ONE_OF':
+      return 'IS_ANY_OF';
+    case 'NOT_IN': case 'NONE_OF':
+      return 'IS_NONE_OF';
+    case 'HAS': case 'INCLUDES':
+      return 'CONTAINS';
+    case 'BEGINS_WITH': case 'PREFIX':
+      return 'STARTS_WITH';
+    case 'SUFFIX':
+      return 'ENDS_WITH';
+    case 'MATCHES': case 'REGEXP': case 'PATTERN':
+      return 'REGEX';
+    case 'NULL': case 'ISNULL':
+      return 'IS_NULL';
+    case 'NOT_NULL': case 'NOTNULL': case 'ISNOTNULL':
+      return 'IS_NOT_NULL';
+    default:
+      return normalized;
+  }
+};
+
+/**
+ * Validate a rule and return any issues found.
+ * This mirrors the backend validation logic for consistent UX.
+ */
+export const validateRule = (rule: RuleMetadata): RuleValidationIssue[] => {
+  const issues: RuleValidationIssue[] = [];
+
+  // Check required fields
+  if (!rule.rule_code || rule.rule_code.trim() === '') {
+    issues.push({ type: 'error', message: 'Missing required field: rule_code' });
+  }
+  if (!rule.description || rule.description.trim() === '') {
+    issues.push({ type: 'error', message: 'Missing required field: description' });
+  }
+  if (!rule.conditions || rule.conditions.length === 0) {
+    issues.push({ type: 'error', message: 'Missing required field: conditions' });
+  }
+
+  // Validate priority range
+  if (rule.priority < 0 || rule.priority > 1000) {
+    issues.push({ type: 'error', message: 'Priority must be between 0 and 1000' });
+  } else if (rule.priority > 900) {
+    issues.push({ type: 'warning', message: `Priority value (${rule.priority}) is unusually high` });
+  }
+
+  // Validate conditions
+  if (rule.conditions) {
+    const fieldOperatorCounts: Record<string, number> = {};
+
+    for (const condition of rule.conditions) {
+      const normalizedOp = normalizeOperator(condition.operator);
+
+      // Check for unsupported operators
+      if (!SUPPORTED_OPERATORS.includes(normalizedOp)) {
+        issues.push({
+          type: 'error',
+          message: `Unsupported operator: ${condition.operator}`,
+          field: condition.field
+        });
+      }
+
+      // Check for null value with EQUAL_TO (suggest IS_NULL)
+      if (normalizedOp === 'EQUAL_TO' && condition.value === null) {
+        issues.push({
+          type: 'warning',
+          message: `Consider using IS_NULL instead of EQUAL_TO for null checks`,
+          field: condition.field
+        });
+      }
+
+      // Check for null value with NOT_EQUAL_TO (suggest IS_NOT_NULL)
+      if (normalizedOp === 'NOT_EQUAL_TO' && condition.value === null) {
+        issues.push({
+          type: 'warning',
+          message: `Consider using IS_NOT_NULL instead of NOT_EQUAL_TO for null checks`,
+          field: condition.field
+        });
+      }
+
+      // Track EQUAL_TO conditions per field
+      if (normalizedOp === 'EQUAL_TO') {
+        const key = condition.field;
+        fieldOperatorCounts[key] = (fieldOperatorCounts[key] || 0) + 1;
+      }
+    }
+
+    // Check for multiple EQUAL_TO on same field (suggest IS_ANY_OF)
+    for (const [field, count] of Object.entries(fieldOperatorCounts)) {
+      if (count > 1) {
+        issues.push({
+          type: 'warning',
+          message: `Multiple EQUAL_TO conditions on field '${field}' - consider combining into IS_ANY_OF for better performance`,
+          field
+        });
+      }
+    }
+  }
+
+  // Check compilation status for issues
+  if (rule.compilation_status === 'ERROR') {
+    issues.push({ type: 'error', message: 'Rule failed to compile - check conditions for errors' });
+  } else if (rule.compilation_status === 'WARNING') {
+    issues.push({ type: 'warning', message: 'Rule compiled with warnings' });
+  } else if (!rule.compilation_status || rule.compilation_status === 'PENDING') {
+    issues.push({ type: 'warning', message: 'Rule has not been compiled yet - it won\'t be active until compiled' });
+  }
+
+  return issues;
+};
+
+/**
+ * Get a summary of validation issues
+ */
+export const getValidationSummary = (issues: RuleValidationIssue[]): { errors: number; warnings: number } => {
+  return {
+    errors: issues.filter(i => i.type === 'error').length,
+    warnings: issues.filter(i => i.type === 'warning').length
+  };
+};
+
+/**
+ * Check if a rule has any validation issues
+ */
+export const hasValidationIssues = (rule: RuleMetadata): boolean => {
+  return validateRule(rule).length > 0;
+};
+
+/**
+ * Check if a rule has errors (not just warnings)
+ */
+export const hasValidationErrors = (rule: RuleMetadata): boolean => {
+  return validateRule(rule).some(i => i.type === 'error');
+};

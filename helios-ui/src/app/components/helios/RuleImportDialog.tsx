@@ -19,11 +19,13 @@ import {
   AlertTriangle,
   AlertCircle,
   File,
-  FileCode,
-  FileSpreadsheet,
+  FileText,
+  Zap,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as importApi from '../../../api/import';
+import { compileFromDatabase } from '../../../api/compilation';
 import type {
   ImportedRuleStatus,
   ConflictResolution,
@@ -37,9 +39,9 @@ interface RuleImportDialogProps {
 
 export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) {
   const queryClient = useQueryClient();
-  const [step, setStep] = useState<'upload' | 'validate' | 'configure' | 'importing' | 'complete'>('upload');
+  const [step, setStep] = useState<'upload' | 'validate' | 'configure' | 'importing' | 'compiling' | 'complete'>('upload');
   const [importMethod, setImportMethod] = useState<'file' | 'paste'>('file');
-  const [selectedFormat, setSelectedFormat] = useState<'json' | 'yaml' | 'csv'>('json');
+  const [selectedFormat, setSelectedFormat] = useState<'json' | 'jsonl'>('json');
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [pastedContent, setPastedContent] = useState('');
   const [importedRules, setImportedRules] = useState<ImportedRuleStatus[]>([]);
@@ -50,6 +52,8 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'VALID' | 'WARNING' | 'ERROR'>('ALL');
+  const [compileAfterImport, setCompileAfterImport] = useState(true);
+  const [compileResult, setCompileResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Validation mutation
   const validateMutation = useMutation({
@@ -78,8 +82,7 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
   // Import mutation
   const importMutation = useMutation({
     mutationFn: importApi.executeImport,
-    onSuccess: (response) => {
-      setStep('complete');
+    onSuccess: async (response) => {
       toast.success(`Successfully imported ${response.imported} rules`);
       if (response.skipped > 0) {
         toast.info(`Skipped ${response.skipped} rules`);
@@ -89,6 +92,32 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
       }
       // Invalidate rules query to refresh the list
       queryClient.invalidateQueries({ queryKey: ['rules'] });
+
+      // Compile rules if option is enabled
+      if (compileAfterImport && response.imported > 0) {
+        setStep('compiling');
+        try {
+          const result = await compileFromDatabase();
+          setCompileResult({
+            success: result.success,
+            message: result.success
+              ? `Compiled ${result.compiledRules} rules in ${result.compilationTimeMs}ms`
+              : result.message || result.error || 'Compilation failed'
+          });
+          if (result.success) {
+            toast.success('Rules compiled successfully');
+          } else {
+            toast.warning('Compilation completed with issues');
+          }
+        } catch (error) {
+          setCompileResult({
+            success: false,
+            message: error instanceof Error ? error.message : 'Compilation failed'
+          });
+          toast.error('Failed to compile rules');
+        }
+      }
+      setStep('complete');
     },
     onError: (error: any) => {
       toast.error(`Import failed: ${error.message}`);
@@ -101,9 +130,8 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
 
     // Detect format from file extension
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (ext === 'json') setSelectedFormat('json');
-    else if (ext === 'yaml' || ext === 'yml') setSelectedFormat('yaml');
-    else if (ext === 'csv') setSelectedFormat('csv');
+    if (ext === 'jsonl') setSelectedFormat('jsonl');
+    else if (ext === 'json') setSelectedFormat('json');
 
     toast.success(`File selected: ${file.name}`);
   };
@@ -151,16 +179,16 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
       if (selectedFormat === 'json') {
         const parsed = JSON.parse(content);
         rules = Array.isArray(parsed) ? parsed : [parsed];
-      } else if (selectedFormat === 'yaml') {
-        // For now, just show error - YAML parsing requires additional library
-        toast.error('YAML format not yet implemented');
-        setStep('upload');
-        return;
-      } else if (selectedFormat === 'csv') {
-        // For now, just show error - CSV parsing requires additional library
-        toast.error('CSV format not yet implemented');
-        setStep('upload');
-        return;
+      } else if (selectedFormat === 'jsonl') {
+        // Parse JSONL: each line is a separate JSON object
+        const lines = content.split('\n').filter(line => line.trim());
+        rules = lines.map((line, index) => {
+          try {
+            return JSON.parse(line);
+          } catch (e) {
+            throw new Error(`Invalid JSON on line ${index + 1}: ${(e as Error).message}`);
+          }
+        });
       }
 
       // Send to backend for validation
@@ -212,6 +240,8 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
     setSelectedRules(new Set());
     setImportProgress(0);
     setValidationResults({ valid: 0, warnings: 0, errors: 0 });
+    setCompileAfterImport(true);
+    setCompileResult(null);
   };
 
   const toggleRuleSelection = (importId: string) => {
@@ -227,8 +257,7 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
   const getFormatIcon = (format: string) => {
     switch (format) {
       case 'json': return <FileJson className="size-4" />;
-      case 'yaml': return <FileCode className="size-4" />;
-      case 'csv': return <FileSpreadsheet className="size-4" />;
+      case 'jsonl': return <FileText className="size-4" />;
       default: return <File className="size-4" />;
     }
   };
@@ -301,7 +330,7 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
             Import Rules
           </DialogTitle>
           <DialogDescription>
-            Import rules from JSON, YAML, or CSV files
+            Import rules from JSON or JSONL files
           </DialogDescription>
         </DialogHeader>
 
@@ -312,20 +341,29 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
             <span className="text-sm">Upload</span>
           </div>
           <div className="flex-1 h-px bg-gray-300 mx-2" />
-          <div className={`flex items-center gap-2 ${step === 'validate' || step === 'configure' || step === 'importing' || step === 'complete' ? 'text-blue-600 font-medium' : 'text-gray-400'}`}>
-            {step === 'importing' || step === 'complete' ? <CheckCircle2 className="size-4" /> : <div className="size-4 rounded-full border-2 border-current" />}
+          <div className={`flex items-center gap-2 ${step === 'validate' || step === 'configure' || step === 'importing' || step === 'compiling' || step === 'complete' ? 'text-blue-600 font-medium' : 'text-gray-400'}`}>
+            {step === 'importing' || step === 'compiling' || step === 'complete' ? <CheckCircle2 className="size-4" /> : <div className="size-4 rounded-full border-2 border-current" />}
             <span className="text-sm">Validate</span>
           </div>
           <div className="flex-1 h-px bg-gray-300 mx-2" />
-          <div className={`flex items-center gap-2 ${step === 'configure' || step === 'importing' || step === 'complete' ? 'text-blue-600 font-medium' : 'text-gray-400'}`}>
-            {step === 'importing' || step === 'complete' ? <CheckCircle2 className="size-4" /> : <div className="size-4 rounded-full border-2 border-current" />}
+          <div className={`flex items-center gap-2 ${step === 'configure' || step === 'importing' || step === 'compiling' || step === 'complete' ? 'text-blue-600 font-medium' : 'text-gray-400'}`}>
+            {step === 'importing' || step === 'compiling' || step === 'complete' ? <CheckCircle2 className="size-4" /> : <div className="size-4 rounded-full border-2 border-current" />}
             <span className="text-sm">Configure</span>
           </div>
           <div className="flex-1 h-px bg-gray-300 mx-2" />
-          <div className={`flex items-center gap-2 ${step === 'importing' || step === 'complete' ? 'text-blue-600 font-medium' : 'text-gray-400'}`}>
-            {step === 'complete' ? <CheckCircle2 className="size-4" /> : <div className="size-4 rounded-full border-2 border-current" />}
+          <div className={`flex items-center gap-2 ${step === 'importing' || step === 'compiling' || step === 'complete' ? 'text-blue-600 font-medium' : 'text-gray-400'}`}>
+            {step === 'compiling' || step === 'complete' ? <CheckCircle2 className="size-4" /> : <div className="size-4 rounded-full border-2 border-current" />}
             <span className="text-sm">Import</span>
           </div>
+          {compileAfterImport && (
+            <>
+              <div className="flex-1 h-px bg-gray-300 mx-2" />
+              <div className={`flex items-center gap-2 ${step === 'compiling' || step === 'complete' ? 'text-blue-600 font-medium' : 'text-gray-400'}`}>
+                {step === 'complete' ? <CheckCircle2 className="size-4" /> : <div className="size-4 rounded-full border-2 border-current" />}
+                <span className="text-sm">Compile</span>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Content Area */}
@@ -343,8 +381,8 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
                   {/* Format Selection */}
                   <div className="space-y-2">
                     <Label>File Format</Label>
-                    <div className="grid grid-cols-3 gap-3">
-                      {(['json', 'yaml', 'csv'] as const).map(format => (
+                    <div className="grid grid-cols-2 gap-3">
+                      {(['json', 'jsonl'] as const).map(format => (
                         <button
                           key={format}
                           onClick={() => setSelectedFormat(format)}
@@ -382,7 +420,7 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept=".json,.yaml,.yml,.csv"
+                      accept=".json,.jsonl"
                       className="hidden"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
@@ -405,7 +443,7 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
                         <Upload className="size-8 mx-auto text-gray-400" />
                         <p className="font-medium">Drop file here or click to browse</p>
                         <p className="text-sm text-gray-500">
-                          Supports .json, .yaml, .csv files
+                          Supports .json, .jsonl files
                         </p>
                       </div>
                     )}
@@ -415,14 +453,13 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
                 <TabsContent value="paste" className="space-y-4">
                   <div className="space-y-2">
                     <Label>File Format</Label>
-                    <Select value={selectedFormat} onValueChange={(v) => setSelectedFormat(v as 'json' | 'yaml' | 'csv')}>
+                    <Select value={selectedFormat} onValueChange={(v) => setSelectedFormat(v as 'json' | 'jsonl')}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="json">JSON</SelectItem>
-                        <SelectItem value="yaml">YAML</SelectItem>
-                        <SelectItem value="csv">CSV</SelectItem>
+                        <SelectItem value="jsonl">JSONL</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -505,6 +542,28 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
                     <SelectItem value="RENAME">Rename - Auto-rename imported rules</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* Compile After Import Option */}
+              <div className="flex items-center space-x-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <Checkbox
+                  id="compile-after-import"
+                  checked={compileAfterImport}
+                  onCheckedChange={(checked) => setCompileAfterImport(checked === true)}
+                />
+                <div className="flex-1">
+                  <label
+                    htmlFor="compile-after-import"
+                    className="font-medium cursor-pointer flex items-center gap-2"
+                  >
+                    <Zap className="size-4 text-blue-600" />
+                    Compile rules after import
+                  </label>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Automatically compile all rules so they're immediately available for evaluation.
+                    If disabled, rules will be saved but won't be active until manually compiled.
+                  </p>
+                </div>
               </div>
 
               {/* Filter and Selection Controls */}
@@ -707,6 +766,20 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
             </div>
           )}
 
+          {/* Step 4b: Compiling */}
+          {step === 'compiling' && (
+            <div className="flex items-center justify-center py-16">
+              <div className="text-center space-y-4">
+                <div className="relative">
+                  <Zap className="size-12 text-blue-500 mx-auto" />
+                  <Loader2 className="size-16 text-blue-500 mx-auto absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-spin" />
+                </div>
+                <p className="text-lg font-medium">Compiling rules...</p>
+                <p className="text-sm text-gray-500">Building optimized rule engine model</p>
+              </div>
+            </div>
+          )}
+
           {/* Step 5: Complete */}
           {step === 'complete' && (
             <div className="flex items-center justify-center py-16">
@@ -716,6 +789,23 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
                 <p className="text-gray-600">
                   Successfully imported {selectedRules.size} rules
                 </p>
+                {compileResult && (
+                  <div className={`mt-4 p-4 rounded-lg ${compileResult.success ? 'bg-green-50 border border-green-200' : 'bg-yellow-50 border border-yellow-200'}`}>
+                    <div className="flex items-center justify-center gap-2">
+                      {compileResult.success ? (
+                        <Zap className="size-5 text-green-600" />
+                      ) : (
+                        <AlertTriangle className="size-5 text-yellow-600" />
+                      )}
+                      <span className={`font-medium ${compileResult.success ? 'text-green-800' : 'text-yellow-800'}`}>
+                        {compileResult.success ? 'Compilation successful' : 'Compilation completed with issues'}
+                      </span>
+                    </div>
+                    <p className={`text-sm mt-1 ${compileResult.success ? 'text-green-700' : 'text-yellow-700'}`}>
+                      {compileResult.message}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -724,7 +814,7 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
         {/* Footer Actions */}
         <div className="flex items-center justify-between pt-4 border-t">
           <div>
-            {step !== 'upload' && step !== 'complete' && (
+            {step !== 'upload' && step !== 'complete' && step !== 'compiling' && (
               <Button variant="outline" onClick={reset}>
                 Cancel
               </Button>
