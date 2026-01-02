@@ -230,7 +230,7 @@ export interface RuleQueryParams {
 
 // Rule Import Types
 export interface ImportValidationRequest {
-  format: 'json' | 'yaml' | 'csv';
+  format: 'json' | 'jsonl';
   content?: string;
   rules: RuleMetadata[];
 }

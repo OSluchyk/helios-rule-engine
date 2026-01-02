@@ -6,8 +6,11 @@ package com.helios.ruleengine.service.rest;
 
 import com.helios.ruleengine.api.CompilationListener;
 import com.helios.ruleengine.api.model.EngineStats;
+import com.helios.ruleengine.api.model.RuleDefinition;
+import com.helios.ruleengine.api.model.RuleMetadata;
 import com.helios.ruleengine.infra.management.EngineModelManager;
 import com.helios.ruleengine.runtime.model.EngineModel;
+import com.helios.ruleengine.service.repository.RuleRepository;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
@@ -22,6 +25,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Collectors;
 
 /**
  * JAX-RS resource for compilation and model statistics endpoints.
@@ -34,6 +38,9 @@ public class CompilationResource {
 
     @Inject
     EngineModelManager modelManager;
+
+    @Inject
+    RuleRepository ruleRepository;
 
     @Inject
     Tracer tracer;
@@ -358,6 +365,109 @@ public class CompilationResource {
 
         // Stream events as they are added
         return Multi.createFrom().iterable(events);
+    }
+
+    /**
+     * Compile all rules from the database into the active engine model.
+     * This will:
+     * 1. Load all enabled rules from the database
+     * 2. Compile them into a new EngineModel
+     * 3. Replace the active model
+     * 4. Update compilation_status for all compiled rules
+     *
+     * @return compilation result with statistics
+     */
+    @POST
+    @Path("/compile-from-db")
+    public Response compileFromDatabase() {
+        Span span = tracer.spanBuilder("http-compile-from-db").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            // Load all rules from database
+            List<RuleMetadata> allRules = ruleRepository.findAll();
+            span.setAttribute("totalRules", allRules.size());
+
+            // Filter to enabled rules only
+            List<RuleMetadata> enabledRules = allRules.stream()
+                    .filter(r -> r.enabled() != null && r.enabled())
+                    .collect(Collectors.toList());
+            span.setAttribute("enabledRules", enabledRules.size());
+
+            if (enabledRules.isEmpty()) {
+                return Response.ok(Map.of(
+                        "success", false,
+                        "message", "No enabled rules found in database",
+                        "totalRules", allRules.size(),
+                        "enabledRules", 0
+                )).build();
+            }
+
+            // Convert RuleMetadata to RuleDefinition
+            List<RuleDefinition> definitions = enabledRules.stream()
+                    .map(this::toRuleDefinition)
+                    .collect(Collectors.toList());
+
+            // Compile rules
+            long startTime = System.currentTimeMillis();
+            modelManager.compileFromRules(definitions, null);
+            long compilationTime = System.currentTimeMillis() - startTime;
+
+            // Update compilation_status for all compiled rules
+            int updatedCount = 0;
+            for (RuleMetadata rule : enabledRules) {
+                try {
+                    RuleMetadata updated = rule.withCompilationMetadata(
+                            rule.combinationIds(),
+                            rule.estimatedSelectivity(),
+                            rule.isVectorizable(),
+                            "OK"
+                    );
+                    ruleRepository.save(updated);
+                    updatedCount++;
+                } catch (Exception e) {
+                    // Log but don't fail the whole operation
+                    span.recordException(e);
+                }
+            }
+
+            EngineModel model = modelManager.getEngineModel();
+            EngineStats stats = model.getStats();
+
+            return Response.ok(Map.of(
+                    "success", true,
+                    "message", "Successfully compiled " + enabledRules.size() + " rules from database",
+                    "totalRulesInDb", allRules.size(),
+                    "enabledRules", enabledRules.size(),
+                    "compiledRules", updatedCount,
+                    "compilationTimeMs", compilationTime,
+                    "uniqueCombinations", stats.uniqueCombinations(),
+                    "totalPredicates", stats.totalPredicates()
+            )).build();
+
+        } catch (Exception e) {
+            span.recordException(e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(Map.of(
+                            "success", false,
+                            "error", "Compilation failed",
+                            "message", e.getMessage()
+                    ))
+                    .build();
+        } finally {
+            span.end();
+        }
+    }
+
+    /**
+     * Convert RuleMetadata to RuleDefinition for compilation.
+     */
+    private RuleDefinition toRuleDefinition(RuleMetadata metadata) {
+        return new RuleDefinition(
+                metadata.ruleCode(),
+                metadata.conditions(),
+                metadata.priority() != null ? metadata.priority() : 0,
+                metadata.description(),
+                metadata.enabled() != null ? metadata.enabled() : true
+        );
     }
 
     /**

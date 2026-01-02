@@ -106,6 +106,20 @@ public final class EngineModel implements Serializable {
         }
     }
 
+    /**
+     * Creates an empty EngineModel with no rules.
+     * Useful for starting a service when no rules file exists yet.
+     *
+     * @return An empty EngineModel instance
+     */
+    public static EngineModel empty() {
+        return new Builder()
+                .withFieldDictionary(new Dictionary())
+                .withValueDictionary(new Dictionary())
+                .withStats(new EngineStats(0, 0, 0L, java.util.Map.of()))
+                .build();
+    }
+
     private EngineModel(Builder builder) {
         this.fieldDictionary = builder.fieldDictionary;
         this.valueDictionary = builder.valueDictionary;

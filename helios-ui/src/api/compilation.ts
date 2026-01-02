@@ -3,13 +3,28 @@
  * Endpoints for compilation statistics, dictionaries, and model analysis
  */
 
-import { get } from './client';
+import { get, post } from './client';
 import type {
   CompilationStats,
   DictionaryInfo,
   PredicateCountInfo,
   DeduplicationAnalysis,
 } from '../types/api';
+
+/**
+ * Result of compiling rules from the database
+ */
+export interface CompileFromDbResult {
+  success: boolean;
+  message: string;
+  totalRulesInDb?: number;
+  enabledRules?: number;
+  compiledRules?: number;
+  compilationTimeMs?: number;
+  uniqueCombinations?: number;
+  totalPredicates?: number;
+  error?: string;
+}
 
 /**
  * Get compilation statistics and metrics
@@ -47,6 +62,14 @@ export const getDeduplicationAnalysis = async (): Promise<DeduplicationAnalysis>
 };
 
 /**
+ * Compile all enabled rules from the database into the active engine model.
+ * This updates compilation_status to "OK" for successfully compiled rules.
+ */
+export const compileFromDatabase = async (): Promise<CompileFromDbResult> => {
+  return post<CompileFromDbResult>('/compilation/compile-from-db');
+};
+
+/**
  * React Query hooks for compilation API
  */
 export const compilationQueryKeys = {
@@ -67,6 +90,7 @@ export const compilationApi = {
   getValueDictionary,
   getPredicateCount,
   getDeduplicationAnalysis,
+  compileFromDatabase,
   queryKeys: compilationQueryKeys,
 };
 

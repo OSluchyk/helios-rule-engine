@@ -3,12 +3,30 @@
  * Endpoints for listing, viewing, and managing rules
  */
 
-import { get } from './client';
+import { get, del } from './client';
 import type {
   RuleMetadata,
   RuleDetailResponse,
   RuleQueryParams,
 } from '../types/api';
+
+/**
+ * Response from delete operations
+ */
+export interface DeleteRuleResponse {
+  ruleCode: string;
+  message: string;
+}
+
+/**
+ * Response from batch delete operations
+ */
+export interface BatchDeleteResponse {
+  deleted: string[];
+  failed: { ruleCode: string; error: string }[];
+  totalDeleted: number;
+  totalFailed: number;
+}
 
 /**
  * List all rules with optional filtering
@@ -46,6 +64,41 @@ export const getRulesByTag = async (tag: string): Promise<RuleMetadata[]> => {
 };
 
 /**
+ * Delete a single rule
+ */
+export const deleteRule = async (ruleCode: string): Promise<DeleteRuleResponse> => {
+  return del<DeleteRuleResponse>(`/rules/${encodeURIComponent(ruleCode)}`);
+};
+
+/**
+ * Delete multiple rules in batch
+ * Deletes rules one by one and returns a summary of successes and failures
+ */
+export const deleteRulesBatch = async (ruleCodes: string[]): Promise<BatchDeleteResponse> => {
+  const deleted: string[] = [];
+  const failed: { ruleCode: string; error: string }[] = [];
+
+  for (const ruleCode of ruleCodes) {
+    try {
+      await deleteRule(ruleCode);
+      deleted.push(ruleCode);
+    } catch (error) {
+      failed.push({
+        ruleCode,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  return {
+    deleted,
+    failed,
+    totalDeleted: deleted.length,
+    totalFailed: failed.length,
+  };
+};
+
+/**
  * React Query hooks for rules API
  */
 export const rulesQueryKeys = {
@@ -66,6 +119,8 @@ export const rulesApi = {
   getRuleCombinations,
   getRulesByPredicate,
   getRulesByTag,
+  deleteRule,
+  deleteRulesBatch,
   queryKeys: rulesQueryKeys,
 };
 
