@@ -261,6 +261,7 @@ export const validateRule = (rule: RuleMetadata): RuleValidationIssue[] => {
   // Validate conditions
   if (rule.conditions) {
     const fieldOperatorCounts: Record<string, number> = {};
+    const fieldEqualToValues: Record<string, any[]> = {};
 
     for (const condition of rule.conditions) {
       const normalizedOp = normalizeOperator(condition.operator);
@@ -292,30 +293,57 @@ export const validateRule = (rule: RuleMetadata): RuleValidationIssue[] => {
         });
       }
 
-      // Track EQUAL_TO conditions per field
+      // Track EQUAL_TO conditions per field with their values
       if (normalizedOp === 'EQUAL_TO') {
         const key = condition.field;
+        if (!fieldEqualToValues[key]) {
+          fieldEqualToValues[key] = [];
+        }
+        fieldEqualToValues[key].push(condition.value);
         fieldOperatorCounts[key] = (fieldOperatorCounts[key] || 0) + 1;
       }
     }
 
-    // Check for multiple EQUAL_TO on same field (suggest IS_ANY_OF)
+    // Check for multiple EQUAL_TO on same field - this is a contradiction!
     for (const [field, count] of Object.entries(fieldOperatorCounts)) {
       if (count > 1) {
-        issues.push({
-          type: 'warning',
-          message: `Multiple EQUAL_TO conditions on field '${field}' - consider combining into IS_ANY_OF for better performance`,
-          field
-        });
+        const values = fieldEqualToValues[field] || [];
+        const uniqueValues = [...new Set(values.map(v => JSON.stringify(v)))];
+        if (uniqueValues.length > 1) {
+          // Different values = contradiction (rule will never match)
+          issues.push({
+            type: 'error',
+            message: `Contradictory conditions: field '${field}' cannot equal multiple different values simultaneously. This rule will never match any event.`,
+            field
+          });
+        } else {
+          // Same value repeated = just redundant
+          issues.push({
+            type: 'warning',
+            message: `Duplicate EQUAL_TO condition on field '${field}' with the same value`,
+            field
+          });
+        }
       }
     }
+  }
+
+  // Check if rule is disabled
+  if (rule.enabled === false) {
+    issues.push({
+      type: 'warning',
+      message: 'Rule is disabled and will not be evaluated. Click "Activate" to enable it.'
+    });
   }
 
   // Check compilation status for issues
   if (rule.compilation_status === 'ERROR') {
     issues.push({ type: 'error', message: 'Rule failed to compile - check conditions for errors' });
   } else if (rule.compilation_status === 'WARNING') {
-    issues.push({ type: 'warning', message: 'Rule compiled with warnings' });
+    issues.push({
+      type: 'warning',
+      message: 'Rule has contradictory conditions and won\'t match any events. Check for: conflicting EQUAL_TO values on the same field, non-overlapping IS_ANY_OF lists, or inverted BETWEEN ranges.'
+    });
   } else if (!rule.compilation_status || rule.compilation_status === 'PENDING') {
     issues.push({ type: 'warning', message: 'Rule has not been compiled yet - it won\'t be active until compiled' });
   }

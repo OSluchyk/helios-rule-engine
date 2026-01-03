@@ -411,15 +411,55 @@ public class CompilationResource {
             modelManager.compileFromRules(definitions, null);
             long compilationTime = System.currentTimeMillis() - startTime;
 
-            // Update compilation_status for all compiled rules
+            EngineModel model = modelManager.getEngineModel();
+            EngineStats stats = model.getStats();
+
+            // Debug: check how many rules have metadata in the model
+            var allModelMetadata = model.getAllRuleMetadata();
+            int modelMetadataCount = allModelMetadata != null ? allModelMetadata.size() : 0;
+            span.setAttribute("modelMetadataCount", modelMetadataCount);
+
+            // Update compilation_status for all compiled rules using actual metadata from compiled model
             int updatedCount = 0;
+            int warningCount = 0;
+            int metadataFoundCount = 0;
+            List<String> rulesWithWarnings = new java.util.ArrayList<>();
+
             for (RuleMetadata rule : enabledRules) {
                 try {
+                    // Get the actual compilation metadata from the compiled model
+                    RuleMetadata compiledMetadata = model.getRuleMetadata(rule.ruleCode());
+                    if (compiledMetadata != null) {
+                        metadataFoundCount++;
+                    }
+
+                    String compilationStatus;
+                    java.util.Set<Integer> combinationIds;
+
+                    if (compiledMetadata != null) {
+                        // Use the actual status and combination IDs from the compiler
+                        compilationStatus = compiledMetadata.compilationStatus();
+                        combinationIds = compiledMetadata.combinationIds();
+
+                        // Track warnings for the response
+                        if ("WARNING".equals(compilationStatus)) {
+                            warningCount++;
+                            rulesWithWarnings.add(rule.ruleCode());
+                        }
+                    } else {
+                        // Rule was not included in the compiled model at all
+                        // This shouldn't happen for enabled rules, but handle it gracefully
+                        compilationStatus = "ERROR";
+                        combinationIds = java.util.Set.of();
+                        warningCount++;
+                        rulesWithWarnings.add(rule.ruleCode() + " (not in compiled model)");
+                    }
+
                     RuleMetadata updated = rule.withCompilationMetadata(
-                            rule.combinationIds(),
-                            rule.estimatedSelectivity(),
-                            rule.isVectorizable(),
-                            "OK"
+                            combinationIds,
+                            compiledMetadata != null ? compiledMetadata.estimatedSelectivity() : null,
+                            compiledMetadata != null ? compiledMetadata.isVectorizable() : null,
+                            compilationStatus
                     );
                     ruleRepository.save(updated);
                     updatedCount++;
@@ -429,19 +469,34 @@ public class CompilationResource {
                 }
             }
 
-            EngineModel model = modelManager.getEngineModel();
-            EngineStats stats = model.getStats();
+            // Build response with detailed status information
+            Map<String, Object> response = new java.util.LinkedHashMap<>();
+            response.put("success", warningCount == 0);
+            response.put("message", warningCount == 0
+                    ? "Successfully compiled " + enabledRules.size() + " rules from database"
+                    : "Compiled " + enabledRules.size() + " rules with " + warningCount + " warnings");
+            response.put("totalRulesInDb", allRules.size());
+            response.put("enabledRules", enabledRules.size());
+            response.put("compiledRules", updatedCount);
+            response.put("rulesWithWarnings", warningCount);
+            response.put("compilationTimeMs", compilationTime);
+            response.put("uniqueCombinations", stats.uniqueCombinations());
+            response.put("totalPredicates", stats.totalPredicates());
+            // Debug info
+            response.put("_debug_modelMetadataCount", modelMetadataCount);
+            response.put("_debug_metadataFoundCount", metadataFoundCount);
 
-            return Response.ok(Map.of(
-                    "success", true,
-                    "message", "Successfully compiled " + enabledRules.size() + " rules from database",
-                    "totalRulesInDb", allRules.size(),
-                    "enabledRules", enabledRules.size(),
-                    "compiledRules", updatedCount,
-                    "compilationTimeMs", compilationTime,
-                    "uniqueCombinations", stats.uniqueCombinations(),
-                    "totalPredicates", stats.totalPredicates()
-            )).build();
+            // If there are warnings, include the list of affected rules with explanations
+            if (!rulesWithWarnings.isEmpty()) {
+                response.put("warnings", rulesWithWarnings.stream()
+                        .map(ruleCode -> Map.of(
+                                "ruleCode", ruleCode,
+                                "reason", "Rule has contradictory conditions or produces no valid combinations. Check for conflicting EQUAL_TO values, non-overlapping IS_ANY_OF lists, or inverted BETWEEN ranges."
+                        ))
+                        .collect(java.util.stream.Collectors.toList()));
+            }
+
+            return Response.ok(response).build();
 
         } catch (Exception e) {
             span.recordException(e);

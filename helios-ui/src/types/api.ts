@@ -268,6 +268,7 @@ export interface ImportExecutionRequest {
   importIds: string[];
   rules: RuleMetadata[];
   conflictResolution: ConflictResolution;
+  enableDisabledRules?: boolean;
 }
 
 export interface ImportResult {
