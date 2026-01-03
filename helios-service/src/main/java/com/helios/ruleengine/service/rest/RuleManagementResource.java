@@ -16,7 +16,9 @@ import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -171,6 +173,71 @@ public class RuleManagementResource {
             span.end();
         }
     }
+
+    /**
+     * Delete multiple rules in batch.
+     * This is much more efficient than deleting rules one by one.
+     *
+     * @param request the batch delete request containing rule codes to delete
+     * @return batch deletion response with counts of deleted and failed rules
+     */
+    @POST
+    @Path("/batch-delete")
+    public Response deleteRulesBatch(BatchDeleteRequest request) {
+        Span span = tracer.spanBuilder("http-batch-delete-rules").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            List<String> ruleCodes = request.ruleCodes();
+            span.setAttribute("ruleCount", ruleCodes != null ? ruleCodes.size() : 0);
+
+            if (ruleCodes == null || ruleCodes.isEmpty()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(Map.of(
+                                "error", "Bad Request",
+                                "message", "No rule codes provided"
+                        ))
+                        .build();
+            }
+
+            List<String> deleted = new ArrayList<>();
+            List<Map<String, String>> failed = new ArrayList<>();
+
+            for (String ruleCode : ruleCodes) {
+                try {
+                    boolean success = ruleManagementService.deleteRule(ruleCode);
+                    if (success) {
+                        deleted.add(ruleCode);
+                    } else {
+                        failed.add(Map.of("ruleCode", ruleCode, "error", "Rule not found"));
+                    }
+                } catch (Exception e) {
+                    failed.add(Map.of("ruleCode", ruleCode, "error", e.getMessage()));
+                }
+            }
+
+            span.setAttribute("deletedCount", deleted.size());
+            span.setAttribute("failedCount", failed.size());
+
+            return Response.ok(Map.of(
+                    "deleted", deleted,
+                    "failed", failed,
+                    "totalDeleted", deleted.size(),
+                    "totalFailed", failed.size()
+            )).build();
+
+        } catch (Exception e) {
+            span.recordException(e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .build();
+        } finally {
+            span.end();
+        }
+    }
+
+    /**
+     * Request body for batch delete operation.
+     */
+    public record BatchDeleteRequest(List<String> ruleCodes) {}
 
     /**
      * Validate a rule without persisting it.

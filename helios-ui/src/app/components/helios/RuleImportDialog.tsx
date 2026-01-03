@@ -53,6 +53,7 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
   const [isDragging, setIsDragging] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'VALID' | 'WARNING' | 'ERROR'>('ALL');
   const [compileAfterImport, setCompileAfterImport] = useState(true);
+  const [enableDisabledRules, setEnableDisabledRules] = useState(true);
   const [compileResult, setCompileResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Validation mutation
@@ -109,6 +110,8 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
           } else {
             toast.warning('Compilation completed with issues');
           }
+          // Refresh rules list to get updated compilation status
+          queryClient.invalidateQueries({ queryKey: ['rules'] });
         } catch (error) {
           setCompileResult({
             success: false,
@@ -223,7 +226,8 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
       await importMutation.mutateAsync({
         importIds: selectedIds,
         rules: selectedRulesList,
-        conflictResolution
+        conflictResolution,
+        enableDisabledRules
       });
 
       setImportProgress(100);
@@ -241,6 +245,7 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
     setImportProgress(0);
     setValidationResults({ valid: 0, warnings: 0, errors: 0 });
     setCompileAfterImport(true);
+    setEnableDisabledRules(true);
     setCompileResult(null);
   };
 
@@ -315,6 +320,12 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
       severity: issue.includes('Missing') ? 'error' : 'warning'
     };
   };
+
+  // Check if any imported rule has enabled: false
+  const hasDisabledRules = importedRules.some(r => r.rule.enabled === false);
+
+  // Get list of disabled rules for display
+  const disabledRules = importedRules.filter(r => r.rule.enabled === false);
 
   const filteredRules = importedRules.filter(rule => {
     if (statusFilter === 'ALL') return true;
@@ -544,6 +555,32 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
                 </Select>
               </div>
 
+              {/* Option to enable disabled rules */}
+              {hasDisabledRules && (
+                <div className="flex items-start space-x-3 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                  <Checkbox
+                    id="enable-disabled-rules"
+                    checked={enableDisabledRules}
+                    onCheckedChange={(checked) => setEnableDisabledRules(checked === true)}
+                  />
+                  <div className="flex-1">
+                    <label
+                      htmlFor="enable-disabled-rules"
+                      className="font-medium cursor-pointer flex items-center gap-2"
+                    >
+                      <AlertTriangle className="size-4 text-orange-600" />
+                      Enable {disabledRules.length} disabled rule{disabledRules.length > 1 ? 's' : ''} during import
+                    </label>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {disabledRules.length} rule{disabledRules.length > 1 ? 's have' : ' has'} <code className="bg-orange-100 px-1 rounded text-xs">enabled: false</code> in the import file.
+                      {enableDisabledRules
+                        ? ' These rules will be automatically enabled so they can be compiled and evaluated.'
+                        : ' These rules will remain disabled after import and won\'t be evaluated until manually activated.'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Compile After Import Option */}
               <div className="flex items-center space-x-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                 <Checkbox
@@ -670,6 +707,17 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
                                     <Badge variant={getStatusBadgeVariant(rule.status)}>
                                       {rule.status}
                                     </Badge>
+                                    {rule.rule.enabled === false && (
+                                      <Badge
+                                        variant="outline"
+                                        className={enableDisabledRules
+                                          ? "text-blue-600 border-blue-300 bg-blue-50"
+                                          : "text-orange-600 border-orange-300 bg-orange-50"
+                                        }
+                                      >
+                                        {enableDisabledRules ? 'Will be enabled' : 'Stays disabled'}
+                                      </Badge>
+                                    )}
                                   </div>
                                   <p className="text-sm text-gray-600 mt-1">
                                     {rule.rule.description}
