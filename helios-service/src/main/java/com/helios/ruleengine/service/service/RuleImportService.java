@@ -131,6 +131,28 @@ public class RuleImportService {
                 // Normalize operators in conditions
                 RuleMetadata normalizedRule = normalizeRuleOperators(rule);
 
+                // Enable disabled rules during import if the user chose to do so
+                if (request.shouldEnableDisabledRules() && (normalizedRule.enabled() == null || !normalizedRule.enabled())) {
+                    normalizedRule = new RuleMetadata(
+                            normalizedRule.ruleCode(),
+                            normalizedRule.description(),
+                            normalizedRule.conditions(),
+                            normalizedRule.priority(),
+                            true,  // Enable the rule
+                            normalizedRule.createdBy(),
+                            normalizedRule.createdAt(),
+                            normalizedRule.lastModifiedBy(),
+                            normalizedRule.lastModifiedAt(),
+                            normalizedRule.version(),
+                            normalizedRule.tags(),
+                            normalizedRule.labels(),
+                            normalizedRule.combinationIds(),
+                            normalizedRule.estimatedSelectivity(),
+                            normalizedRule.isVectorizable(),
+                            normalizedRule.compilationStatus()
+                    );
+                }
+
                 // Handle conflicts based on strategy
                 if (exists) {
                     switch (request.conflictResolution()) {
@@ -144,13 +166,13 @@ public class RuleImportService {
                         case RENAME:
                             // Generate new code with suffix
                             String newCode = generateUniqueCode(ruleCode, existingCodes);
-                            // Create new rule with renamed code and normalized operators
+                            // Create new rule with renamed code (enabled status already handled above)
                             RuleMetadata renamedRule = new RuleMetadata(
                                     newCode,
                                     normalizedRule.description() + " (imported)",
                                     normalizedRule.conditions(),
                                     normalizedRule.priority(),
-                                    normalizedRule.enabled(),
+                                    normalizedRule.enabled(),  // Use the (possibly modified) enabled status
                                     normalizedRule.createdBy(),
                                     normalizedRule.createdAt(),
                                     normalizedRule.lastModifiedBy(),

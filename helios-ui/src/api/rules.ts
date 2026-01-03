@@ -3,7 +3,7 @@
  * Endpoints for listing, viewing, and managing rules
  */
 
-import { get, del } from './client';
+import { get, del, post } from './client';
 import type {
   RuleMetadata,
   RuleDetailResponse,
@@ -71,31 +71,11 @@ export const deleteRule = async (ruleCode: string): Promise<DeleteRuleResponse> 
 };
 
 /**
- * Delete multiple rules in batch
- * Deletes rules one by one and returns a summary of successes and failures
+ * Delete multiple rules in batch using the backend batch delete endpoint.
+ * This is much more efficient than deleting rules one by one.
  */
 export const deleteRulesBatch = async (ruleCodes: string[]): Promise<BatchDeleteResponse> => {
-  const deleted: string[] = [];
-  const failed: { ruleCode: string; error: string }[] = [];
-
-  for (const ruleCode of ruleCodes) {
-    try {
-      await deleteRule(ruleCode);
-      deleted.push(ruleCode);
-    } catch (error) {
-      failed.push({
-        ruleCode,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
-    }
-  }
-
-  return {
-    deleted,
-    failed,
-    totalDeleted: deleted.length,
-    totalFailed: failed.length,
-  };
+  return post<BatchDeleteResponse>('/rules/batch-delete', { ruleCodes });
 };
 
 /**
