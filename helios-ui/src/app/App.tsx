@@ -5,9 +5,21 @@ import { RuleBuilder } from './components/helios/RuleBuilder'
 import { UnifiedEvaluationView } from './components/helios/UnifiedEvaluationView'
 import { CompilationView } from './components/helios/CompilationView'
 import { MonitoringView } from './components/helios/MonitoringView'
+import type { RuleMetadata } from '../types/api'
 
 function App() {
   const [activeTab, setActiveTab] = useState('overview')
+  const [editingRule, setEditingRule] = useState<RuleMetadata | null>(null)
+
+  const handleEditRule = (rule: RuleMetadata) => {
+    setEditingRule(rule)
+    setActiveTab('builder')
+  }
+
+  const handleRuleCreated = () => {
+    setEditingRule(null)
+    setActiveTab('rules')
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -52,11 +64,20 @@ function App() {
           </TabsContent>
 
           <TabsContent value="rules">
-            <RuleListView onNewRule={() => setActiveTab('builder')} />
+            <RuleListView
+              onNewRule={() => {
+                setEditingRule(null)
+                setActiveTab('builder')
+              }}
+              onEditRule={handleEditRule}
+            />
           </TabsContent>
 
           <TabsContent value="builder">
-            <RuleBuilder onRuleCreated={() => setActiveTab('rules')} />
+            <RuleBuilder
+              onRuleCreated={handleRuleCreated}
+              editingRule={editingRule}
+            />
           </TabsContent>
 
           <TabsContent value="evaluation">

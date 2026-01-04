@@ -3,7 +3,7 @@
  * Endpoints for listing, viewing, and managing rules
  */
 
-import { get, del, post } from './client';
+import { get, del, post, put } from './client';
 import type {
   RuleMetadata,
   RuleDetailResponse,
@@ -79,6 +79,13 @@ export const deleteRulesBatch = async (ruleCodes: string[]): Promise<BatchDelete
 };
 
 /**
+ * Update an existing rule
+ */
+export const updateRule = async (ruleCode: string, ruleData: any): Promise<RuleMetadata> => {
+  return put<RuleMetadata>(`/rules/${encodeURIComponent(ruleCode)}`, ruleData);
+};
+
+/**
  * React Query hooks for rules API
  */
 export const rulesQueryKeys = {
@@ -101,6 +108,7 @@ export const rulesApi = {
   getRulesByTag,
   deleteRule,
   deleteRulesBatch,
+  updateRule,
   queryKeys: rulesQueryKeys,
 };
 
