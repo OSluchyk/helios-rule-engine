@@ -6,6 +6,7 @@ package com.helios.ruleengine.service.repository;
 
 import com.helios.ruleengine.api.model.RuleDefinition;
 import com.helios.ruleengine.api.model.RuleMetadata;
+import com.helios.ruleengine.api.model.RuleVersion;
 import io.quarkus.runtime.Startup;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -18,25 +19,24 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * JDBC-based implementation of RuleRepository using H2 or PostgreSQL.
+ * JDBC-based implementation of RuleRepository using unified versioning model.
  *
- * <p>This implementation uses raw JDBC for maximum flexibility and
- * minimal dependencies. It supports:
- * <ul>
- *   <li>H2 in-memory database (development)</li>
- *   <li>H2 file-based database (development)</li>
- *   <li>PostgreSQL (production)</li>
- * </ul>
+ * <p>This implementation stores all rule versions in a single table.
+ * The current/active version is marked with is_current = true.
+ * History is simply all rows for a rule_code ordered by version.
+ *
+ * <p>When a rule is deleted, ALL its versions are deleted - ensuring
+ * clean slate on re-import.
  *
  * <p><b>Thread Safety:</b> All operations are thread-safe through database ACID properties.
  */
 @ApplicationScoped
 @Startup
+@jakarta.annotation.Priority(100)
 public class JdbcRuleRepository implements RuleRepository {
 
     private static final Logger logger = Logger.getLogger(JdbcRuleRepository.class.getName());
 
-    // SQL queries loaded from external files
     private static final Map<String, String> SQL = SqlLoader.loadQueries("sql/queries.sql");
     private static final String SCHEMA_SQL = SqlLoader.loadSchema("sql/schema.sql");
 
@@ -57,13 +57,9 @@ public class JdbcRuleRepository implements RuleRepository {
         }
     }
 
-    /**
-     * Create database schema if it doesn't exist.
-     */
     private void createSchemaIfNotExists() throws SQLException {
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
-            // Execute all statements from schema file
             for (String sql : SCHEMA_SQL.split(";")) {
                 sql = sql.trim();
                 if (!sql.isEmpty() && !sql.startsWith("--")) {
@@ -78,11 +74,10 @@ public class JdbcRuleRepository implements RuleRepository {
         String ruleCode = rule.ruleCode();
 
         try (Connection conn = dataSource.getConnection()) {
-            // Check if exists
             boolean exists = exists(ruleCode);
 
             if (exists) {
-                return update(conn, rule);
+                return update(conn, rule, null, null);
             } else {
                 return insert(conn, rule);
             }
@@ -93,10 +88,11 @@ public class JdbcRuleRepository implements RuleRepository {
     }
 
     private String insert(Connection conn, RuleMetadata rule) throws SQLException {
-        System.out.println(">>> INSERT: tags=" + rule.tags() + ", labels=" + rule.labels());
         try (PreparedStatement stmt = conn.prepareStatement(SQL.get("insert_rule"))) {
             int idx = 1;
             stmt.setString(idx++, rule.ruleCode());
+            stmt.setInt(idx++, 1); // version = 1 for new rules
+            stmt.setBoolean(idx++, true); // is_current = true
             stmt.setString(idx++, rule.description());
             stmt.setString(idx++, serializeConditions(rule.conditions()));
             stmt.setInt(idx++, rule.priority() != null ? rule.priority() : 0);
@@ -105,7 +101,8 @@ public class JdbcRuleRepository implements RuleRepository {
             stmt.setTimestamp(idx++, Timestamp.from(rule.createdAt() != null ? rule.createdAt() : Instant.now()));
             stmt.setString(idx++, rule.lastModifiedBy());
             stmt.setTimestamp(idx++, rule.lastModifiedAt() != null ? Timestamp.from(rule.lastModifiedAt()) : null);
-            stmt.setInt(idx++, rule.version() != null ? rule.version() : 1);
+            stmt.setString(idx++, "CREATED"); // change_type
+            stmt.setString(idx++, "Initial rule creation"); // change_summary
             stmt.setString(idx++, serializeTags(rule.tags()));
             stmt.setString(idx++, serializeLabels(rule.labels()));
             stmt.setString(idx++, serializeCombinationIds(rule.combinationIds()));
@@ -114,36 +111,118 @@ public class JdbcRuleRepository implements RuleRepository {
             stmt.setString(idx++, rule.compilationStatus() != null ? rule.compilationStatus() : "PENDING");
 
             stmt.executeUpdate();
+            logger.info("Inserted new rule: " + rule.ruleCode() + " v1");
             return rule.ruleCode();
         }
     }
 
-    private String update(Connection conn, RuleMetadata rule) throws SQLException {
-        // First, get the existing rule to preserve createdAt and increment version
+    private String update(Connection conn, RuleMetadata rule, RuleVersion.ChangeType changeType, String changeSummary) throws SQLException {
+        // Get existing rule to calculate new version
         RuleMetadata existing = findByCode(rule.ruleCode()).orElse(null);
         if (existing == null) {
             throw new SQLException("Rule not found for update: " + rule.ruleCode());
         }
 
-        try (PreparedStatement stmt = conn.prepareStatement(SQL.get("update_rule"))) {
+        int newVersion = existing.version() + 1;
+        String type = changeType != null ? changeType.name() : "UPDATED";
+        String summary = changeSummary != null ? changeSummary : generateChangeSummary(existing, rule);
+
+        // Mark current version as not current
+        try (PreparedStatement markStmt = conn.prepareStatement(SQL.get("mark_not_current"))) {
+            markStmt.setString(1, rule.ruleCode());
+            markStmt.executeUpdate();
+        }
+
+        // Insert new version as current
+        try (PreparedStatement stmt = conn.prepareStatement(SQL.get("insert_rule"))) {
             int idx = 1;
+            stmt.setString(idx++, rule.ruleCode());
+            stmt.setInt(idx++, newVersion);
+            stmt.setBoolean(idx++, true); // is_current = true
             stmt.setString(idx++, rule.description());
             stmt.setString(idx++, serializeConditions(rule.conditions()));
             stmt.setInt(idx++, rule.priority() != null ? rule.priority() : 0);
             stmt.setBoolean(idx++, rule.enabled() != null ? rule.enabled() : true);
+            stmt.setString(idx++, existing.createdBy()); // preserve original creator
+            stmt.setTimestamp(idx++, Timestamp.from(existing.createdAt())); // preserve original creation time
             stmt.setString(idx++, rule.lastModifiedBy() != null ? rule.lastModifiedBy() : "system");
             stmt.setTimestamp(idx++, Timestamp.from(Instant.now()));
-            stmt.setInt(idx++, existing.version() + 1);
+            stmt.setString(idx++, type);
+            stmt.setString(idx++, summary);
             stmt.setString(idx++, serializeTags(rule.tags()));
             stmt.setString(idx++, serializeLabels(rule.labels()));
             stmt.setString(idx++, serializeCombinationIds(rule.combinationIds()));
             setIntegerOrNull(stmt, idx++, rule.estimatedSelectivity());
             setBooleanOrNull(stmt, idx++, rule.isVectorizable());
             stmt.setString(idx++, rule.compilationStatus() != null ? rule.compilationStatus() : existing.compilationStatus());
-            stmt.setString(idx++, rule.ruleCode());
 
             stmt.executeUpdate();
+            logger.info("Updated rule: " + rule.ruleCode() + " v" + newVersion);
             return rule.ruleCode();
+        }
+    }
+
+    private String generateChangeSummary(RuleMetadata existing, RuleMetadata updated) {
+        List<String> changes = new ArrayList<>();
+
+        if (!Objects.equals(existing.priority(), updated.priority())) {
+            changes.add("priority changed");
+        }
+        if (!Objects.equals(existing.enabled(), updated.enabled())) {
+            changes.add(updated.enabled() ? "enabled" : "disabled");
+        }
+        if (!Objects.equals(existing.conditions(), updated.conditions())) {
+            changes.add("conditions modified");
+        }
+        if (!Objects.equals(existing.tags(), updated.tags())) {
+            changes.add("tags updated");
+        }
+        if (!Objects.equals(existing.description(), updated.description())) {
+            changes.add("description updated");
+        }
+
+        if (changes.isEmpty()) {
+            return "Rule updated";
+        }
+        return String.join(", ", changes);
+    }
+
+    /**
+     * Save a rule as a rollback operation.
+     */
+    public String saveAsRollback(RuleMetadata rule, int restoredFromVersion) {
+        try (Connection conn = dataSource.getConnection()) {
+            return update(conn, rule, RuleVersion.ChangeType.ROLLBACK,
+                "Rolled back to version " + restoredFromVersion);
+        } catch (SQLException e) {
+            logger.log(Level.SEVERE, "Failed to save rollback for rule: " + rule.ruleCode(), e);
+            throw new RuntimeException("Failed to save rule rollback", e);
+        }
+    }
+
+    /**
+     * Update compilation metadata for a rule without creating a new version.
+     * This is used after compilation to store combination IDs and other computed metadata.
+     */
+    public void updateCompilationMetadata(String ruleCode, Set<Integer> combinationIds,
+                                          Integer estimatedSelectivity, Boolean isVectorizable,
+                                          String compilationStatus) {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(SQL.get("update_compilation_metadata"))) {
+
+            stmt.setString(1, serializeCombinationIds(combinationIds));
+            setIntegerOrNull(stmt, 2, estimatedSelectivity);
+            setBooleanOrNull(stmt, 3, isVectorizable);
+            stmt.setString(4, compilationStatus);
+            stmt.setString(5, ruleCode);
+
+            int rowsAffected = stmt.executeUpdate();
+            if (rowsAffected > 0) {
+                logger.fine("Updated compilation metadata for rule: " + ruleCode);
+            }
+        } catch (SQLException e) {
+            logger.log(Level.SEVERE, "Failed to update compilation metadata for rule: " + ruleCode, e);
+            throw new RuntimeException("Failed to update compilation metadata", e);
         }
     }
 
@@ -191,6 +270,7 @@ public class JdbcRuleRepository implements RuleRepository {
 
             stmt.setString(1, ruleCode);
             int rowsAffected = stmt.executeUpdate();
+            logger.info("Deleted rule and all versions: " + ruleCode + " (" + rowsAffected + " rows)");
             return rowsAffected > 0;
 
         } catch (SQLException e) {
@@ -257,7 +337,80 @@ public class JdbcRuleRepository implements RuleRepository {
         }
     }
 
-    // Mapping and serialization helpers
+    // ========================================
+    // Version History Methods
+    // ========================================
+
+    /**
+     * Get all versions for a rule.
+     */
+    public List<RuleVersion> getVersions(String ruleCode) {
+        List<RuleVersion> versions = new ArrayList<>();
+
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(SQL.get("select_versions_by_rule_code"))) {
+
+            stmt.setString(1, ruleCode);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    versions.add(mapVersionResultSet(rs));
+                }
+            }
+        } catch (SQLException e) {
+            logger.log(Level.SEVERE, "Failed to get versions for rule: " + ruleCode, e);
+        }
+
+        return versions;
+    }
+
+    /**
+     * Get a specific version of a rule.
+     */
+    public Optional<RuleVersion> getVersion(String ruleCode, int version) {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(SQL.get("select_version_by_rule_code_and_version"))) {
+
+            stmt.setString(1, ruleCode);
+            stmt.setInt(2, version);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(mapVersionResultSet(rs));
+                }
+            }
+        } catch (SQLException e) {
+            logger.log(Level.SEVERE, "Failed to get version " + version + " for rule: " + ruleCode, e);
+        }
+
+        return Optional.empty();
+    }
+
+    /**
+     * Get the count of versions for a rule.
+     */
+    public int getVersionCount(String ruleCode) {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(SQL.get("count_versions_by_rule_code"))) {
+
+            stmt.setString(1, ruleCode);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
+        } catch (SQLException e) {
+            logger.log(Level.SEVERE, "Failed to count versions for rule: " + ruleCode, e);
+        }
+
+        return 0;
+    }
+
+    // ========================================
+    // Mapping helpers
+    // ========================================
+
     private RuleMetadata mapResultSet(ResultSet rs) throws SQLException {
         return new RuleMetadata(
             rs.getString("rule_code"),
@@ -276,6 +429,31 @@ public class JdbcRuleRepository implements RuleRepository {
             getIntegerOrNull(rs, "estimated_selectivity"),
             getBooleanOrNull(rs, "is_vectorizable"),
             rs.getString("compilation_status")
+        );
+    }
+
+    private RuleVersion mapVersionResultSet(ResultSet rs) throws SQLException {
+        String changeTypeStr = rs.getString("change_type");
+        RuleVersion.ChangeType changeType;
+        try {
+            changeType = RuleVersion.ChangeType.valueOf(changeTypeStr);
+        } catch (Exception e) {
+            changeType = RuleVersion.ChangeType.UPDATED;
+        }
+
+        return new RuleVersion(
+            rs.getString("rule_code"),
+            rs.getInt("version"),
+            rs.getString("description"),
+            parseConditions(rs.getString("conditions_json")),
+            rs.getInt("priority"),
+            rs.getBoolean("enabled"),
+            rs.getString("last_modified_by") != null ? rs.getString("last_modified_by") : rs.getString("created_by"),
+            rs.getTimestamp("last_modified_at") != null ? rs.getTimestamp("last_modified_at").toInstant() : rs.getTimestamp("created_at").toInstant(),
+            changeType,
+            rs.getString("change_summary"),
+            parseTags(rs.getString("tags")),
+            parseLabels(rs.getString("labels_json"))
         );
     }
 
@@ -305,7 +483,7 @@ public class JdbcRuleRepository implements RuleRepository {
         return rs.wasNull() ? null : value;
     }
 
-    // JSON serialization helpers (simple implementation - production would use Jackson)
+    // JSON serialization helpers
     private String serializeConditions(List<RuleDefinition.Condition> conditions) {
         if (conditions == null || conditions.isEmpty()) {
             return "[]";
@@ -324,7 +502,6 @@ public class JdbcRuleRepository implements RuleRepository {
     }
 
     private List<RuleDefinition.Condition> parseConditions(String json) {
-        // Simplified JSON parser - production would use Jackson
         if (json == null || json.equals("[]")) {
             return List.of();
         }
@@ -332,7 +509,6 @@ public class JdbcRuleRepository implements RuleRepository {
         List<RuleDefinition.Condition> conditions = new ArrayList<>();
         json = json.trim();
 
-        // Extract individual condition objects
         int depth = 0;
         int start = -1;
         for (int i = 0; i < json.length(); i++) {
@@ -412,11 +588,8 @@ public class JdbcRuleRepository implements RuleRepository {
     }
 
     private String serializeTags(Set<String> tags) {
-        logger.info("serializeTags called with: " + tags);
         if (tags == null || tags.isEmpty()) return "";
-        String result = String.join(",", tags);
-        logger.info("serializeTags result: " + result);
-        return result;
+        return String.join(",", tags);
     }
 
     private Set<String> parseTags(String tags) {
@@ -425,7 +598,6 @@ public class JdbcRuleRepository implements RuleRepository {
     }
 
     private String serializeLabels(Map<String, String> labels) {
-        logger.info("serializeLabels called with: " + labels);
         if (labels == null || labels.isEmpty()) return "{}";
         StringBuilder sb = new StringBuilder("{");
         int i = 0;
@@ -440,9 +612,7 @@ public class JdbcRuleRepository implements RuleRepository {
             }
         }
         sb.append("}");
-        String result = sb.toString();
-        logger.info("serializeLabels result: " + result);
-        return result;
+        return sb.toString();
     }
 
     private Map<String, String> parseLabels(String json) {
