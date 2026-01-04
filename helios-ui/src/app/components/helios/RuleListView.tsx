@@ -77,9 +77,10 @@ import { RuleImportDialog } from './RuleImportDialog';
 
 interface RuleListViewProps {
   onNewRule?: () => void;
+  onEditRule?: (rule: RuleMetadata) => void;
 }
 
-export function RuleListView({ onNewRule }: RuleListViewProps) {
+export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
   // API data fetching
   const { data: apiRules, isLoading, error, refetch } = useRules();
 
@@ -1219,9 +1220,12 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
                                       <Button
                                         size="sm"
                                         variant="outline"
-                                        onClick={() =>
-                                          toast.info(`Editing ${rule.rule_code}`)
-                                        }
+                                        onClick={() => {
+                                          const apiRule = apiRules?.find(r => r.rule_code === rule.rule_code);
+                                          if (apiRule && onEditRule) {
+                                            onEditRule(apiRule);
+                                          }
+                                        }}
                                       >
                                         <Edit className="size-4 mr-2" />
                                         Edit Rule
@@ -1507,9 +1511,12 @@ export function RuleListView({ onNewRule }: RuleListViewProps) {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() =>
-                                  toast.info(`Editing ${rule.rule_code}`)
-                                }
+                                onClick={() => {
+                                  const apiRule = apiRules?.find(r => r.rule_code === rule.rule_code);
+                                  if (apiRule && onEditRule) {
+                                    onEditRule(apiRule);
+                                  }
+                                }}
                               >
                                 <Edit className="size-4 mr-2" />
                                 Edit Rule

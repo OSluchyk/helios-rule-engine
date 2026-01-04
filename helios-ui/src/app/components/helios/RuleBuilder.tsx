@@ -10,7 +10,7 @@
  * - Full API integration for create/update
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -36,6 +36,8 @@ import {
 import { toast } from 'sonner';
 import axios from 'axios';
 import { useQueryClient } from '@tanstack/react-query';
+import { updateRule } from '../../../api/rules';
+import type { RuleMetadata } from '../../../types/api';
 
 interface Condition {
   id: string;
@@ -47,11 +49,16 @@ interface Condition {
 
 interface RuleBuilderProps {
   onRuleCreated?: () => void;
+  editingRule?: RuleMetadata | null;
 }
 
-export function RuleBuilder({ onRuleCreated }: RuleBuilderProps) {
+export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
   // React Query client for cache invalidation
   const queryClient = useQueryClient();
+
+  // Determine if we're in edit mode
+  const isEditMode = !!editingRule;
+  const [originalRuleCode, setOriginalRuleCode] = useState<string | null>(null);
 
   // Form state
   const [family, setFamily] = useState('');
@@ -75,6 +82,58 @@ export function RuleBuilder({ onRuleCreated }: RuleBuilderProps) {
   // UI state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+
+  // Load rule data when editing
+  useEffect(() => {
+    if (editingRule) {
+      // Parse rule_code to extract family and rule name
+      const parts = editingRule.rule_code.split('.');
+      const ruleFamily = parts.length > 1 ? parts[0] : '';
+      const ruleNamePart = parts.length > 1 ? parts.slice(1).join('.') : editingRule.rule_code;
+
+      setOriginalRuleCode(editingRule.rule_code);
+      setFamily(ruleFamily);
+      setRuleName(ruleNamePart);
+      setDescription(editingRule.description || '');
+      setPriority(editingRule.priority?.toString() || '100');
+      setEnabled(editingRule.enabled ?? true);
+      setTags(editingRule.tags?.join(', ') || '');
+
+      // Convert conditions to UI format
+      if (editingRule.conditions && editingRule.conditions.length > 0) {
+        setConditions(
+          editingRule.conditions.map((cond, idx) => ({
+            id: (idx + 1).toString(),
+            field: cond.field || '',
+            operator: cond.operator || 'EQUAL_TO',
+            value: Array.isArray(cond.value)
+              ? cond.value.join(', ')
+              : (cond.value?.toString() || ''),
+            type: 'auto' as const
+          }))
+        );
+      }
+    } else {
+      // Reset form when not editing
+      setOriginalRuleCode(null);
+      setFamily('');
+      setRuleName('');
+      setDescription('');
+      setPriority('100');
+      setEnabled(true);
+      setTags('');
+      setConditions([
+        {
+          id: '1',
+          field: '',
+          operator: 'EQUAL_TO',
+          value: '',
+          type: 'auto'
+        }
+      ]);
+      setValidationErrors([]);
+    }
+  }, [editingRule]);
 
   // Computed rule code from family + name
   const ruleCode = family && ruleName ? `${family}.${ruleName}` : '';
@@ -286,12 +345,19 @@ export function RuleBuilder({ onRuleCreated }: RuleBuilderProps) {
     setIsSubmitting(true);
     try {
       const payload = buildPayload();
-      const response = await axios.post('/api/v1/rules', payload, {
-        headers: { 'Content-Type': 'application/json' }
-      });
 
-      toast.success(`Rule "${ruleCode}" created successfully!`);
-      console.log('Created rule:', response.data);
+      if (isEditMode && originalRuleCode) {
+        // Update existing rule
+        await updateRule(originalRuleCode, payload);
+        toast.success(`Rule "${ruleCode}" updated successfully!`);
+      } else {
+        // Create new rule
+        const response = await axios.post('/api/v1/rules', payload, {
+          headers: { 'Content-Type': 'application/json' }
+        });
+        toast.success(`Rule "${ruleCode}" created successfully!`);
+        console.log('Created rule:', response.data);
+      }
 
       // Invalidate rules query to trigger refetch in RuleListView
       queryClient.invalidateQueries({ queryKey: ['rules'] });
@@ -312,19 +378,20 @@ export function RuleBuilder({ onRuleCreated }: RuleBuilderProps) {
         }
       ]);
       setValidationErrors([]);
+      setOriginalRuleCode(null);
 
       // Redirect to rules list
       if (onRuleCreated) {
         onRuleCreated();
       }
     } catch (error: any) {
-      console.error('Error creating rule:', error);
+      console.error(`Error ${isEditMode ? 'updating' : 'creating'} rule:`, error);
       console.error('Error response:', error.response?.data);
       const errorMsg =
         error.response?.data?.error ||
         error.response?.data?.message ||
         error.message ||
-        'Failed to create rule';
+        `Failed to ${isEditMode ? 'update' : 'create'} rule`;
       toast.error(errorMsg);
 
       if (error.response?.data?.errors) {
@@ -466,9 +533,13 @@ export function RuleBuilder({ onRuleCreated }: RuleBuilderProps) {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Visual Rule Builder</CardTitle>
+          <CardTitle>
+            {isEditMode ? 'Edit Rule' : 'Visual Rule Builder'}
+          </CardTitle>
           <CardDescription>
-            Create business rules with automatic optimization detection
+            {isEditMode
+              ? `Editing rule: ${originalRuleCode}`
+              : 'Create business rules with automatic optimization detection'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -942,12 +1013,12 @@ export function RuleBuilder({ onRuleCreated }: RuleBuilderProps) {
               {isSubmitting ? (
                 <>
                   <Loader2 className="size-4 mr-2 animate-spin" />
-                  Saving...
+                  {isEditMode ? 'Updating...' : 'Saving...'}
                 </>
               ) : (
                 <>
                   <CheckCircle2 className="size-4 mr-2" />
-                  Save & Activate
+                  {isEditMode ? 'Update Rule' : 'Save & Activate'}
                 </>
               )}
             </Button>
