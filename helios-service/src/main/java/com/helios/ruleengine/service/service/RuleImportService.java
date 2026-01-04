@@ -166,7 +166,7 @@ public class RuleImportService {
                         case RENAME:
                             // Generate new code with suffix
                             String newCode = generateUniqueCode(ruleCode, existingCodes);
-                            // Create new rule with renamed code (enabled status already handled above)
+                            // Create new rule with renamed code, reset version to 1
                             RuleMetadata renamedRule = new RuleMetadata(
                                     newCode,
                                     normalizedRule.description() + " (imported)",
@@ -177,13 +177,13 @@ public class RuleImportService {
                                     normalizedRule.createdAt(),
                                     normalizedRule.lastModifiedBy(),
                                     normalizedRule.lastModifiedAt(),
-                                    normalizedRule.version(),
+                                    null,  // Reset version to null (will default to 1)
                                     normalizedRule.tags(),
                                     normalizedRule.labels(),
-                                    normalizedRule.combinationIds(),
-                                    normalizedRule.estimatedSelectivity(),
-                                    normalizedRule.isVectorizable(),
-                                    normalizedRule.compilationStatus()
+                                    null,  // Reset combination_ids
+                                    null,  // Reset estimated_selectivity
+                                    null,  // Reset is_vectorizable
+                                    null   // Reset compilation_status
                             );
                             ruleManagementService.createRule(renamedRule);
                             results.add(new ImportExecutionResponse.ImportResult(
@@ -203,8 +203,26 @@ public class RuleImportService {
                             break;
                     }
                 } else {
-                    // New rule - create it with normalized operators
-                    ruleManagementService.createRule(normalizedRule);
+                    // New rule - create it with normalized operators and reset version to 1
+                    RuleMetadata newRule = new RuleMetadata(
+                            normalizedRule.ruleCode(),
+                            normalizedRule.description(),
+                            normalizedRule.conditions(),
+                            normalizedRule.priority(),
+                            normalizedRule.enabled(),
+                            normalizedRule.createdBy(),
+                            normalizedRule.createdAt(),
+                            normalizedRule.lastModifiedBy(),
+                            normalizedRule.lastModifiedAt(),
+                            null,  // Reset version to null (will default to 1)
+                            normalizedRule.tags(),
+                            normalizedRule.labels(),
+                            null,  // Reset combination_ids
+                            null,  // Reset estimated_selectivity
+                            null,  // Reset is_vectorizable
+                            null   // Reset compilation_status
+                    );
+                    ruleManagementService.createRule(newRule);
                     results.add(new ImportExecutionResponse.ImportResult(
                             ruleCode, true, "Imported successfully"
                     ));

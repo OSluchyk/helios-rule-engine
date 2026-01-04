@@ -5,6 +5,7 @@
 package com.helios.ruleengine.service.rest;
 
 import com.helios.ruleengine.api.model.RuleMetadata;
+import com.helios.ruleengine.api.model.RuleVersion;
 import com.helios.ruleengine.infra.management.EngineModelManager;
 import com.helios.ruleengine.runtime.model.EngineModel;
 import com.helios.ruleengine.service.service.RuleManagementService;
@@ -446,4 +447,192 @@ public class RuleManagementResource {
             span.end();
         }
     }
+
+    // ========================================
+    // Version History Operations
+    // ========================================
+
+    /**
+     * Get all versions for a specific rule.
+     *
+     * @param ruleCode the rule code
+     * @return list of rule versions
+     */
+    @GET
+    @Path("/{ruleCode}/versions")
+    public Response getRuleVersions(@PathParam("ruleCode") String ruleCode) {
+        Span span = tracer.spanBuilder("http-get-rule-versions").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            span.setAttribute("ruleCode", ruleCode);
+
+            // Check if rule exists
+            if (!ruleManagementService.getRule(ruleCode).isPresent()) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity(Map.of("error", "Rule not found", "ruleCode", ruleCode))
+                        .build();
+            }
+
+            List<RuleVersion> versions = ruleManagementService.getRuleVersions(ruleCode);
+
+            span.setAttribute("versionCount", versions.size());
+            return Response.ok(Map.of(
+                    "ruleCode", ruleCode,
+                    "versions", versions,
+                    "versionCount", versions.size()
+            )).build();
+
+        } catch (Exception e) {
+            span.recordException(e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .build();
+        } finally {
+            span.end();
+        }
+    }
+
+    /**
+     * Get a specific version of a rule.
+     *
+     * @param ruleCode the rule code
+     * @param version the version number
+     * @return the rule version
+     */
+    @GET
+    @Path("/{ruleCode}/versions/{version}")
+    public Response getRuleVersion(
+            @PathParam("ruleCode") String ruleCode,
+            @PathParam("version") int version) {
+        Span span = tracer.spanBuilder("http-get-rule-version").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            span.setAttribute("ruleCode", ruleCode);
+            span.setAttribute("version", version);
+
+            var ruleVersion = ruleManagementService.getRuleVersion(ruleCode, version);
+
+            if (ruleVersion.isEmpty()) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity(Map.of(
+                                "error", "Version not found",
+                                "ruleCode", ruleCode,
+                                "version", version
+                        ))
+                        .build();
+            }
+
+            return Response.ok(ruleVersion.get()).build();
+
+        } catch (Exception e) {
+            span.recordException(e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .build();
+        } finally {
+            span.end();
+        }
+    }
+
+    /**
+     * Rollback a rule to a specific version.
+     * Creates a new version with the state from the specified version.
+     *
+     * @param ruleCode the rule code
+     * @param version the version to rollback to
+     * @param request the rollback request containing author info
+     * @return rollback result
+     */
+    @POST
+    @Path("/{ruleCode}/versions/{version}/rollback")
+    public Response rollbackRule(
+            @PathParam("ruleCode") String ruleCode,
+            @PathParam("version") int version,
+            RollbackRequest request) {
+        Span span = tracer.spanBuilder("http-rollback-rule").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            span.setAttribute("ruleCode", ruleCode);
+            span.setAttribute("targetVersion", version);
+
+            String author = request != null && request.author() != null ? request.author() : "system";
+            var result = ruleManagementService.rollbackRule(ruleCode, version, author);
+
+            if (!result.isValid()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(Map.of(
+                                "error", "Rollback failed",
+                                "errors", result.errors()
+                        ))
+                        .build();
+            }
+
+            return Response.ok(Map.of(
+                    "ruleCode", ruleCode,
+                    "restoredFromVersion", version,
+                    "message", "Rule successfully rolled back to version " + version + ". Recompilation in progress."
+            )).build();
+
+        } catch (Exception e) {
+            span.recordException(e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .build();
+        } finally {
+            span.end();
+        }
+    }
+
+    /**
+     * Compare two versions of a rule.
+     *
+     * @param ruleCode the rule code
+     * @param version1 first version number
+     * @param version2 second version number
+     * @return comparison result with both versions
+     */
+    @GET
+    @Path("/{ruleCode}/versions/compare")
+    public Response compareVersions(
+            @PathParam("ruleCode") String ruleCode,
+            @QueryParam("v1") int version1,
+            @QueryParam("v2") int version2) {
+        Span span = tracer.spanBuilder("http-compare-versions").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            span.setAttribute("ruleCode", ruleCode);
+            span.setAttribute("version1", version1);
+            span.setAttribute("version2", version2);
+
+            var v1 = ruleManagementService.getRuleVersion(ruleCode, version1);
+            var v2 = ruleManagementService.getRuleVersion(ruleCode, version2);
+
+            if (v1.isEmpty()) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity(Map.of("error", "Version not found", "version", version1))
+                        .build();
+            }
+
+            if (v2.isEmpty()) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity(Map.of("error", "Version not found", "version", version2))
+                        .build();
+            }
+
+            return Response.ok(Map.of(
+                    "ruleCode", ruleCode,
+                    "version1", v1.get(),
+                    "version2", v2.get()
+            )).build();
+
+        } catch (Exception e) {
+            span.recordException(e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .build();
+        } finally {
+            span.end();
+        }
+    }
+
+    /**
+     * Request body for rollback operation.
+     */
+    public record RollbackRequest(String author) {}
 }
