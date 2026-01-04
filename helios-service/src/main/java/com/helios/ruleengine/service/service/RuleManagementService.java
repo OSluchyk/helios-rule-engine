@@ -6,7 +6,9 @@ package com.helios.ruleengine.service.service;
 
 import com.helios.ruleengine.api.IRuleCompiler;
 import com.helios.ruleengine.api.model.RuleMetadata;
+import com.helios.ruleengine.api.model.RuleVersion;
 import com.helios.ruleengine.infra.management.EngineModelManager;
+import com.helios.ruleengine.service.repository.JdbcRuleRepository;
 import com.helios.ruleengine.service.repository.RuleRepository;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
@@ -33,6 +35,7 @@ import java.util.concurrent.Executors;
  *   <li>Rule persistence</li>
  *   <li>Triggering recompilation on changes</li>
  *   <li>Hot-reload coordination</li>
+ *   <li>Version history (unified in rules table)</li>
  * </ul>
  */
 @ApplicationScoped
@@ -40,6 +43,9 @@ public class RuleManagementService {
 
     @Inject
     RuleRepository ruleRepository;
+
+    @Inject
+    JdbcRuleRepository jdbcRuleRepository;
 
     @Inject
     EngineModelManager modelManager;
@@ -238,6 +244,120 @@ public class RuleManagementService {
         // For now, we skip this to avoid the complexity of compiling a single rule
 
         return new RuleValidationResult(true, rule.ruleCode(), List.of());
+    }
+
+    // ========================================
+    // Version History Operations
+    // ========================================
+
+    /**
+     * Get all versions for a specific rule.
+     * Uses the unified rules table where all versions are stored.
+     *
+     * @param ruleCode the rule code
+     * @return list of all versions, ordered by version number descending
+     */
+    public List<RuleVersion> getRuleVersions(String ruleCode) {
+        return jdbcRuleRepository.getVersions(ruleCode);
+    }
+
+    /**
+     * Get a specific version of a rule.
+     *
+     * @param ruleCode the rule code
+     * @param version the version number
+     * @return the rule version, or empty if not found
+     */
+    public Optional<RuleVersion> getRuleVersion(String ruleCode, int version) {
+        return jdbcRuleRepository.getVersion(ruleCode, version);
+    }
+
+    /**
+     * Get the count of versions for a rule.
+     *
+     * @param ruleCode the rule code
+     * @return version count
+     */
+    public int getRuleVersionCount(String ruleCode) {
+        return jdbcRuleRepository.getVersionCount(ruleCode);
+    }
+
+    /**
+     * Rollback a rule to a specific version.
+     * Creates a new version with the state from the specified version.
+     *
+     * @param ruleCode the rule code
+     * @param targetVersion the version to rollback to
+     * @param author the user performing the rollback
+     * @return validation result
+     */
+    public RuleValidationResult rollbackRule(String ruleCode, int targetVersion, String author) {
+        Span span = tracer.spanBuilder("rollback-rule").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            span.setAttribute("ruleCode", ruleCode);
+            span.setAttribute("targetVersion", targetVersion);
+
+            // Check if rule exists
+            Optional<RuleMetadata> currentRule = ruleRepository.findByCode(ruleCode);
+            if (currentRule.isEmpty()) {
+                return new RuleValidationResult(
+                    false,
+                    null,
+                    List.of("Rule with code '" + ruleCode + "' not found.")
+                );
+            }
+
+            // Check if target version exists
+            Optional<RuleVersion> targetVersionData = jdbcRuleRepository.getVersion(ruleCode, targetVersion);
+            if (targetVersionData.isEmpty()) {
+                return new RuleValidationResult(
+                    false,
+                    null,
+                    List.of("Version " + targetVersion + " not found for rule '" + ruleCode + "'.")
+                );
+            }
+
+            // Cannot rollback to current version
+            if (targetVersion == currentRule.get().version()) {
+                return new RuleValidationResult(
+                    false,
+                    null,
+                    List.of("Cannot rollback to the current version.")
+                );
+            }
+
+            // Create new rule metadata from the target version
+            RuleVersion versionData = targetVersionData.get();
+            RuleMetadata restoredRule = new RuleMetadata(
+                ruleCode,
+                versionData.description(),
+                versionData.conditions(),
+                versionData.priority(),
+                versionData.enabled(),
+                currentRule.get().createdBy(),
+                currentRule.get().createdAt(),
+                author,
+                null, // lastModifiedAt will be set by repository
+                null, // version will be incremented by repository
+                versionData.tags(),
+                versionData.labels(),
+                currentRule.get().combinationIds(),
+                currentRule.get().estimatedSelectivity(),
+                currentRule.get().isVectorizable(),
+                "PENDING" // Mark for recompilation
+            );
+
+            // Save as rollback
+            jdbcRuleRepository.saveAsRollback(restoredRule, targetVersion);
+
+            // Trigger async recompilation
+            scheduleRecompilation();
+
+            return new RuleValidationResult(true, ruleCode, List.of());
+
+        } finally {
+            span.end();
+        }
     }
 
     /**

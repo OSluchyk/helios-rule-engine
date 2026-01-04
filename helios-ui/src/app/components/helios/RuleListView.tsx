@@ -73,7 +73,8 @@ import {
   type PredefinedTagKey
 } from '../../../types/rules-ui';
 import { RuleImportDialog } from './RuleImportDialog';
-// import type { RuleMetadata } from '../../../types/api';
+import { RuleHistoryDialog } from './RuleHistoryDialog';
+import type { RuleMetadata } from '../../../types/api';
 
 interface RuleListViewProps {
   onNewRule?: () => void;
@@ -102,6 +103,8 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ type: 'single' | 'batch'; ruleCode?: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [historyRule, setHistoryRule] = useState<RuleMetadata | null>(null);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -328,6 +331,21 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
       setIsDeleting(false);
       setDeleteDialogOpen(false);
       setDeleteTarget(null);
+    }
+  };
+
+  // Open history dialog for a rule (only if there's more than one version)
+  const openHistoryDialog = (ruleCode: string) => {
+    const apiRule = apiRules?.find(r => r.rule_code === ruleCode);
+    if (apiRule) {
+      if (!apiRule.version || apiRule.version <= 1) {
+        toast.info('No version history available', {
+          description: 'This rule has not been modified since creation.',
+        });
+        return;
+      }
+      setHistoryRule(apiRule);
+      setHistoryDialogOpen(true);
     }
   };
 
@@ -1253,11 +1271,7 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
                                       <Button
                                         size="sm"
                                         variant="outline"
-                                        onClick={() =>
-                                          toast.info(
-                                            `Viewing history for ${rule.rule_code}`
-                                          )
-                                        }
+                                        onClick={() => openHistoryDialog(rule.rule_code)}
                                       >
                                         <History className="size-4 mr-2" />
                                         History (v{rule.version || 1})
@@ -1544,11 +1558,7 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() =>
-                                  toast.info(
-                                    `Viewing history for ${rule.rule_code}`
-                                  )
-                                }
+                                onClick={() => openHistoryDialog(rule.rule_code)}
                               >
                                 <History className="size-4 mr-2" />
                                 History (v{rule.version || 1})
@@ -1728,6 +1738,14 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Rule History Dialog */}
+      <RuleHistoryDialog
+        open={historyDialogOpen}
+        onOpenChange={setHistoryDialogOpen}
+        rule={historyRule}
+        onRollbackSuccess={() => refetch()}
+      />
     </div>
   );
 }

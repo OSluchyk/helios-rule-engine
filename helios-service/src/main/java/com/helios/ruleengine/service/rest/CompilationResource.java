@@ -10,6 +10,7 @@ import com.helios.ruleengine.api.model.RuleDefinition;
 import com.helios.ruleengine.api.model.RuleMetadata;
 import com.helios.ruleengine.infra.management.EngineModelManager;
 import com.helios.ruleengine.runtime.model.EngineModel;
+import com.helios.ruleengine.service.repository.JdbcRuleRepository;
 import com.helios.ruleengine.service.repository.RuleRepository;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
@@ -41,6 +42,9 @@ public class CompilationResource {
 
     @Inject
     RuleRepository ruleRepository;
+
+    @Inject
+    JdbcRuleRepository jdbcRuleRepository;
 
     @Inject
     Tracer tracer;
@@ -455,13 +459,14 @@ public class CompilationResource {
                         rulesWithWarnings.add(rule.ruleCode() + " (not in compiled model)");
                     }
 
-                    RuleMetadata updated = rule.withCompilationMetadata(
+                    // Update compilation metadata without creating a new version
+                    jdbcRuleRepository.updateCompilationMetadata(
+                            rule.ruleCode(),
                             combinationIds,
                             compiledMetadata != null ? compiledMetadata.estimatedSelectivity() : null,
                             compiledMetadata != null ? compiledMetadata.isVectorizable() : null,
                             compilationStatus
                     );
-                    ruleRepository.save(updated);
                     updatedCount++;
                 } catch (Exception e) {
                     // Log but don't fail the whole operation

@@ -283,3 +283,43 @@ export interface ImportExecutionResponse {
   failed: number;
   results: ImportResult[];
 }
+
+// Rule Version History Types
+export type RuleChangeType = 'CREATED' | 'UPDATED' | 'ROLLBACK';
+
+export interface RuleVersion {
+  rule_code: string;
+  version: number;
+  description: string;
+  conditions: RuleCondition[];
+  priority: number | null;
+  enabled: boolean | null;
+  author: string;
+  timestamp: string;
+  change_type: RuleChangeType;
+  change_summary: string;
+  tags: string[];
+  labels: Record<string, string>;
+}
+
+export interface RuleVersionsResponse {
+  ruleCode: string;
+  versions: RuleVersion[];
+  versionCount: number;
+}
+
+export interface RollbackRequest {
+  author: string;
+}
+
+export interface RollbackResponse {
+  ruleCode: string;
+  restoredFromVersion: number;
+  message: string;
+}
+
+export interface CompareVersionsResponse {
+  ruleCode: string;
+  version1: RuleVersion;
+  version2: RuleVersion;
+}
