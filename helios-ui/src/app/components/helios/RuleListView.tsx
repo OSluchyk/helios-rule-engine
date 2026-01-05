@@ -1268,14 +1268,16 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
                                         <TestTube className="size-4 mr-2" />
                                         Test
                                       </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => openHistoryDialog(rule.rule_code)}
-                                      >
-                                        <History className="size-4 mr-2" />
-                                        History (v{rule.version || 1})
-                                      </Button>
+                                      {rule.version && rule.version > 1 && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => openHistoryDialog(rule.rule_code)}
+                                        >
+                                          <History className="size-4 mr-2" />
+                                          History (v{rule.version})
+                                        </Button>
+                                      )}
                                       <Button
                                         size="sm"
                                         variant="outline"
@@ -1555,14 +1557,16 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
                                 <TestTube className="size-4 mr-2" />
                                 Test
                               </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => openHistoryDialog(rule.rule_code)}
-                              >
-                                <History className="size-4 mr-2" />
-                                History (v{rule.version || 1})
-                              </Button>
+                              {rule.version && rule.version > 1 && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openHistoryDialog(rule.rule_code)}
+                                >
+                                  <History className="size-4 mr-2" />
+                                  History (v{rule.version})
+                                </Button>
+                              )}
                               <Button
                                 size="sm"
                                 variant="outline"
