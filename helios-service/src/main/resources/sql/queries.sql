@@ -53,3 +53,15 @@ SELECT COUNT(*) FROM rules WHERE rule_code = ?;
 -- @name: update_compilation_metadata
 UPDATE rules SET combination_ids = ?, estimated_selectivity = ?, is_vectorizable = ?, compilation_status = ?
 WHERE rule_code = ? AND is_current = TRUE;
+
+-- @name: update_rule_in_place
+-- Update rule metadata without creating a new version (when conditions haven't changed)
+UPDATE rules SET
+    description = ?,
+    priority = ?,
+    enabled = ?,
+    last_modified_by = ?,
+    last_modified_at = ?,
+    tags = ?,
+    labels_json = ?
+WHERE rule_code = ? AND is_current = TRUE;

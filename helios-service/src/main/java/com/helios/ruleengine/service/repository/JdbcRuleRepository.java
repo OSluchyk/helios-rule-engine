@@ -73,12 +73,35 @@ public class JdbcRuleRepository implements RuleRepository {
     public String save(RuleMetadata rule) {
         String ruleCode = rule.ruleCode();
 
+        try {
+            java.nio.file.Files.writeString(
+                java.nio.file.Paths.get("/tmp/helios_save.txt"),
+                "SAVE called for: " + ruleCode + "\n",
+                java.nio.file.StandardOpenOption.CREATE,
+                java.nio.file.StandardOpenOption.APPEND
+            );
+        } catch (Exception e) {}
+
         try (Connection conn = dataSource.getConnection()) {
             boolean exists = exists(ruleCode);
 
             if (exists) {
+                try {
+                    java.nio.file.Files.writeString(
+                        java.nio.file.Paths.get("/tmp/helios_save.txt"),
+                        "  Rule exists, calling UPDATE\n",
+                        java.nio.file.StandardOpenOption.APPEND
+                    );
+                } catch (Exception e) {}
                 return update(conn, rule, null, null);
             } else {
+                try {
+                    java.nio.file.Files.writeString(
+                        java.nio.file.Paths.get("/tmp/helios_save.txt"),
+                        "  Rule doesn't exist, calling INSERT\n",
+                        java.nio.file.StandardOpenOption.APPEND
+                    );
+                } catch (Exception e) {}
                 return insert(conn, rule);
             }
         } catch (SQLException e) {
@@ -117,12 +140,54 @@ public class JdbcRuleRepository implements RuleRepository {
     }
 
     private String update(Connection conn, RuleMetadata rule, RuleVersion.ChangeType changeType, String changeSummary) throws SQLException {
-        // Get existing rule to calculate new version
+        // Get existing rule to check what changed
         RuleMetadata existing = findByCode(rule.ruleCode()).orElse(null);
         if (existing == null) {
             throw new SQLException("Rule not found for update: " + rule.ruleCode());
         }
 
+        // Check if conditions have changed by comparing JSON serialization
+        // This is more reliable than object comparison due to serialization/deserialization
+        String existingConditionsJson = serializeConditions(existing.conditions());
+        String updatedConditionsJson = serializeConditions(rule.conditions());
+        boolean conditionsChanged = !Objects.equals(existingConditionsJson, updatedConditionsJson);
+
+        // Debug to file
+        try {
+            java.nio.file.Files.writeString(
+                java.nio.file.Paths.get("/tmp/helios_debug.txt"),
+                "Rule: " + rule.ruleCode() + "\n" +
+                "Existing: " + existingConditionsJson + "\n" +
+                "Updated:  " + updatedConditionsJson + "\n" +
+                "Changed:  " + conditionsChanged + "\n\n",
+                java.nio.file.StandardOpenOption.CREATE,
+                java.nio.file.StandardOpenOption.APPEND
+            );
+        } catch (Exception e) {
+            // Ignore
+        }
+
+        // Rollback always creates a new version, regardless of what changed
+        boolean forceNewVersion = changeType == RuleVersion.ChangeType.ROLLBACK;
+
+        if (conditionsChanged || forceNewVersion) {
+            // Conditions changed or rollback - create new version
+            logger.info("Creating new version for rule: " + rule.ruleCode() +
+                       " (conditionsChanged=" + conditionsChanged + ", forceNewVersion=" + forceNewVersion + ")");
+            return createNewVersion(conn, existing, rule, changeType, changeSummary);
+        } else {
+            // Only metadata changed (enabled, priority, tags, description) - update in place
+            logger.info("Updating rule in place: " + rule.ruleCode() +
+                       " (no condition changes, only metadata updated)");
+            return updateInPlace(conn, existing, rule);
+        }
+    }
+
+    /**
+     * Create a new version of the rule (when conditions change or during rollback).
+     */
+    private String createNewVersion(Connection conn, RuleMetadata existing, RuleMetadata rule,
+                                     RuleVersion.ChangeType changeType, String changeSummary) throws SQLException {
         int newVersion = existing.version() + 1;
         String type = changeType != null ? changeType.name() : "UPDATED";
         String summary = changeSummary != null ? changeSummary : generateChangeSummary(existing, rule);
@@ -157,7 +222,32 @@ public class JdbcRuleRepository implements RuleRepository {
             stmt.setString(idx++, rule.compilationStatus() != null ? rule.compilationStatus() : existing.compilationStatus());
 
             stmt.executeUpdate();
-            logger.info("Updated rule: " + rule.ruleCode() + " v" + newVersion);
+            logger.info("Created new version for rule: " + rule.ruleCode() + " v" + newVersion + " (conditions changed)");
+            return rule.ruleCode();
+        }
+    }
+
+    /**
+     * Update rule metadata in place without creating a new version.
+     * Used when only non-condition fields change (enabled, priority, tags, description).
+     */
+    private String updateInPlace(Connection conn, RuleMetadata existing, RuleMetadata rule) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement(SQL.get("update_rule_in_place"))) {
+            int idx = 1;
+            stmt.setString(idx++, rule.description());
+            stmt.setInt(idx++, rule.priority() != null ? rule.priority() : 0);
+            stmt.setBoolean(idx++, rule.enabled() != null ? rule.enabled() : true);
+            stmt.setString(idx++, rule.lastModifiedBy() != null ? rule.lastModifiedBy() : "system");
+            stmt.setTimestamp(idx++, Timestamp.from(Instant.now()));
+            stmt.setString(idx++, serializeTags(rule.tags()));
+            stmt.setString(idx++, serializeLabels(rule.labels()));
+            stmt.setString(idx++, rule.ruleCode());
+
+            int rowsAffected = stmt.executeUpdate();
+            if (rowsAffected > 0) {
+                logger.info("Updated rule metadata in place: " + rule.ruleCode() + " v" + existing.version() +
+                           " (enabled=" + rule.enabled() + ", priority=" + rule.priority() + ")");
+            }
             return rule.ruleCode();
         }
     }

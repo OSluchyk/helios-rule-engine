@@ -40,18 +40,24 @@ public class InMemoryRuleRepository implements RuleRepository {
         // Update timestamps
         RuleMetadata updatedRule;
         if (rules.containsKey(ruleCode)) {
-            // Update existing rule - increment version and update modified timestamp
+            RuleMetadata existing = rules.get(ruleCode);
+
+            // Check if conditions changed - only increment version if conditions changed
+            boolean conditionsChanged = !java.util.Objects.equals(existing.conditions(), rule.conditions());
+            int newVersion = conditionsChanged ? existing.version() + 1 : existing.version();
+
+            // Update existing rule - increment version ONLY if conditions changed
             updatedRule = new RuleMetadata(
                 rule.ruleCode(),
                 rule.description(),
                 rule.conditions(),
                 rule.priority(),
                 rule.enabled(),
-                rule.createdBy(),
-                rules.get(ruleCode).createdAt(), // Keep original creation time
+                existing.createdBy(),
+                existing.createdAt(), // Keep original creation time
                 "system", // TODO: Get from security context
                 Instant.now(),
-                rule.version() + 1,
+                newVersion,
                 rule.tags(),
                 rule.labels(),
                 rule.combinationIds(),
