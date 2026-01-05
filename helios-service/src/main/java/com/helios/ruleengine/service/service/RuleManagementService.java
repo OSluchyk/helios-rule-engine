@@ -42,10 +42,12 @@ import java.util.concurrent.Executors;
 public class RuleManagementService {
 
     @Inject
-    RuleRepository ruleRepository;
-
-    @Inject
     JdbcRuleRepository jdbcRuleRepository;
+
+    // Use JdbcRuleRepository directly for all operations to ensure version history is stored
+    private RuleRepository ruleRepository() {
+        return jdbcRuleRepository;
+    }
 
     @Inject
     EngineModelManager modelManager;
@@ -74,7 +76,7 @@ public class RuleManagementService {
             span.setAttribute("ruleCode", rule.ruleCode());
 
             // Check if rule already exists
-            if (ruleRepository.exists(rule.ruleCode())) {
+            if (ruleRepository().exists(rule.ruleCode())) {
                 return new RuleValidationResult(
                     false,
                     null,
@@ -89,7 +91,7 @@ public class RuleManagementService {
             }
 
             // Save rule
-            String ruleCode = ruleRepository.save(rule);
+            String ruleCode = ruleRepository().save(rule);
 
             // Trigger async recompilation
             scheduleRecompilation();
@@ -114,7 +116,7 @@ public class RuleManagementService {
             span.setAttribute("ruleCode", ruleCode);
 
             // Check if rule exists
-            if (!ruleRepository.exists(ruleCode)) {
+            if (!ruleRepository().exists(ruleCode)) {
                 return new RuleValidationResult(
                     false,
                     null,
@@ -138,7 +140,7 @@ public class RuleManagementService {
             }
 
             // Save rule
-            ruleRepository.save(rule);
+            ruleRepository().save(rule);
 
             // Trigger async recompilation
             scheduleRecompilation();
@@ -161,7 +163,7 @@ public class RuleManagementService {
         try (Scope scope = span.makeCurrent()) {
             span.setAttribute("ruleCode", ruleCode);
 
-            boolean deleted = ruleRepository.delete(ruleCode);
+            boolean deleted = ruleRepository().delete(ruleCode);
 
             if (deleted) {
                 // Trigger async recompilation
@@ -182,7 +184,7 @@ public class RuleManagementService {
      * @return the rule metadata, or empty if not found
      */
     public Optional<RuleMetadata> getRule(String ruleCode) {
-        return ruleRepository.findByCode(ruleCode);
+        return ruleRepository().findByCode(ruleCode);
     }
 
     /**
@@ -191,7 +193,7 @@ public class RuleManagementService {
      * @return list of all rules
      */
     public List<RuleMetadata> getAllRules() {
-        return ruleRepository.findAll();
+        return ruleRepository().findAll();
     }
 
     /**
@@ -298,7 +300,7 @@ public class RuleManagementService {
             span.setAttribute("targetVersion", targetVersion);
 
             // Check if rule exists
-            Optional<RuleMetadata> currentRule = ruleRepository.findByCode(ruleCode);
+            Optional<RuleMetadata> currentRule = ruleRepository().findByCode(ruleCode);
             if (currentRule.isEmpty()) {
                 return new RuleValidationResult(
                     false,
@@ -401,7 +403,7 @@ public class RuleManagementService {
      * @throws IOException if file writing fails
      */
     private Path writeTempRulesFile() throws IOException {
-        List<RuleMetadata> rules = ruleRepository.findAll();
+        List<RuleMetadata> rules = ruleRepository().findAll();
 
         // Convert to JSON
         String json = convertRulesToJson(rules);
