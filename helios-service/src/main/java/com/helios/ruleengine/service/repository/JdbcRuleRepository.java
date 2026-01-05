@@ -152,20 +152,6 @@ public class JdbcRuleRepository implements RuleRepository {
         String updatedConditionsJson = serializeConditions(rule.conditions());
         boolean conditionsChanged = !Objects.equals(existingConditionsJson, updatedConditionsJson);
 
-        // Debug to file
-        try {
-            java.nio.file.Files.writeString(
-                java.nio.file.Paths.get("/tmp/helios_debug.txt"),
-                "Rule: " + rule.ruleCode() + "\n" +
-                "Existing: " + existingConditionsJson + "\n" +
-                "Updated:  " + updatedConditionsJson + "\n" +
-                "Changed:  " + conditionsChanged + "\n\n",
-                java.nio.file.StandardOpenOption.CREATE,
-                java.nio.file.StandardOpenOption.APPEND
-            );
-        } catch (Exception e) {
-            // Ignore
-        }
 
         // Rollback always creates a new version, regardless of what changed
         boolean forceNewVersion = changeType == RuleVersion.ChangeType.ROLLBACK;
@@ -643,6 +629,36 @@ public class JdbcRuleRepository implements RuleRepository {
         if (start == -1) return null;
         start += pattern.length();
 
+        // Skip whitespace
+        while (start < json.length() && Character.isWhitespace(json.charAt(start))) {
+            start++;
+        }
+
+        if (start >= json.length()) return null;
+
+        char firstChar = json.charAt(start);
+
+        // Handle array values
+        if (firstChar == '[') {
+            int depth = 0;
+            int end = start;
+            while (end < json.length()) {
+                char c = json.charAt(end);
+                if (c == '[') depth++;
+                else if (c == ']') {
+                    depth--;
+                    if (depth == 0) {
+                        end++;
+                        break;
+                    }
+                }
+                end++;
+            }
+            String arrayStr = json.substring(start, end);
+            return parseArrayValue(arrayStr);
+        }
+
+        // Handle other values (string, number, boolean)
         int end = start;
         boolean inString = false;
         while (end < json.length()) {
@@ -665,13 +681,83 @@ public class JdbcRuleRepository implements RuleRepository {
         } else if (valueStr.contains(".")) {
             return Double.parseDouble(valueStr);
         } else {
-            return Integer.parseInt(valueStr);
+            try {
+                return Integer.parseInt(valueStr);
+            } catch (NumberFormatException e) {
+                return valueStr; // Return as string if can't parse
+            }
         }
+    }
+
+    private List<Object> parseArrayValue(String arrayStr) {
+        List<Object> result = new ArrayList<>();
+        // Remove surrounding brackets
+        String content = arrayStr.substring(1, arrayStr.length() - 1).trim();
+        if (content.isEmpty()) return result;
+
+        // Parse array elements
+        int i = 0;
+        while (i < content.length()) {
+            // Skip whitespace
+            while (i < content.length() && Character.isWhitespace(content.charAt(i))) i++;
+            if (i >= content.length()) break;
+
+            char c = content.charAt(i);
+            if (c == '"') {
+                // String element
+                int start = i + 1;
+                int end = start;
+                while (end < content.length()) {
+                    if (content.charAt(end) == '"' && content.charAt(end - 1) != '\\') {
+                        break;
+                    }
+                    end++;
+                }
+                result.add(unescape(content.substring(start, end)));
+                i = end + 1;
+            } else if (c == ',') {
+                i++;
+            } else {
+                // Number or boolean
+                int start = i;
+                while (i < content.length() && content.charAt(i) != ',' && !Character.isWhitespace(content.charAt(i))) {
+                    i++;
+                }
+                String val = content.substring(start, i).trim();
+                if (val.equals("true") || val.equals("false")) {
+                    result.add(Boolean.parseBoolean(val));
+                } else if (val.contains(".")) {
+                    result.add(Double.parseDouble(val));
+                } else {
+                    try {
+                        result.add(Integer.parseInt(val));
+                    } catch (NumberFormatException e) {
+                        result.add(val);
+                    }
+                }
+            }
+        }
+        return result;
     }
 
     private String serializeValue(Object value) {
         if (value instanceof String) {
             return "\"" + escape((String) value) + "\"";
+        } else if (value instanceof List<?>) {
+            // Handle array values (for IN/NOT_IN operators)
+            List<?> list = (List<?>) value;
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < list.size(); i++) {
+                if (i > 0) sb.append(",");
+                Object item = list.get(i);
+                if (item instanceof String) {
+                    sb.append("\"").append(escape((String) item)).append("\"");
+                } else {
+                    sb.append(item);
+                }
+            }
+            sb.append("]");
+            return sb.toString();
         } else {
             return value.toString();
         }

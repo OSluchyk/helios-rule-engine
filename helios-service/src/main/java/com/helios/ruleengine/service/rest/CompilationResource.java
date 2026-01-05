@@ -41,10 +41,12 @@ public class CompilationResource {
     EngineModelManager modelManager;
 
     @Inject
-    RuleRepository ruleRepository;
-
-    @Inject
     JdbcRuleRepository jdbcRuleRepository;
+
+    // Use JdbcRuleRepository directly
+    private RuleRepository ruleRepository() {
+        return jdbcRuleRepository;
+    }
 
     @Inject
     Tracer tracer;
@@ -387,7 +389,7 @@ public class CompilationResource {
         Span span = tracer.spanBuilder("http-compile-from-db").startSpan();
         try (Scope scope = span.makeCurrent()) {
             // Load all rules from database
-            List<RuleMetadata> allRules = ruleRepository.findAll();
+            List<RuleMetadata> allRules = ruleRepository().findAll();
             span.setAttribute("totalRules", allRules.size());
 
             // Filter to enabled rules only
