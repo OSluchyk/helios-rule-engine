@@ -110,20 +110,37 @@ public record Predicate(
     }
 
     /**
+     * Convert a value to double, handling both Number and String representations.
+     */
+    private static double toDouble(Object val) {
+        if (val instanceof Number) {
+            return ((Number) val).doubleValue();
+        }
+        if (val instanceof String) {
+            try {
+                return Double.parseDouble((String) val);
+            } catch (NumberFormatException e) {
+                return Double.NaN;
+            }
+        }
+        return Double.NaN;
+    }
+
+    /**
      * Placeholder numeric evaluation.
      */
     private boolean evaluateNumeric(Object eventValue) {
-        if (!(eventValue instanceof Number))
+        double eventDouble = toDouble(eventValue);
+        if (Double.isNaN(eventDouble))
             return false;
-        double eventDouble = ((Number) eventValue).doubleValue();
 
         return switch (operator) {
-            case GREATER_THAN -> eventDouble > ((Number) value).doubleValue();
-            case LESS_THAN -> eventDouble < ((Number) value).doubleValue();
+            case GREATER_THAN -> eventDouble > toDouble(value);
+            case LESS_THAN -> eventDouble < toDouble(value);
             case BETWEEN -> {
                 List<?> range = (List<?>) value;
-                double lower = ((Number) range.get(0)).doubleValue();
-                double upper = ((Number) range.get(1)).doubleValue();
+                double lower = toDouble(range.get(0));
+                double upper = toDouble(range.get(1));
                 yield eventDouble >= lower && eventDouble <= upper;
             }
             default -> false;
