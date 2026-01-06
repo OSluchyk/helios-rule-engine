@@ -148,32 +148,36 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
     { value: 'compliance', label: 'Compliance' },
   ];
 
-  // Operator definitions with metadata
+  // Operator definitions with metadata - ALL operators supported by backend
   const OPERATORS = {
     // String/categorical operators (Base conditions - cached)
     EQUAL_TO: {
       label: 'EQUAL_TO',
       type: 'base',
       description: 'Exact string match (cached)',
-      acceptsArray: false
+      acceptsArray: false,
+      category: 'string'
     },
     NOT_EQUAL_TO: {
       label: 'NOT_EQUAL_TO',
       type: 'base',
       description: 'Not equal to value (cached)',
-      acceptsArray: false
+      acceptsArray: false,
+      category: 'string'
     },
     IS_ANY_OF: {
       label: 'IS_ANY_OF',
       type: 'base',
       description: 'Value is in list (cached) - enter CSV',
-      acceptsArray: true
+      acceptsArray: true,
+      category: 'string'
     },
     IS_NONE_OF: {
       label: 'IS_NONE_OF',
       type: 'base',
       description: 'Value not in list (cached) - enter CSV',
-      acceptsArray: true
+      acceptsArray: true,
+      category: 'string'
     },
 
     // Numeric operators (Vectorized - SIMD optimized)
@@ -181,25 +185,82 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
       label: 'GREATER_THAN',
       type: 'vectorized',
       description: 'Greater than (SIMD optimized)',
-      acceptsArray: false
+      acceptsArray: false,
+      category: 'numeric'
     },
     GREATER_THAN_OR_EQUAL: {
       label: 'GREATER_THAN_OR_EQUAL',
       type: 'vectorized',
       description: 'Greater than or equal (SIMD optimized)',
-      acceptsArray: false
+      acceptsArray: false,
+      category: 'numeric'
     },
     LESS_THAN: {
       label: 'LESS_THAN',
       type: 'vectorized',
       description: 'Less than (SIMD optimized)',
-      acceptsArray: false
+      acceptsArray: false,
+      category: 'numeric'
     },
     LESS_THAN_OR_EQUAL: {
       label: 'LESS_THAN_OR_EQUAL',
       type: 'vectorized',
       description: 'Less than or equal (SIMD optimized)',
-      acceptsArray: false
+      acceptsArray: false,
+      category: 'numeric'
+    },
+    BETWEEN: {
+      label: 'BETWEEN',
+      type: 'vectorized',
+      description: 'Value in range [min, max] (SIMD optimized) - enter as "min, max"',
+      acceptsArray: true,
+      category: 'numeric'
+    },
+
+    // String pattern operators
+    CONTAINS: {
+      label: 'CONTAINS',
+      type: 'base',
+      description: 'String contains substring',
+      acceptsArray: false,
+      category: 'pattern'
+    },
+    STARTS_WITH: {
+      label: 'STARTS_WITH',
+      type: 'base',
+      description: 'String starts with prefix',
+      acceptsArray: false,
+      category: 'pattern'
+    },
+    ENDS_WITH: {
+      label: 'ENDS_WITH',
+      type: 'base',
+      description: 'String ends with suffix',
+      acceptsArray: false,
+      category: 'pattern'
+    },
+    REGEX: {
+      label: 'REGEX',
+      type: 'base',
+      description: 'Matches regular expression pattern',
+      acceptsArray: false,
+      category: 'pattern'
+    },
+
+    // Null check operators
+    IS_NULL: {
+      label: 'IS_NULL',
+      type: 'base',
+      description: 'Value is null or missing',
+      acceptsArray: false,
+      category: 'null'
+    },
+    IS_NOT_NULL: {
+      label: 'IS_NOT_NULL',
+      type: 'base',
+      description: 'Value is not null',
+      acceptsArray: false,
+      category: 'null'
     }
   } as const;
 
@@ -259,10 +320,21 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
   const parseValue = (value: string, operator: string): any => {
     if (operatorAcceptsArray(operator)) {
       // Split by comma, trim whitespace, filter empty strings
-      return value
+      const parts = value
         .split(',')
         .map(v => v.trim())
         .filter(v => v.length > 0);
+
+      // For BETWEEN operator, convert to numbers
+      if (operator === 'BETWEEN') {
+        return parts.map(v => {
+          const num = parseFloat(v);
+          return isNaN(num) ? v : num;
+        });
+      }
+
+      // For IS_ANY_OF/IS_NONE_OF, keep as strings (categorical values)
+      return parts;
     }
 
     // Try to parse as number if it looks numeric
@@ -308,6 +380,16 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
         const arr = parseValue(condition.value, condition.operator);
         if (!Array.isArray(arr) || arr.length === 0) {
           errors.push(`Condition ${idx + 1}: Enter comma-separated values for ${condition.operator}`);
+        }
+        // Validate BETWEEN operator specifically
+        if (condition.operator === 'BETWEEN') {
+          if (arr.length !== 2) {
+            errors.push(`Condition ${idx + 1}: BETWEEN requires exactly 2 values (min, max)`);
+          } else if (typeof arr[0] !== 'number' || typeof arr[1] !== 'number') {
+            errors.push(`Condition ${idx + 1}: BETWEEN values must be numeric`);
+          } else if (arr[0] > arr[1]) {
+            errors.push(`Condition ${idx + 1}: BETWEEN min value (${arr[0]}) cannot be greater than max (${arr[1]})`);
+          }
         }
       }
     });
@@ -800,7 +882,7 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
                                   String/Categorical (Cached)
                                 </div>
                                 {Object.entries(OPERATORS)
-                                  .filter(([_, info]) => info.type === 'base')
+                                  .filter(([_, info]) => info.category === 'string')
                                   .map(([key, info]) => (
                                     <SelectItem key={key} value={key}>
                                       {info.label}
@@ -811,7 +893,29 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
                                   Numeric (SIMD Optimized)
                                 </div>
                                 {Object.entries(OPERATORS)
-                                  .filter(([_, info]) => info.type === 'vectorized')
+                                  .filter(([_, info]) => info.category === 'numeric')
+                                  .map(([key, info]) => (
+                                    <SelectItem key={key} value={key}>
+                                      {info.label}
+                                    </SelectItem>
+                                  ))}
+                                <Separator className="my-1" />
+                                <div className="px-2 py-1 text-xs font-semibold text-gray-500 uppercase">
+                                  String Pattern
+                                </div>
+                                {Object.entries(OPERATORS)
+                                  .filter(([_, info]) => info.category === 'pattern')
+                                  .map(([key, info]) => (
+                                    <SelectItem key={key} value={key}>
+                                      {info.label}
+                                    </SelectItem>
+                                  ))}
+                                <Separator className="my-1" />
+                                <div className="px-2 py-1 text-xs font-semibold text-gray-500 uppercase">
+                                  Null Checks
+                                </div>
+                                {Object.entries(OPERATORS)
+                                  .filter(([_, info]) => info.category === 'null')
                                   .map(([key, info]) => (
                                     <SelectItem key={key} value={key}>
                                       {info.label}
@@ -1049,6 +1153,20 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
             >
               <Play className="size-4 mr-2" />
               Validate
+            </Button>
+            <Button
+              variant="ghost"
+              size="lg"
+              onClick={() => {
+                // Reset form and navigate back without saving
+                if (onRuleCreated) {
+                  onRuleCreated();
+                }
+              }}
+              disabled={isSubmitting}
+            >
+              <X className="size-4 mr-2" />
+              Cancel
             </Button>
           </div>
         </CardContent>

@@ -42,6 +42,31 @@ public class RuleCompiler implements IRuleCompiler {
         this.tracer = tracer;
     }
 
+    /**
+     * Convert a value to a Number, handling String representations.
+     * This is necessary because JSON deserialization may produce String values for numeric fields.
+     *
+     * @param value The value to convert
+     * @return The value as a Number, or null if not convertible
+     */
+    private static Number toNumber(Object value) {
+        if (value instanceof Number) {
+            return (Number) value;
+        }
+        if (value instanceof String) {
+            String str = ((String) value).trim();
+            if (!str.isEmpty()) {
+                try {
+                    // Try parsing as double (handles both integers and decimals)
+                    return Double.parseDouble(str);
+                } catch (NumberFormatException e) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
     @Override
     public void setCompilationListener(com.helios.ruleengine.api.CompilationListener listener) {
         this.listener = listener;
@@ -654,6 +679,24 @@ public class RuleCompiler implements IRuleCompiler {
                         && cond.value() instanceof String) {
                     // Store the raw (uppercased) string value for substring matching.
                     predicateValue = ((String) cond.value()).toUpperCase();
+                } else if (operator.isNumeric() && cond.value() instanceof String) {
+                    // Convert String to Number for numeric operators (GREATER_THAN, LESS_THAN, etc.)
+                    Number num = toNumber(cond.value());
+                    if (num != null) {
+                        predicateValue = num;
+                    } else {
+                        // This shouldn't happen since we validate earlier, but fallback to dictionary encoding
+                        predicateValue = valueDictionary.getId(((String) cond.value()).toUpperCase());
+                    }
+                } else if (operator == Predicate.Operator.BETWEEN && cond.value() instanceof List) {
+                    // Convert BETWEEN array values to Numbers
+                    List<?> list = (List<?>) cond.value();
+                    List<Number> numericList = new ArrayList<>();
+                    for (Object item : list) {
+                        Number num = toNumber(item);
+                        numericList.add(num != null ? num : 0.0);
+                    }
+                    predicateValue = numericList;
                 } else if (cond.value() instanceof String) {
                     // Fallback for other string operators: encode them.
                     predicateValue = valueDictionary.getId(((String) cond.value()).toUpperCase());
@@ -826,22 +869,29 @@ public class RuleCompiler implements IRuleCompiler {
                         throw new CompilationException("Rule '" + def.ruleCode()
                                 + "' BETWEEN operator requires exactly 2 values, got " + list.size());
                     }
+                    // Validate and convert values to numbers (handles String representations)
+                    Number minNum = toNumber(list.get(0));
+                    Number maxNum = toNumber(list.get(1));
+                    if (minNum == null || maxNum == null) {
+                        throw new CompilationException("Rule '" + def.ruleCode()
+                                + "' BETWEEN operator requires numeric values, got: ["
+                                + list.get(0).getClass().getSimpleName() + ", "
+                                + list.get(1).getClass().getSimpleName() + "]");
+                    }
                     // Check for inverted range
-                    if (list.get(0) instanceof Number && list.get(1) instanceof Number) {
-                        double min = ((Number) list.get(0)).doubleValue();
-                        double max = ((Number) list.get(1)).doubleValue();
-                        if (min > max) {
-                            logger.warning("Rule '" + def.ruleCode() + "' has inverted BETWEEN range: [" + min + ", "
-                                    + max + "]");
-                        }
+                    double min = minNum.doubleValue();
+                    double max = maxNum.doubleValue();
+                    if (min > max) {
+                        logger.warning("Rule '" + def.ruleCode() + "' has inverted BETWEEN range: [" + min + ", "
+                                + max + "]");
                     }
                 }
 
-                // Validate numeric operators
+                // Validate numeric operators (also handles String representations)
                 if (operator == Predicate.Operator.GREATER_THAN || operator == Predicate.Operator.GREATER_THAN_OR_EQUAL
                         ||
                         operator == Predicate.Operator.LESS_THAN || operator == Predicate.Operator.LESS_THAN_OR_EQUAL) {
-                    if (cond.value() != null && !(cond.value() instanceof Number)) {
+                    if (cond.value() != null && toNumber(cond.value()) == null) {
                         throw new CompilationException("Rule '" + def.ruleCode() + "' numeric operator " + operator
                                 + " requires numeric value, got: " + cond.value().getClass().getSimpleName());
                     }

@@ -32,6 +32,83 @@ import type {
   RuleMetadata,
 } from '../../../types/api';
 
+// Supported operators that match the backend Predicate.Operator enum
+const SUPPORTED_OPERATORS = new Set([
+  'EQUAL_TO', 'NOT_EQUAL_TO', 'IS_ANY_OF', 'IS_NONE_OF',
+  'GREATER_THAN', 'GREATER_THAN_OR_EQUAL', 'LESS_THAN', 'LESS_THAN_OR_EQUAL', 'BETWEEN',
+  'CONTAINS', 'STARTS_WITH', 'ENDS_WITH', 'REGEX',
+  'IS_NULL', 'IS_NOT_NULL'
+]);
+
+// Normalize operator to canonical form (matches rules-ui.ts normalizeOperator)
+const normalizeOperator = (operator: string): string => {
+  if (!operator) return '';
+  const normalized = operator.toUpperCase().trim();
+
+  switch (normalized) {
+    case 'EQUALS': case 'EQ': case '==': case '=':
+    case 'IS_EQUAL_TO': case 'IS_EQUAL':
+      return 'EQUAL_TO';
+    case 'NOT_EQUALS': case 'NE': case 'NEQ': case '!=': case '<>':
+    case 'IS_NOT_EQUAL_TO': case 'IS_NOT_EQUAL':
+      return 'NOT_EQUAL_TO';
+    case 'GT': case '>': case 'IS_GREATER_THAN': case 'GREATER':
+      return 'GREATER_THAN';
+    case 'GTE': case 'GE': case '>=': case 'IS_GREATER_THAN_OR_EQUAL':
+      return 'GREATER_THAN_OR_EQUAL';
+    case 'LT': case '<': case 'IS_LESS_THAN': case 'LESS':
+      return 'LESS_THAN';
+    case 'LTE': case 'LE': case '<=': case 'IS_LESS_THAN_OR_EQUAL':
+      return 'LESS_THAN_OR_EQUAL';
+    case 'IN_RANGE': case 'RANGE':
+      return 'BETWEEN';
+    case 'IN': case 'ANY_OF': case 'ONE_OF':
+      return 'IS_ANY_OF';
+    case 'NOT_IN': case 'NONE_OF':
+      return 'IS_NONE_OF';
+    case 'HAS': case 'INCLUDES':
+      return 'CONTAINS';
+    case 'BEGINS_WITH': case 'PREFIX':
+      return 'STARTS_WITH';
+    case 'SUFFIX':
+      return 'ENDS_WITH';
+    case 'MATCHES': case 'REGEXP': case 'PATTERN':
+      return 'REGEX';
+    case 'NULL': case 'ISNULL':
+      return 'IS_NULL';
+    case 'NOT_NULL': case 'NOTNULL': case 'ISNOTNULL':
+      return 'IS_NOT_NULL';
+    default:
+      return normalized;
+  }
+};
+
+/**
+ * Validate a rule for unsupported operators
+ * Returns array of error messages for unsupported operators found
+ */
+const validateRuleOperators = (rule: RuleMetadata): string[] => {
+  const errors: string[] = [];
+
+  if (!rule.conditions || rule.conditions.length === 0) {
+    return errors;
+  }
+
+  for (const condition of rule.conditions) {
+    if (!condition.operator) continue;
+
+    const normalizedOp = normalizeOperator(condition.operator);
+    if (!SUPPORTED_OPERATORS.has(normalizedOp)) {
+      errors.push(
+        `Unsupported operator "${condition.operator}" on field "${condition.field}". ` +
+        `Supported operators: ${Array.from(SUPPORTED_OPERATORS).join(', ')}`
+      );
+    }
+  }
+
+  return errors;
+};
+
 interface RuleImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -194,6 +271,33 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
         });
       }
 
+      // Client-side validation for unsupported operators
+      // This provides immediate feedback before hitting the backend
+      const rulesWithOperatorErrors: string[] = [];
+      for (const rule of rules) {
+        const operatorErrors = validateRuleOperators(rule);
+        if (operatorErrors.length > 0) {
+          rulesWithOperatorErrors.push(
+            `Rule "${rule.rule_code || 'unknown'}": ${operatorErrors.join('; ')}`
+          );
+        }
+      }
+
+      if (rulesWithOperatorErrors.length > 0) {
+        // Show error toast with details about unsupported operators
+        const errorCount = rulesWithOperatorErrors.length;
+        toast.error(
+          `${errorCount} rule${errorCount > 1 ? 's have' : ' has'} unsupported operators`,
+          {
+            description: rulesWithOperatorErrors.slice(0, 3).join('\n') +
+              (rulesWithOperatorErrors.length > 3 ? `\n...and ${rulesWithOperatorErrors.length - 3} more` : ''),
+            duration: 10000
+          }
+        );
+        setStep('upload');
+        return;
+      }
+
       // Send to backend for validation
       validateMutation.mutate({
         format: selectedFormat,
@@ -297,6 +401,13 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
       return {
         title: 'Invalid Priority Range',
         explanation: 'Priority must be a number between 0 (lowest) and 1000 (highest). Adjust the priority value to continue.',
+        severity: 'error'
+      };
+    }
+    if (issue.includes('Unsupported operator')) {
+      return {
+        title: 'Unsupported Operator',
+        explanation: 'This condition uses an operator that is not supported by the rule engine. Please use one of the supported operators: EQUAL_TO, NOT_EQUAL_TO, IS_ANY_OF, IS_NONE_OF, GREATER_THAN, GREATER_THAN_OR_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL, BETWEEN, CONTAINS, STARTS_WITH, ENDS_WITH, REGEX, IS_NULL, IS_NOT_NULL.',
         severity: 'error'
       };
     }

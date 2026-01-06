@@ -444,18 +444,37 @@ public final class NumericOperatorEvaluator {
         GREATER_THAN, LESS_THAN, BETWEEN
     }
 
+    /**
+     * Convert a value to double, handling both Number and String representations.
+     * This is necessary because JSON deserialization may produce String values for numeric fields.
+     */
+    private static double toDouble(Object value) {
+        if (value instanceof Number) {
+            return ((Number) value).doubleValue();
+        }
+        if (value instanceof String) {
+            try {
+                return Double.parseDouble((String) value);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Cannot convert value to number: " + value, e);
+            }
+        }
+        throw new IllegalArgumentException("Expected Number or numeric String, got: " +
+                (value == null ? "null" : value.getClass().getName()));
+    }
+
     private static NumericPredicate createNumericPredicate(int id, Predicate p) {
         return switch (p.operator()) {
             case BETWEEN -> {
                 List<?> range = (List<?>) p.value();
                 yield new NumericPredicate(id, Operator.BETWEEN,
-                        ((Number) range.get(0)).doubleValue(),
-                        ((Number) range.get(1)).doubleValue());
+                        toDouble(range.get(0)),
+                        toDouble(range.get(1)));
             }
             case GREATER_THAN -> new NumericPredicate(id, Operator.GREATER_THAN,
-                    ((Number) p.value()).doubleValue());
+                    toDouble(p.value()));
             case LESS_THAN -> new NumericPredicate(id, Operator.LESS_THAN,
-                    ((Number) p.value()).doubleValue());
+                    toDouble(p.value()));
             default -> throw new IllegalArgumentException("Unsupported operator: " + p.operator());
         };
     }
