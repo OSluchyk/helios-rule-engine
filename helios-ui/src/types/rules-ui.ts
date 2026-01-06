@@ -181,10 +181,10 @@ export interface RuleValidationIssue {
   field?: string;
 }
 
-// Supported operators (canonical form)
+// Supported operators (canonical form) - must match backend Predicate.Operator enum
 const SUPPORTED_OPERATORS = [
   'EQUAL_TO', 'NOT_EQUAL_TO', 'IS_ANY_OF', 'IS_NONE_OF',
-  'GREATER_THAN', 'LESS_THAN', 'BETWEEN',
+  'GREATER_THAN', 'GREATER_THAN_OR_EQUAL', 'LESS_THAN', 'LESS_THAN_OR_EQUAL', 'BETWEEN',
   'CONTAINS', 'STARTS_WITH', 'ENDS_WITH', 'REGEX',
   'IS_NULL', 'IS_NOT_NULL'
 ];
@@ -203,13 +203,13 @@ const normalizeOperator = (operator: string): string => {
     case 'IS_NOT_EQUAL_TO': case 'IS_NOT_EQUAL':
       return 'NOT_EQUAL_TO';
     case 'GT': case '>': case 'IS_GREATER_THAN': case 'GREATER':
-    case 'GTE': case 'GE': case '>=': case 'IS_GREATER_THAN_OR_EQUAL':
-    case 'GREATER_THAN_OR_EQUAL':
       return 'GREATER_THAN';
+    case 'GTE': case 'GE': case '>=': case 'IS_GREATER_THAN_OR_EQUAL':
+      return 'GREATER_THAN_OR_EQUAL';
     case 'LT': case '<': case 'IS_LESS_THAN': case 'LESS':
-    case 'LTE': case 'LE': case '<=': case 'IS_LESS_THAN_OR_EQUAL':
-    case 'LESS_THAN_OR_EQUAL':
       return 'LESS_THAN';
+    case 'LTE': case 'LE': case '<=': case 'IS_LESS_THAN_OR_EQUAL':
+      return 'LESS_THAN_OR_EQUAL';
     case 'IN_RANGE': case 'RANGE':
       return 'BETWEEN';
     case 'IN': case 'ANY_OF': case 'ONE_OF':
