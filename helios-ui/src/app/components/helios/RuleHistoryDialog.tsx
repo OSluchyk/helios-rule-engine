@@ -181,33 +181,38 @@ export function RuleHistoryDialog({ open, onOpenChange, rule, onRollbackSuccess 
   const diffResult = useMemo(() => {
     if (!compareFrom || !compareTo) return null;
 
-    // Create differ instance
-    const differ = new Differ({
-      detectCircular: true,
-      maxDepth: Infinity,
-      showModifications: true,
-      arrayDiffMethod: 'lcs', // Use LCS for better array diffing
-      recursiveEqual: true,
-      preserveKeyOrder: 'before', // Keep key order from 'before' version
-    });
+    try {
+      // Create differ instance
+      const differ = new Differ({
+        detectCircular: true,
+        maxDepth: Infinity,
+        showModifications: true,
+        arrayDiffMethod: 'lcs', // Use LCS for better array diffing
+        recursiveEqual: true,
+        preserveKeyOrder: 'before', // Keep key order from 'before' version
+      });
 
-    // Prepare version data for JSON diff comparison
-    const prepareVersionForDiff = (version: LocalRuleVersion) => ({
-      priority: version.priority,
-      enabled: version.enabled,
-      description: version.description,
-      conditions: version.conditions.map(c => ({
-        field: c.field,
-        operator: c.operator,
-        value: c.value
-      })),
-      tags: version.tags || [],
-      labels: version.labels || {}
-    });
+      // Prepare version data for JSON diff comparison
+      const prepareVersionForDiff = (version: LocalRuleVersion) => ({
+        priority: version.priority,
+        enabled: version.enabled,
+        description: version.description,
+        conditions: version.conditions.map(c => ({
+          field: c.field,
+          operator: c.operator,
+          value: c.value
+        })),
+        tags: version.tags || [],
+        labels: version.labels || {}
+      });
 
-    const beforeData = prepareVersionForDiff(compareTo); // older version
-    const afterData = prepareVersionForDiff(compareFrom); // newer version
-    return differ.diff(beforeData, afterData);
+      const beforeData = prepareVersionForDiff(compareTo); // older version
+      const afterData = prepareVersionForDiff(compareFrom); // newer version
+      return differ.diff(beforeData, afterData);
+    } catch (error) {
+      console.error('Error computing diff:', error);
+      return null;
+    }
   }, [compareFrom, compareTo]);
 
   if (!open || !rule) return null;

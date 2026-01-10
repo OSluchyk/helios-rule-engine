@@ -369,3 +369,5 @@ export function MonitoringView() {
     </div>
   );
 }
+
+export default MonitoringView;

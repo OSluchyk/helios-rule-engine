@@ -65,8 +65,12 @@ export function SearchableSelect({
 
     if (open) {
       document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
     }
+
+    // Always return cleanup to prevent memory leaks when component unmounts
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
   }, [open]);
 
   const handleSelect = (optionValue: string) => {
