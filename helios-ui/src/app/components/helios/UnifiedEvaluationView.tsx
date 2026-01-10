@@ -2,7 +2,7 @@
  * Unified Evaluation View - Single event and batch testing in one interface
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useEvaluateWithTrace, useExplainRule, useEvaluateBatch } from '../../../hooks/useEvaluation';
 import { useRules } from '../../../hooks/useRules';
 import type { Event, TraceLevel, BatchEvaluationResult, MatchResult } from '../../../types/api';
@@ -79,6 +79,18 @@ export function UnifiedEvaluationView() {
     },
   });
 
+  // Auto-trigger explain when rule selection changes
+  useEffect(() => {
+    if (selectedRuleForExplanation && eventJson) {
+      try {
+        const event: Event = JSON.parse(eventJson);
+        explainMutation.mutate({ ruleCode: selectedRuleForExplanation, event });
+      } catch (error) {
+        console.error('Invalid JSON:', error);
+      }
+    }
+  }, [selectedRuleForExplanation]);
+
   const handleEvaluateSingle = () => {
     try {
       const event: Event = JSON.parse(eventJson);
@@ -97,16 +109,6 @@ export function UnifiedEvaluationView() {
       evaluateBatch.mutate({ events, level: traceLevel });
     } catch (error) {
       console.error('Failed to parse events JSON:', error);
-    }
-  };
-
-  const handleExplain = () => {
-    if (!selectedRuleForExplanation) return;
-    try {
-      const event: Event = JSON.parse(eventJson);
-      explainMutation.mutate({ ruleCode: selectedRuleForExplanation, event });
-    } catch (error) {
-      console.error('Invalid JSON:', error);
     }
   };
 
@@ -479,25 +481,16 @@ export function UnifiedEvaluationView() {
                   </TabsContent>
 
                   <TabsContent value="explain" className="space-y-4">
-                    <div className="space-y-3">
-                      <div className="space-y-2">
-                        <Label>Select Rule to Explain</Label>
-                        <SearchableSelect
-                          options={ruleOptions}
-                          value={selectedRuleForExplanation}
-                          onChange={setSelectedRuleForExplanation}
-                          placeholder="Search and select a rule..."
-                          searchPlaceholder="Type to search by code or description..."
-                          emptyMessage="No rules found"
-                        />
-                      </div>
-                      <Button
-                        onClick={handleExplain}
-                        disabled={!selectedRuleForExplanation || explainMutation.isPending}
-                        className="w-full"
-                      >
-                        {explainMutation.isPending ? 'Generating Explanation...' : 'Explain Rule'}
-                      </Button>
+                    <div className="space-y-2">
+                      <Label>Select Rule to Explain</Label>
+                      <SearchableSelect
+                        options={ruleOptions}
+                        value={selectedRuleForExplanation}
+                        onChange={setSelectedRuleForExplanation}
+                        placeholder="Search and select a rule..."
+                        searchPlaceholder="Type to search by code or description..."
+                        emptyMessage="No rules found"
+                      />
                     </div>
 
                     {explainMutation.isSuccess && explainMutation.data && selectedRule && (
@@ -517,7 +510,7 @@ export function UnifiedEvaluationView() {
 
                         {/* Overall Match Status */}
                         <div className={`p-4 border rounded-lg ${explainMutation.data.matched ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                          <div className="flex items-center justify-between">
+                          <div className="flex items-center justify-between mb-3">
                             <h3 className="font-semibold text-lg">
                               {explainMutation.data.matched ? '✓ Rule Matched' : '✗ Rule Did Not Match'}
                             </h3>
@@ -528,6 +521,21 @@ export function UnifiedEvaluationView() {
                             }`}>
                               {explainMutation.data.matched ? 'PASS' : 'FAIL'}
                             </span>
+                          </div>
+                          {/* Evaluation Metrics */}
+                          <div className="grid grid-cols-3 gap-3 text-sm">
+                            <div>
+                              <div className="text-muted-foreground">Evaluation Time</div>
+                              <div className="font-mono font-semibold">{formatNanos(explainMutation.data.evaluation_time_nanos)}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Predicates Evaluated</div>
+                              <div className="font-mono font-semibold">{explainMutation.data.predicates_evaluated}</div>
+                            </div>
+                            <div>
+                              <div className="text-muted-foreground">Rules Evaluated</div>
+                              <div className="font-mono font-semibold">{explainMutation.data.rules_evaluated}</div>
+                            </div>
                           </div>
                         </div>
 
@@ -544,7 +552,9 @@ export function UnifiedEvaluationView() {
                               <div
                                 key={idx}
                                 className={`p-3 border rounded-lg ${
-                                  cond.passed
+                                  !cond.evaluated
+                                    ? 'bg-gray-50 border-gray-300 opacity-60'
+                                    : cond.passed
                                     ? 'bg-green-50 border-green-200'
                                     : 'bg-red-50 border-red-200'
                                 }`}
@@ -556,26 +566,32 @@ export function UnifiedEvaluationView() {
                                       {cond.field_name} {cond.operator} {JSON.stringify(cond.expected_value)}
                                     </div>
 
-                                    {/* Actual value from event */}
-                                    <div className="text-sm text-muted-foreground">
-                                      Actual: <span className="font-mono">{JSON.stringify(cond.actual_value)}</span>
-                                    </div>
+                                    {/* Actual value from event (only if evaluated) */}
+                                    {cond.evaluated && (
+                                      <div className="text-sm text-muted-foreground">
+                                        Actual: <span className="font-mono">{JSON.stringify(cond.actual_value)}</span>
+                                      </div>
+                                    )}
 
                                     {/* Result reason */}
                                     <div className={`text-sm mt-1 ${
-                                      cond.passed ? 'text-green-700' : 'text-red-700'
+                                      !cond.evaluated
+                                        ? 'text-gray-600 italic'
+                                        : cond.passed ? 'text-green-700' : 'text-red-700'
                                     }`}>
-                                      {cond.passed ? '✓ ' : '✗ '}{cond.reason}
+                                      {!cond.evaluated ? '⊘ ' : cond.passed ? '✓ ' : '✗ '}{cond.reason}
                                     </div>
                                   </div>
 
-                                  {/* Pass/Fail badge */}
+                                  {/* Pass/Fail/Skipped badge */}
                                   <div className={`flex-shrink-0 px-2 py-1 rounded text-xs font-semibold ${
-                                    cond.passed
+                                    !cond.evaluated
+                                      ? 'bg-gray-200 text-gray-700'
+                                      : cond.passed
                                       ? 'bg-green-100 text-green-800'
                                       : 'bg-red-100 text-red-800'
                                   }`}>
-                                    {cond.passed ? 'PASS' : 'FAIL'}
+                                    {!cond.evaluated ? 'SKIPPED' : cond.passed ? 'PASS' : 'FAIL'}
                                   </div>
                                 </div>
                               </div>

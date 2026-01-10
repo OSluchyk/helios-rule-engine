@@ -348,47 +348,113 @@ public final class RuleEvaluator implements IRuleEvaluator {
             throw new IllegalArgumentException("Rule not found: " + ruleCode);
         }
 
-        // Evaluate with tracing
+        // Evaluate with tracing to get overall result and metrics
         EvaluationResult result = evaluateWithTrace(event);
         boolean matched = result.matchResult().matchedRules().stream()
                 .anyMatch(r -> r.ruleCode().equals(ruleCode));
 
-        // Build condition explanations from trace
-        List<ExplanationResult.ConditionExplanation> explanations = new ArrayList<>();
+        // Get combination IDs for this rule
+        Set<Integer> combinationIds = model.getCombinationIdsForRule(ruleCode);
 
-        if (result.trace() != null) {
-            // Get combination IDs for this rule
-            Set<Integer> combinationIds = model.getCombinationIdsForRule(ruleCode);
-
-            // Collect all predicate IDs that belong to this rule's combinations
-            Set<Integer> rulePredicateIds = new java.util.HashSet<>();
-            for (int combinationId : combinationIds) {
-                var predicateIds = model.getCombinationPredicateIds(combinationId);
-                if (predicateIds != null) {
-                    predicateIds.forEach(rulePredicateIds::add);
-                }
-            }
-
-            // Examine predicate outcomes ONLY for this rule's predicates
-            for (var outcome : result.trace().predicateOutcomes()) {
-                // Filter: only include predicates that belong to this rule
-                if (!rulePredicateIds.contains(outcome.predicateId())) {
-                    continue;
-                }
-
-                String reason = outcome.matched()
-                        ? "Passed"
-                        : ExplanationResult.ConditionExplanation.REASON_VALUE_MISMATCH;
-
-                explanations.add(new ExplanationResult.ConditionExplanation(
-                        outcome.fieldName(),
-                        outcome.operator(),
-                        outcome.expectedValue(),
-                        outcome.actualValue(),
-                        outcome.matched(),
-                        reason));
+        // Collect all predicate IDs that belong to this rule's combinations
+        Set<Integer> rulePredicateIds = new java.util.HashSet<>();
+        for (int combinationId : combinationIds) {
+            var predicateIds = model.getCombinationPredicateIds(combinationId);
+            if (predicateIds != null) {
+                predicateIds.forEach(rulePredicateIds::add);
             }
         }
+
+        // Build condition explanations with short-circuit evaluation simulation
+        // This ensures we get explanations even if the rule was filtered out by base conditions
+        List<ExplanationResult.ConditionExplanation> explanations = new ArrayList<>();
+
+        // Encode event attributes for predicate evaluation
+        it.unimi.dsi.fastutil.ints.Int2ObjectMap<Object> encodedAttributes = eventEncoder.encode(event);
+
+        // Track metrics for this specific rule explanation
+        long explanationStartTime = System.nanoTime();
+
+        // Short-circuit: stop evaluating after first failure (for non-matching rules)
+        boolean shortCircuited = false;
+        int predicatesEvaluatedCount = 0;
+
+        // Evaluate each predicate for this rule
+        for (int predicateId : rulePredicateIds) {
+            var predicate = model.getPredicate(predicateId);
+            if (predicate == null) {
+                continue; // Skip if predicate metadata not available
+            }
+
+            String fieldName = model.getFieldDictionary().decode(predicate.fieldId());
+            String operator = predicate.operator().name();
+            Object expectedValue = predicate.value();
+
+            // If we already short-circuited, mark remaining predicates as not evaluated
+            if (shortCircuited) {
+                explanations.add(new ExplanationResult.ConditionExplanation(
+                        fieldName,
+                        operator,
+                        expectedValue,
+                        null,  // Not evaluated, so no actual value
+                        false, // Not passed (but also not evaluated)
+                        ExplanationResult.ConditionExplanation.REASON_NOT_EVALUATED,
+                        false  // Not evaluated
+                ));
+                continue;
+            }
+
+            // Get actual value from event attributes (dictionary-encoded)
+            Object encodedValue = encodedAttributes.get(predicate.fieldId());
+
+            // Decode the value for display and evaluation
+            Object actualValue = encodedValue;
+            if (encodedValue instanceof Integer && predicate.operator().name().contains("EQUAL")) {
+                actualValue = model.getValueDictionary().decode((Integer) encodedValue);
+            }
+
+            // Evaluate this predicate against the event using the predicate's own evaluate method
+            // Note: For dictionary-encoded equality predicates, we need to use the encoded value
+            Object valueForEvaluation = predicate.operator().name().contains("EQUAL")
+                    ? encodedValue
+                    : actualValue;
+            boolean predicateMatched = predicate.evaluate(valueForEvaluation);
+            predicatesEvaluatedCount++;
+
+            // Determine reason
+            String reason;
+            if (predicateMatched) {
+                reason = "Passed";
+            } else if (actualValue == null) {
+                reason = ExplanationResult.ConditionExplanation.REASON_FIELD_MISSING;
+            } else {
+                reason = ExplanationResult.ConditionExplanation.REASON_VALUE_MISMATCH;
+            }
+
+            explanations.add(new ExplanationResult.ConditionExplanation(
+                    fieldName,
+                    operator,
+                    expectedValue,
+                    actualValue,
+                    predicateMatched,
+                    reason,
+                    true  // This predicate was evaluated
+            ));
+
+            // Short-circuit: if this predicate failed and rule didn't match overall, stop evaluating
+            if (!predicateMatched && !matched) {
+                shortCircuited = true;
+            }
+        }
+
+        // Calculate explanation-specific metrics
+        long explanationTimeNanos = System.nanoTime() - explanationStartTime;
+
+        // Predicates evaluated = number actually evaluated (before short-circuit)
+        int predicatesEvaluatedForRule = predicatesEvaluatedCount;
+
+        // For rules evaluated: always 1 since we're explaining this specific rule
+        int rulesEvaluatedForExplanation = 1;
 
         // Generate summary
         String summary = matched
@@ -398,7 +464,14 @@ public final class RuleEvaluator implements IRuleEvaluator {
                         explanations.stream().filter(e -> !e.passed()).count(),
                         explanations.size());
 
-        return new ExplanationResult(ruleCode, matched, summary, explanations);
+        return new ExplanationResult(
+                ruleCode,
+                matched,
+                summary,
+                explanations,
+                explanationTimeNanos,
+                predicatesEvaluatedForRule,
+                rulesEvaluatedForExplanation);
     }
 
     // ════════════════════════════════════════════════════════════════════════════════
