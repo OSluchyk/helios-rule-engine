@@ -933,3 +933,5 @@ export function UnifiedEvaluationView() {
     </div>
   );
 }
+
+export default UnifiedEvaluationView;

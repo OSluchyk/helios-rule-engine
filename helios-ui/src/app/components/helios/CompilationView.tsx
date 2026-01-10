@@ -380,3 +380,5 @@ export function CompilationView() {
     </div>
   );
 }
+
+export default CompilationView;

@@ -10,8 +10,9 @@
  * - Real-time API data with loading/error states
  */
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRules } from '../../../hooks/useRules';
+import { useDebounce } from '../../../hooks/useDebounce';
 import { getErrorMessage } from '../../../api/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
@@ -51,7 +52,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { compileFromDatabase } from '../../../api/compilation';
-import { deleteRule, deleteRulesBatch } from '../../../api/rules';
+import { deleteRule, deleteRulesBatch, updateRule } from '../../../api/rules';
 import {
   Dialog,
   DialogContent,
@@ -92,6 +93,9 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [customTagInput, setCustomTagInput] = useState('');
   const [compilationStatusFilter, setCompilationStatusFilter] = useState<string>('all');
+
+  // Debounce search query to reduce re-renders during typing (300ms delay)
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
   // UI state
   const [selectedRules, setSelectedRules] = useState<Set<string>>(new Set());
@@ -149,14 +153,14 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
     return Array.from(familyMap.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [uiRules]);
 
-  // Apply filters
+  // Apply filters (uses debouncedSearchQuery for performance)
   const filteredRules = useMemo(() => {
     return uiRules.filter(rule => {
-      // Search filter
+      // Search filter (uses debounced value to reduce re-renders)
       const matchesSearch =
-        !searchQuery ||
-        rule.rule_code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        rule.description.toLowerCase().includes(searchQuery.toLowerCase());
+        !debouncedSearchQuery ||
+        rule.rule_code.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        rule.description.toLowerCase().includes(debouncedSearchQuery.toLowerCase());
 
       // Family filter
       const matchesFamily = selectedFamily === 'all' || rule.family === selectedFamily;
@@ -176,7 +180,7 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
 
       return matchesSearch && matchesFamily && matchesStatus && matchesTags && matchesCompilationStatus;
     });
-  }, [uiRules, searchQuery, selectedFamily, statusFilter, selectedTags, compilationStatusFilter]);
+  }, [uiRules, debouncedSearchQuery, selectedFamily, statusFilter, selectedTags, compilationStatusFilter]);
 
   // Group rules by family for tree view
   const groupedRules = useMemo(() => {
@@ -196,10 +200,24 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
     return filteredRules.slice(startIndex, startIndex + pageSize);
   }, [filteredRules, currentPage, pageSize]);
 
-  // Reset to first page when filters change
+  // Reset to first page when filters change (uses debouncedSearchQuery)
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedFamily, statusFilter, selectedTags, compilationStatusFilter]);
+  }, [debouncedSearchQuery, selectedFamily, statusFilter, selectedTags, compilationStatusFilter]);
+
+  // Memoized validation results cache - avoids recomputing validation for each rule on every render
+  const validationCache = useMemo(() => {
+    const cache = new Map<string, ReturnType<typeof validateRule>>();
+    filteredRules.forEach(rule => {
+      cache.set(rule.rule_code, validateRule(rule));
+    });
+    return cache;
+  }, [filteredRules]);
+
+  // Helper to get cached validation results
+  const getValidationIssues = useCallback((ruleCode: string) => {
+    return validationCache.get(ruleCode) || [];
+  }, [validationCache]);
 
   // Filter actions
   const toggleTagFilter = (tag: string) => {
@@ -362,21 +380,11 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
         return;
       }
 
-      // Update rule with new enabled status
-      const response = await fetch(`/api/v1/rules/${encodeURIComponent(ruleCode)}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...rule,
-          enabled: newEnabledStatus
-        }),
+      // Use the centralized API client for consistent error handling
+      await updateRule(ruleCode, {
+        ...rule,
+        enabled: newEnabledStatus
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to update rule');
-      }
 
       toast.success(`Rule ${action === 'activate' ? 'activated' : 'deactivated'} successfully`);
 
@@ -384,7 +392,6 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
       refetch();
     } catch (error) {
       toast.error(`Failed to ${currentlyEnabled ? 'deactivate' : 'activate'} rule`);
-      console.error('Error toggling rule activation:', error);
     }
   };
 
@@ -408,9 +415,15 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
     return 'good';
   };
 
+  // Escape special regex characters to prevent ReDoS attacks
+  const escapeRegExp = (string: string) => {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  };
+
   const highlightText = (text: string, query: string) => {
     if (!query) return text;
-    const parts = text.split(new RegExp(`(${query})`, 'gi'));
+    const escapedQuery = escapeRegExp(query);
+    const parts = text.split(new RegExp(`(${escapedQuery})`, 'gi'));
     return (
       <>
         {parts.map((part, i) =>
@@ -1152,9 +1165,9 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
                                       </div>
                                     </div>
 
-                                    {/* Validation Issues */}
+                                    {/* Validation Issues (uses memoized cache) */}
                                     {(() => {
-                                      const issues = validateRule(rule);
+                                      const issues = getValidationIssues(rule.rule_code);
                                       if (issues.length === 0) return null;
                                       const errors = issues.filter(i => i.type === 'error');
                                       const warnings = issues.filter(i => i.type === 'warning');
@@ -1441,9 +1454,9 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
                               </div>
                             </div>
 
-                            {/* Validation Issues */}
+                            {/* Validation Issues (uses memoized cache) */}
                             {(() => {
-                              const issues = validateRule(rule);
+                              const issues = getValidationIssues(rule.rule_code);
                               if (issues.length === 0) return null;
                               const errors = issues.filter(i => i.type === 'error');
                               const warnings = issues.filter(i => i.type === 'warning');
