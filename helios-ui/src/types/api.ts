@@ -185,6 +185,7 @@ export interface ConditionExplanation {
   actual_value: any;
   passed: boolean;
   reason: string;
+  evaluated: boolean;
   closeness?: number; // 0-100, how close the value was to passing
 }
 
@@ -193,6 +194,9 @@ export interface ExplanationResult {
   matched: boolean;
   summary: string;
   condition_explanations: ConditionExplanation[];
+  evaluation_time_nanos: number;
+  predicates_evaluated: number;
+  rules_evaluated: number;
 }
 
 // Batch Evaluation Types

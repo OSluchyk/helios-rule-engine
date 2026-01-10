@@ -37,7 +37,10 @@ public record ExplanationResult(
     @JsonProperty("rule_code") String ruleCode,
     @JsonProperty("matched") boolean matched,
     @JsonProperty("summary") String summary,
-    @JsonProperty("condition_explanations") List<ConditionExplanation> conditionExplanations
+    @JsonProperty("condition_explanations") List<ConditionExplanation> conditionExplanations,
+    @JsonProperty("evaluation_time_nanos") long evaluationTimeNanos,
+    @JsonProperty("predicates_evaluated") int predicatesEvaluated,
+    @JsonProperty("rules_evaluated") int rulesEvaluated
 ) implements Serializable {
 
     /**
@@ -50,7 +53,8 @@ public record ExplanationResult(
         @JsonProperty("expected_value") Object expectedValue,
         @JsonProperty("actual_value") Object actualValue,
         @JsonProperty("passed") boolean passed,
-        @JsonProperty("reason") String reason
+        @JsonProperty("reason") String reason,
+        @JsonProperty("evaluated") boolean evaluated
     ) implements Serializable {
 
         /**
@@ -61,6 +65,7 @@ public record ExplanationResult(
         public static final String REASON_TYPE_MISMATCH = "Type mismatch";
         public static final String REASON_OUT_OF_RANGE = "Value out of range";
         public static final String REASON_NULL_VALUE = "Null value";
+        public static final String REASON_NOT_EVALUATED = "Not evaluated (short-circuit)";
 
         /**
          * Returns a human-readable description of this condition.
