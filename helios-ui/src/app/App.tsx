@@ -1,11 +1,27 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs'
 import { RuleListView } from './components/helios/RuleListView'
 import { RuleBuilder } from './components/helios/RuleBuilder'
-import { UnifiedEvaluationView } from './components/helios/UnifiedEvaluationView'
-import { CompilationView } from './components/helios/CompilationView'
-import { MonitoringView } from './components/helios/MonitoringView'
 import type { RuleMetadata } from '../types/api'
+import { Loader2 } from 'lucide-react'
+
+// Lazy load heavy components to improve initial bundle size and load time
+// These components contain large dependencies (Recharts, json-diff-kit, etc.)
+const UnifiedEvaluationView = lazy(() => import('./components/helios/UnifiedEvaluationView'))
+const CompilationView = lazy(() => import('./components/helios/CompilationView'))
+const MonitoringView = lazy(() => import('./components/helios/MonitoringView'))
+
+// Loading fallback component for lazy-loaded views
+function LoadingFallback() {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <div className="text-center space-y-4">
+        <Loader2 className="size-8 animate-spin mx-auto text-blue-600" />
+        <p className="text-muted-foreground">Loading...</p>
+      </div>
+    </div>
+  )
+}
 
 function App() {
   const [activeTab, setActiveTab] = useState('overview')
@@ -81,15 +97,21 @@ function App() {
           </TabsContent>
 
           <TabsContent value="evaluation">
-            <UnifiedEvaluationView />
+            <Suspense fallback={<LoadingFallback />}>
+              <UnifiedEvaluationView />
+            </Suspense>
           </TabsContent>
 
           <TabsContent value="compilation">
-            <CompilationView />
+            <Suspense fallback={<LoadingFallback />}>
+              <CompilationView />
+            </Suspense>
           </TabsContent>
 
           <TabsContent value="monitoring">
-            <MonitoringView />
+            <Suspense fallback={<LoadingFallback />}>
+              <MonitoringView />
+            </Suspense>
           </TabsContent>
         </Tabs>
       </main>
