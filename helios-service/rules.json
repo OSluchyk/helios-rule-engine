@@ -1,0 +1,15 @@
+[
+  {
+    "rule_code": "test.dummy_rule",
+    "description": "Dummy rule for service startup",
+    "conditions": [
+      {
+        "field": "status",
+        "operator": "EQUAL_TO",
+        "value": "ACTIVE"
+      }
+    ],
+    "priority": 100,
+    "enabled": true
+  }
+]
