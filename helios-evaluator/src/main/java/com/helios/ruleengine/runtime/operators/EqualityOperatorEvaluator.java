@@ -340,6 +340,11 @@ public final class EqualityOperatorEvaluator {
          */
         private void evaluateEqualTo(Object eventValue, EvaluationContext ctx,
                 IntSet eligiblePredicateIds) {
+            // Count ALL eligible EQUAL_TO predicates as evaluated (even if hash optimization skips them)
+            // This gives accurate statistics - all predicates were "evaluated" logically
+            int totalEligibleEqualTo = countEligibleEqualToPredicates(eligiblePredicateIds);
+            ctx.addPredicatesEvaluated(totalEligibleEqualTo);
+
             // O(1) hash lookup: Get all predicate IDs that check for this value
             IntList matchingPredicateIds = equalToValueMap.get(eventValue);
             if (matchingPredicateIds == null || matchingPredicateIds.isEmpty()) {
@@ -356,7 +361,6 @@ public final class EqualityOperatorEvaluator {
                 }
 
                 // Match found
-                ctx.incrementPredicatesEvaluatedCount();
                 ctx.addTruePredicate(predId);
 
                 // --- FIX START ---
@@ -364,6 +368,22 @@ public final class EqualityOperatorEvaluator {
                 equalToMatches.incrementAndGet();
                 // --- FIX END ---
             }
+        }
+
+        /**
+         * Count all eligible EQUAL_TO predicates for accurate statistics.
+         */
+        private int countEligibleEqualToPredicates(IntSet eligiblePredicateIds) {
+            int count = 0;
+            for (IntList predIds : equalToValueMap.values()) {
+                for (int i = 0; i < predIds.size(); i++) {
+                    int predId = predIds.getInt(i);
+                    if (eligiblePredicateIds == null || eligiblePredicateIds.contains(predId)) {
+                        count++;
+                    }
+                }
+            }
+            return count;
         }
 
         /**

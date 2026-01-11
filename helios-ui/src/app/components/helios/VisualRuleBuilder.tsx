@@ -113,18 +113,17 @@ export const VisualRuleBuilder = ({ editingRuleCode, onRuleCreated, onCancel }: 
   // Load rule data into form when editing
   useEffect(() => {
     if (editingRuleCode && ruleDetails) {
-      const metadata = ruleDetails.rule_metadata;
-
+      // ruleDetails is RuleDetailResponse which extends RuleMetadata
       setRuleForm({
-        ruleCode: metadata.rule_code,
-        description: metadata.description || '',
-        priority: metadata.priority || 100,
-        enabled: metadata.enabled !== undefined ? metadata.enabled : true,
-        tags: Array.isArray(metadata.tags) ? metadata.tags : [],
+        ruleCode: ruleDetails.rule_code,
+        description: ruleDetails.description || '',
+        priority: ruleDetails.priority || 100,
+        enabled: ruleDetails.enabled !== undefined ? ruleDetails.enabled : true,
+        tags: Array.isArray(ruleDetails.tags) ? ruleDetails.tags : [],
       });
 
       // Convert backend conditions to UI format
-      const uiConditions = metadata.conditions.map((cond, idx) => {
+      const uiConditions = ruleDetails.conditions.map((cond: { field: string; operator: string; value: unknown }, idx: number) => {
         let value = cond.value;
 
         // Convert array values to comma-separated string for IS_ANY_OF/IS_NONE_OF
@@ -297,7 +296,7 @@ export const VisualRuleBuilder = ({ editingRuleCode, onRuleCreated, onCancel }: 
 
     // Use mutation hooks to create or update
     if (editingRuleCode) {
-      updateRuleMutation.mutate({ ruleCode: editingRuleCode, ruleData });
+      updateRuleMutation.mutate({ ruleCode: editingRuleCode, payload: ruleData });
     } else {
       createRuleMutation.mutate(ruleData);
     }

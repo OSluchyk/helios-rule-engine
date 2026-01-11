@@ -6,11 +6,28 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
 import type { ApiError } from '../types/api';
 
-// In development, use relative path to go through Vite proxy
-// In production, use the configured API URL
-const BASE_URL = import.meta.env.DEV
-  ? ''
-  : (import.meta.env.VITE_API_URL || 'http://localhost:8080');
+// Determine the API base URL
+// In development on localhost: use relative path to go through Vite proxy
+// In development on network IP: use same host with backend port (8080)
+// In production: use configured API URL or default to localhost:8080
+const getBaseUrl = (): string => {
+  if (typeof window === 'undefined') {
+    return import.meta.env.VITE_API_URL || 'http://localhost:8080';
+  }
+
+  const { hostname } = window.location;
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+
+  if (import.meta.env.DEV) {
+    // In dev mode on localhost, use proxy (empty base URL)
+    // On network IP, connect directly to backend on same host with port 8080
+    return isLocalhost ? '' : `http://${hostname}:8080`;
+  }
+
+  return import.meta.env.VITE_API_URL || 'http://localhost:8080';
+};
+
+const BASE_URL = getBaseUrl();
 
 /**
  * Create and configure the Axios instance

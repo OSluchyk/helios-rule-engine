@@ -139,7 +139,6 @@ export function RuleHistoryDialog({ open, onOpenChange, rule, onRollbackSuccess 
       convertedVersions.sort((a, b) => b.version - a.version);
       applyVersions(convertedVersions);
     } catch (err) {
-      console.error('Failed to fetch versions:', err);
       toast.error('Failed to load version history');
     } finally {
       setLoading(false);
@@ -209,8 +208,8 @@ export function RuleHistoryDialog({ open, onOpenChange, rule, onRollbackSuccess 
       const beforeData = prepareVersionForDiff(compareTo); // older version
       const afterData = prepareVersionForDiff(compareFrom); // newer version
       return differ.diff(beforeData, afterData);
-    } catch (error) {
-      console.error('Error computing diff:', error);
+    } catch {
+      // Return null on diff computation failure - UI will show loading state
       return null;
     }
   }, [compareFrom, compareTo]);
@@ -981,7 +980,8 @@ export function RuleHistoryDialog({ open, onOpenChange, rule, onRollbackSuccess 
                                       return other && (JSON.stringify(cond.value) !== JSON.stringify(other.value) || cond.operator !== other.operator);
                                     })
                                     .map((cond, idx) => {
-                                      const other = compareTo.conditions.find(c => normalizeField(c.field) === normalizeField(cond.field))!;
+                                      const other = compareTo.conditions.find(c => normalizeField(c.field) === normalizeField(cond.field));
+                                      if (!other) return null; // Safety check - should never happen due to filter
                                       return (
                                         <div
                                           key={`modified-${idx}`}
