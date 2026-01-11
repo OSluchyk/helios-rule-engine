@@ -233,6 +233,13 @@ public class BaseConditionEvaluator {
         // Generate cache key and check cache
         CacheKey cacheKey = generateCacheKey(encodedAttrs, applicableSets);
 
+        // Pre-compute predicates count for applicable sets (used for both cache hit and miss)
+        int totalPredicatesInSets = 0;
+        for (BaseConditionSet set : applicableSets) {
+            totalPredicatesInSets += set.staticPredicateIds.size();
+        }
+        final int predicatesCount = totalPredicatesInSets;
+
         @SuppressWarnings("null") // The cache.get().thenCompose() chain handles nulls appropriately
         CompletableFuture<EvaluationResult> future = cache.get(cacheKey).thenCompose(cached -> {
             if (cached.isPresent()) {
@@ -245,8 +252,10 @@ public class BaseConditionEvaluator {
                             event.eventId(), result.getCardinality(), duration / 1_000_000.0));
                 }
 
+                // FIX: Return predicatesCount even on cache hit, as these predicates
+                // would have been evaluated if not for the cache
                 return CompletableFuture.completedFuture(
-                        new EvaluationResult(result, 0, true, duration));
+                        new EvaluationResult(result, predicatesCount, true, duration));
             } else {
                 cacheMisses++;
                 return evaluateAndCache(event, encoder, applicableSets, cacheKey, startTime);

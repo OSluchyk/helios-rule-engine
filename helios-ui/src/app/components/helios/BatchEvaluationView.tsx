@@ -50,7 +50,7 @@ export function BatchEvaluationView() {
         throw new Error('Input must be an array of events');
       }
 
-      evaluateBatch.mutate(events);
+      evaluateBatch.mutate({ events });
     } catch (error) {
       console.error('Failed to parse events JSON:', error);
     }

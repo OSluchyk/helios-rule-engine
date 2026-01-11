@@ -34,16 +34,6 @@ interface SlowRule {
   evaluationCount: number;
 }
 
-interface LatencySample {
-  timestamp: string;
-  durationNanos: number;
-}
-
-interface ThroughputSample {
-  timestamp: string;
-  eventsProcessed: number;
-}
-
 export function MonitoringView() {
   const [summary, setSummary] = useState<MetricsSummary | null>(null);
   const [hotRules, setHotRules] = useState<HotRule[]>([]);
@@ -74,12 +64,14 @@ export function MonitoringView() {
 
   useEffect(() => {
     fetchMetrics();
+  }, []); // Initial fetch only
 
-    // Auto-refresh every 5 seconds
-    if (autoRefresh) {
-      const interval = setInterval(fetchMetrics, 5000);
-      return () => clearInterval(interval);
-    }
+  useEffect(() => {
+    // Auto-refresh every 5 seconds when enabled
+    if (!autoRefresh) return;
+
+    const interval = setInterval(fetchMetrics, 5000);
+    return () => clearInterval(interval);
   }, [autoRefresh]);
 
   const formatNumber = (num: number): string => {
