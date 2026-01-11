@@ -57,10 +57,13 @@ public final class RegexOperatorEvaluator {
         FieldEvaluator evaluator = fieldEvaluators.get(fieldId);
         if (evaluator == null) return;
 
+        // Count all predicates that will be evaluated (not just matches)
+        int predicatesEvaluatedCount = evaluator.countEligiblePredicates(eligiblePredicateIds);
+        ctx.addPredicatesEvaluated(predicatesEvaluatedCount);
+
         IntSet matches = evaluator.evaluate(value, eligiblePredicateIds);
         matches.forEach((int predId) -> {
             ctx.addTruePredicate(predId);
-            ctx.incrementPredicatesEvaluatedCount();
         });
     }
 
@@ -93,6 +96,23 @@ public final class RegexOperatorEvaluator {
             }
 
             return matches;
+        }
+
+        /**
+         * Count the number of predicates that will be evaluated for this field.
+         * Used for accurate statistics tracking.
+         */
+        int countEligiblePredicates(IntSet eligiblePredicateIds) {
+            if (eligiblePredicateIds == null) {
+                return predicates.length;
+            }
+            int count = 0;
+            for (RegexPredicate pred : predicates) {
+                if (eligiblePredicateIds.contains(pred.id)) {
+                    count++;
+                }
+            }
+            return count;
         }
     }
 

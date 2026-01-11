@@ -2,7 +2,7 @@
  * Unified Evaluation View - Single event and batch testing in one interface
  */
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useEvaluateWithTrace, useExplainRule, useEvaluateBatch } from '../../../hooks/useEvaluation';
 import { useRules } from '../../../hooks/useRules';
 import type { Event, TraceLevel, BatchEvaluationResult, MatchResult } from '../../../types/api';
@@ -79,14 +79,22 @@ export function UnifiedEvaluationView() {
     },
   });
 
+  // Use ref to access latest eventJson without causing effect re-runs
+  const eventJsonRef = useRef(eventJson);
+  eventJsonRef.current = eventJson;
+
+  // Use ref for mutation to avoid infinite loop - mutation objects are recreated on each render
+  const explainMutationRef = useRef(explainMutation);
+  explainMutationRef.current = explainMutation;
+
   // Auto-trigger explain when rule selection changes
   useEffect(() => {
-    if (selectedRuleForExplanation && eventJson) {
+    if (selectedRuleForExplanation && eventJsonRef.current) {
       try {
-        const event: Event = JSON.parse(eventJson);
-        explainMutation.mutate({ ruleCode: selectedRuleForExplanation, event });
-      } catch (error) {
-        console.error('Invalid JSON:', error);
+        const event: Event = JSON.parse(eventJsonRef.current);
+        explainMutationRef.current.mutate({ ruleCode: selectedRuleForExplanation, event });
+      } catch {
+        // Silently ignore invalid JSON during auto-explain
       }
     }
   }, [selectedRuleForExplanation]);

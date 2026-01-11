@@ -3,9 +3,35 @@
  * Provides type-safe, cached data fetching with loading and error states
  */
 
-import { useQuery, UseQueryOptions } from '@tanstack/react-query';
-import { rulesApi } from '../api/rules';
+import { useQuery, useMutation, useQueryClient, UseQueryOptions, UseMutationOptions } from '@tanstack/react-query';
+import { rulesApi, updateRule as updateRuleApi } from '../api/rules';
+import { post } from '../api/client';
 import type { RuleMetadata, RuleDetailResponse, RuleQueryParams, ApiError } from '../types/api';
+
+// Response type for create/update operations
+interface CreateRuleResponse {
+  ruleCode: string;
+  message?: string;
+}
+
+interface UpdateRuleResponse {
+  ruleCode: string;
+  message?: string;
+}
+
+// Request payload for creating rules
+interface CreateRulePayload {
+  rule_code: string;
+  description?: string;
+  priority?: number;
+  enabled?: boolean;
+  tags?: string[];
+  conditions: Array<{
+    field: string;
+    operator: string;
+    value: unknown;
+  }>;
+}
 
 /**
  * Hook to fetch all rules with optional filtering
@@ -82,6 +108,53 @@ export const useRulesByTag = (
     queryFn: () => rulesApi.getRulesByTag(tag),
     enabled: !!tag,
     staleTime: 60000,
+    ...options,
+  });
+};
+
+/**
+ * Alias for useRule for compatibility with VisualRuleBuilder
+ */
+export const useRuleDetails = useRule;
+
+/**
+ * Hook to create a new rule
+ */
+export const useCreateRule = (
+  options?: UseMutationOptions<CreateRuleResponse, ApiError, CreateRulePayload>
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation<CreateRuleResponse, ApiError, CreateRulePayload>({
+    mutationFn: async (payload) => {
+      return post<CreateRuleResponse>('/rules', payload);
+    },
+    onSuccess: () => {
+      // Invalidate rules list to refresh after creation
+      queryClient.invalidateQueries({ queryKey: rulesApi.queryKeys.all });
+    },
+    ...options,
+  });
+};
+
+/**
+ * Hook to update an existing rule
+ */
+export const useUpdateRule = (
+  options?: UseMutationOptions<UpdateRuleResponse, ApiError, { ruleCode: string; payload: CreateRulePayload }>
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation<UpdateRuleResponse, ApiError, { ruleCode: string; payload: CreateRulePayload }>({
+    mutationFn: async ({ ruleCode, payload }) => {
+      const result = await updateRuleApi(ruleCode, payload);
+      return { ruleCode: result.rule_code };
+    },
+    onSuccess: (_, variables) => {
+      // Invalidate rules list and specific rule detail
+      queryClient.invalidateQueries({ queryKey: rulesApi.queryKeys.all });
+      queryClient.invalidateQueries({ queryKey: rulesApi.queryKeys.detail(variables.ruleCode) });
+    },
     ...options,
   });
 };

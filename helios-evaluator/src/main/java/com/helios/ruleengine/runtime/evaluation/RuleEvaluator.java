@@ -582,8 +582,15 @@ public final class RuleEvaluator implements IRuleEvaluator {
             long evaluationTime = System.nanoTime() - startTime;
             metrics.recordEvaluation(evaluationTime, ctx.getPredicatesEvaluated(), matchedRules.size());
 
+            // Calculate rulesEvaluated: all rules that had predicates checked
+            // This is the count of eligible rules (after base condition filtering)
+            // Not just "touched" rules (which only counts rules with at least one TRUE predicate)
+            int rulesEvaluated = eligibleRulesRoaring != null
+                    ? eligibleRulesRoaring.getCardinality()
+                    : model.getNumRules();
+
             evaluationSpan.setAttribute("predicatesEvaluated", ctx.getPredicatesEvaluated());
-            evaluationSpan.setAttribute("rulesEvaluated", ctx.getTouchedRules().size());
+            evaluationSpan.setAttribute("rulesEvaluated", rulesEvaluated);
             evaluationSpan.setAttribute("rulesMatched", matchedRules.size());
             evaluationSpan.setAttribute("evaluationTimeNanos", evaluationTime);
 
@@ -592,7 +599,7 @@ public final class RuleEvaluator implements IRuleEvaluator {
                     matchedRules,
                     evaluationTime,
                     ctx.getPredicatesEvaluated(),
-                    matchedRules.size());
+                    rulesEvaluated);
 
         } catch (Exception e) {
             evaluationSpan.recordException(e);

@@ -71,10 +71,13 @@ public final class NumericOperatorEvaluator {
         if (evaluator == null)
             return;
 
+        // Count all predicates that will be evaluated (not just matches)
+        int predicatesEvaluatedCount = evaluator.countEligiblePredicates(eligiblePredicateIds);
+        ctx.addPredicatesEvaluated(predicatesEvaluatedCount);
+
         IntSet matches = evaluator.evaluate((float) value, eligiblePredicateIds);
         matches.forEach((int predId) -> {
             ctx.addTruePredicate(predId);
-            ctx.incrementPredicatesEvaluatedCount();
         });
     }
 
@@ -396,6 +399,26 @@ public final class NumericOperatorEvaluator {
             return byOperator.entrySet().stream()
                     .map(e -> new PredicateGroup(e.getKey(), e.getValue().toArray(new NumericPredicate[0])))
                     .toArray(PredicateGroup[]::new);
+        }
+
+        /**
+         * Count the number of predicates that will be evaluated for this field.
+         * Used for accurate statistics tracking.
+         */
+        int countEligiblePredicates(IntSet eligiblePredicateIds) {
+            int count = 0;
+            for (PredicateGroup group : groups) {
+                if (eligiblePredicateIds != null) {
+                    for (int i = 0; i < group.count; i++) {
+                        if (eligiblePredicateIds.contains(group.predicates[i].id)) {
+                            count++;
+                        }
+                    }
+                } else {
+                    count += group.count;
+                }
+            }
+            return count;
         }
     }
 

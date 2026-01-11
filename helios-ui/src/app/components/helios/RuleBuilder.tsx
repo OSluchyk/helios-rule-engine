@@ -369,11 +369,15 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
       errors.push('Priority must be between 0 and 1000');
     }
 
+    // Operators that don't require a value
+    const noValueOperators = ['IS_NULL', 'IS_NOT_NULL'];
+
     conditions.forEach((condition, idx) => {
       if (!condition.field.trim()) {
         errors.push(`Condition ${idx + 1}: Field name is required`);
       }
-      if (!condition.value.trim()) {
+      // Skip value validation for IS_NULL and IS_NOT_NULL operators
+      if (!noValueOperators.includes(condition.operator) && !condition.value.trim()) {
         errors.push(`Condition ${idx + 1}: Value is required`);
       }
       if (operatorAcceptsArray(condition.operator)) {
@@ -434,11 +438,10 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
         toast.success(`Rule "${ruleCode}" updated successfully!`);
       } else {
         // Create new rule
-        const response = await axios.post('/api/v1/rules', payload, {
+        await axios.post('/api/v1/rules', payload, {
           headers: { 'Content-Type': 'application/json' }
         });
         toast.success(`Rule "${ruleCode}" created successfully!`);
-        console.log('Created rule:', response.data);
       }
 
       // Invalidate rules query to trigger refetch in RuleListView
@@ -467,8 +470,6 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
         onRuleCreated();
       }
     } catch (error: any) {
-      console.error(`Error ${isEditMode ? 'updating' : 'creating'} rule:`, error);
-      console.error('Error response:', error.response?.data);
       const errorMsg =
         error.response?.data?.error ||
         error.response?.data?.message ||
@@ -499,9 +500,7 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
       // Override enabled status to false for draft
       payload.enabled = false;
 
-      console.log('Sending draft payload:', JSON.stringify(payload, null, 2));
-
-      const response = await axios.post(
+      await axios.post(
         '/api/v1/rules',
         payload,
         {
@@ -509,7 +508,6 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
         }
       );
 
-      console.log('Draft save response:', response.data);
       toast.success(`Rule "${ruleCode}" saved as draft successfully!`);
 
       // Invalidate rules query to trigger refetch in RuleListView
@@ -538,8 +536,6 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
         onRuleCreated();
       }
     } catch (error: any) {
-      console.error('Draft save error:', error);
-      console.error('Error response:', error.response?.data);
       const errorMsg =
         error.response?.data?.message ||
         error.response?.data?.error ||
@@ -581,7 +577,6 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
         setValidationErrors(response.data.errors || []);
       }
     } catch (error: any) {
-      console.error('Validation error:', error);
       toast.error('Validation request failed');
     } finally {
       setIsSubmitting(false);

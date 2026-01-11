@@ -3,9 +3,9 @@
  */
 
 import { useState, useMemo } from 'react';
-import { useEvaluateWithTrace, useExplainRule, useEvaluateBatch } from '../../../hooks/useEvaluation';
+import { useEvaluateWithTrace, useExplainRule } from '../../../hooks/useEvaluation';
 import { useRules } from '../../../hooks/useRules';
-import type { Event, TraceLevel, EvaluationResult, ExplanationResult, BatchEvaluationResult, MatchResult } from '../../../types/api';
+import type { Event, TraceLevel, EvaluationResult, ExplanationResult } from '../../../types/api';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
@@ -14,7 +14,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Label } from '../ui/label';
 
 export function EvaluationView() {
-  const [mode, setMode] = useState<'single' | 'batch'>('single');
   const [eventJson, setEventJson] = useState(JSON.stringify({
     eventId: 'test-001',
     timestamp: Date.now(),
