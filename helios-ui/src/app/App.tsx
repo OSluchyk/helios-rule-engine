@@ -32,6 +32,22 @@ function App() {
     setActiveTab('builder')
   }
 
+  const handleCloneRule = (rule: RuleMetadata) => {
+    // Create a cloned version of the rule with _clone suffix
+    const clonedRule: RuleMetadata = {
+      ...rule,
+      rule_code: `${rule.rule_code}_clone`,
+      version: undefined, // Reset version for new rule
+      created_at: undefined,
+      created_by: undefined,
+      last_modified_at: undefined,
+      last_modified_by: undefined,
+      compilation_status: undefined, // Will be set by backend
+    }
+    setEditingRule(clonedRule)
+    setActiveTab('builder')
+  }
+
   const handleRuleCreated = () => {
     setEditingRule(null)
     setActiveTab('rules')
@@ -86,6 +102,7 @@ function App() {
                 setActiveTab('builder')
               }}
               onEditRule={handleEditRule}
+              onCloneRule={handleCloneRule}
             />
           </TabsContent>
 

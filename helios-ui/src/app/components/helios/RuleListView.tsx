@@ -80,9 +80,10 @@ import type { RuleMetadata } from '../../../types/api';
 interface RuleListViewProps {
   onNewRule?: () => void;
   onEditRule?: (rule: RuleMetadata) => void;
+  onCloneRule?: (rule: RuleMetadata) => void;
 }
 
-export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
+export function RuleListView({ onNewRule, onEditRule, onCloneRule }: RuleListViewProps) {
   // API data fetching
   const { data: apiRules, isLoading, error, refetch } = useRules();
 
@@ -1264,9 +1265,12 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
                                       <Button
                                         size="sm"
                                         variant="outline"
-                                        onClick={() =>
-                                          toast.success(`Cloned ${rule.rule_code}`)
-                                        }
+                                        onClick={() => {
+                                          const apiRule = apiRules?.find(r => r.rule_code === rule.rule_code);
+                                          if (apiRule && onCloneRule) {
+                                            onCloneRule(apiRule);
+                                          }
+                                        }}
                                       >
                                         <Copy className="size-4 mr-2" />
                                         Clone
@@ -1553,9 +1557,12 @@ export function RuleListView({ onNewRule, onEditRule }: RuleListViewProps) {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() =>
-                                  toast.success(`Cloned ${rule.rule_code}`)
-                                }
+                                onClick={() => {
+                                  const apiRule = apiRules?.find(r => r.rule_code === rule.rule_code);
+                                  if (apiRule && onCloneRule) {
+                                    onCloneRule(apiRule);
+                                  }
+                                }}
                               >
                                 <Copy className="size-4 mr-2" />
                                 Clone
