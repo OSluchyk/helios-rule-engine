@@ -210,10 +210,25 @@ public class BaseConditionEvaluator {
         applicableSets.clear();
 
         Int2ObjectMap<Object> encodedAttrs = encoder.encode(event);
+        int predicatesCheckedInSkippedSets = 0;
 
         for (BaseConditionSet set : baseConditionSets.values()) {
-            if (shouldEvaluateSet(set, encodedAttrs)) {
+            boolean applicable = true;
+            int checks = 0;
+            // Use sortedPredicateIds for deterministic behavior and statistics
+            for (int predId : set.sortedPredicateIds) {
+                checks++;
+                Predicate pred = model.getPredicate(predId);
+                if (pred != null && !encodedAttrs.containsKey(pred.fieldId())) {
+                    applicable = false;
+                    break;
+                }
+            }
+
+            if (applicable) {
                 applicableSets.add(set);
+            } else {
+                predicatesCheckedInSkippedSets += checks;
             }
         }
 
@@ -222,12 +237,14 @@ public class BaseConditionEvaluator {
             applicableSets.sort((a, b) -> Float.compare(a.avgSelectivity, b.avgSelectivity));
         }
 
+        final int basePredicatesEvaluated = predicatesCheckedInSkippedSets;
+
         // No applicable sets - return rules with no base conditions
         if (applicableSets.isEmpty()) {
             // Return direct reference (read-only)
             RoaringBitmap rulesToEvaluate = this.rulesWithNoBaseConditions;
             return CompletableFuture.completedFuture(
-                    new EvaluationResult(rulesToEvaluate, 0, false, System.nanoTime() - startTime));
+                    new EvaluationResult(rulesToEvaluate, basePredicatesEvaluated, false, System.nanoTime() - startTime));
         }
 
         // Generate cache key and check cache
@@ -238,7 +255,7 @@ public class BaseConditionEvaluator {
         for (BaseConditionSet set : applicableSets) {
             totalPredicatesInSets += set.staticPredicateIds.size();
         }
-        final int predicatesCount = totalPredicatesInSets;
+        final int applicablePredicatesCount = totalPredicatesInSets;
 
         @SuppressWarnings("null") // The cache.get().thenCompose() chain handles nulls appropriately
         CompletableFuture<EvaluationResult> future = cache.get(cacheKey).thenCompose(cached -> {
@@ -255,10 +272,15 @@ public class BaseConditionEvaluator {
                 // FIX: Return predicatesCount even on cache hit, as these predicates
                 // would have been evaluated if not for the cache
                 return CompletableFuture.completedFuture(
-                        new EvaluationResult(result, predicatesCount, true, duration));
+                        new EvaluationResult(result, applicablePredicatesCount + basePredicatesEvaluated, true, duration));
             } else {
                 cacheMisses++;
-                return evaluateAndCache(event, encoder, applicableSets, cacheKey, startTime);
+                return evaluateAndCache(event, encoder, applicableSets, cacheKey, startTime)
+                        .thenApply(res -> new EvaluationResult(
+                                res.matchingRulesRoaring,
+                                res.predicatesEvaluated + basePredicatesEvaluated,
+                                res.fromCache,
+                                res.evaluationNanos));
             }
         });
         return future;
@@ -416,17 +438,7 @@ public class BaseConditionEvaluator {
     // EVALUATION LOGIC
     // ════════════════════════════════════════════════════════════════════════════════
 
-    private boolean shouldEvaluateSet(BaseConditionSet set, Int2ObjectMap<Object> encodedAttrs) {
-        // A set should be evaluated if the event has ALL fields referenced by its
-        // predicates
-        for (int predId : set.staticPredicateIds) {
-            Predicate pred = model.getPredicate(predId);
-            if (pred != null && !encodedAttrs.containsKey(pred.fieldId())) {
-                return false; // Missing field - can't evaluate this set
-            }
-        }
-        return true;
-    }
+
 
     // Thread-local buffer for RoaringBitmap operations (avoids allocation)
     private static final ThreadLocal<RoaringBitmap> BITMAP_BUFFER = ThreadLocal.withInitial(RoaringBitmap::new);
