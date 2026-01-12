@@ -523,9 +523,13 @@ public final class RuleEvaluator implements IRuleEvaluator {
                 // Early exit if no eligible rules
                 if (eligibleRulesRoaring.isEmpty()) {
                     long evaluationTime = System.nanoTime() - startTime;
+                    // rulesEvaluated should reflect the logical rule count, not 0
+                    // From the user's perspective, all rules were "evaluated" - the base condition
+                    // filter is just an optimization that eliminates rules early.
+                    int rulesEvaluated = getLogicalRuleCount();
                     metrics.recordEvaluation(evaluationTime, ctx.getPredicatesEvaluated(), 0);
                     return new MatchResult(event.eventId(), List.of(), evaluationTime,
-                            ctx.getPredicatesEvaluated(), 0);
+                            ctx.getPredicatesEvaluated(), rulesEvaluated);
                 }
             }
 
@@ -582,12 +586,14 @@ public final class RuleEvaluator implements IRuleEvaluator {
             long evaluationTime = System.nanoTime() - startTime;
             metrics.recordEvaluation(evaluationTime, ctx.getPredicatesEvaluated(), matchedRules.size());
 
-            // Calculate rulesEvaluated: all rules that had predicates checked
-            // This is the count of eligible rules (after base condition filtering)
-            // Not just "touched" rules (which only counts rules with at least one TRUE predicate)
-            int rulesEvaluated = eligibleRulesRoaring != null
-                    ? eligibleRulesRoaring.getCardinality()
-                    : model.getNumRules();
+            // Calculate rulesEvaluated: all rules that were considered during evaluation
+            // From the user's perspective, ALL rules are "evaluated" - the base condition
+            // filter is just an optimization that fails rules early.
+            // Previously this used ctx.getTouchedRules().size() which only counted rules
+            // with at least one TRUE predicate (incorrect for statistics).
+            // Note: We use the logical rule count (original rules), not the combination count
+            // (factored rules) since users care about the rules they defined.
+            int rulesEvaluated = getLogicalRuleCount();
 
             evaluationSpan.setAttribute("predicatesEvaluated", ctx.getPredicatesEvaluated());
             evaluationSpan.setAttribute("rulesEvaluated", rulesEvaluated);
@@ -998,6 +1004,32 @@ public final class RuleEvaluator implements IRuleEvaluator {
      */
     public EngineModel getModel() {
         return model;
+    }
+
+    /**
+     * Returns the number of logical rules (original rules defined by users).
+     * This is different from the combination count (model.getNumRules()) which
+     * counts factored rules after IS_ANY_OF expansion.
+     */
+    private int getLogicalRuleCount() {
+        // Safely access metadata chain
+        var stats = model.getStats();
+        if (stats != null && stats.metadata() != null) {
+            Object logicalRules = stats.metadata().get("logicalRules");
+            if (logicalRules instanceof Number n) {
+                return n.intValue();
+            }
+            // Also check for String representation (edge case from serialization)
+            if (logicalRules instanceof String s) {
+                try {
+                    return Integer.parseInt(s);
+                } catch (NumberFormatException e) {
+                    // Fall through to fallback
+                }
+            }
+        }
+        // Fallback to combination count if metadata not available
+        return model.getNumRules();
     }
 
     /**

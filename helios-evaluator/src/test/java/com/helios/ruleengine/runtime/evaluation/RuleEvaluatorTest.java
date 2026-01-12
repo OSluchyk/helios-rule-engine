@@ -372,4 +372,117 @@ class RuleEvaluatorTest {
 
         assertTrue(success.get(), "One or more threads failed during concurrent evaluation.");
     }
+
+    /**
+     * Test that predicatesEvaluated and rulesEvaluated statistics are accurate
+     * even when no rules match (i.e., all predicates evaluate to FALSE).
+     *
+     * BUG FIX: Previously, these counts would be 0 when no rules matched because:
+     * - predicatesEvaluated only counted predicates that evaluated to TRUE
+     * - rulesEvaluated only counted "touched" rules (rules with at least one TRUE predicate)
+     *
+     * EXPECTED: Even when no rules match, we should report:
+     * - predicatesEvaluated > 0 (predicates were checked, even if they failed)
+     * - rulesEvaluated > 0 (rules were evaluated, even if they didn't match)
+     */
+    @Test
+    @DisplayName("Should report accurate statistics even when no rules match")
+    void shouldReportAccurateStatisticsWhenNoRulesMatch() {
+        // Given - an event that matches NO rules
+        // HIGH_VALUE_TRANSACTION requires: transaction_amount > 10000 AND country_code in [US, CA, GB]
+        // NEW_USER_ALERT requires: user_age_days < 2
+        // This event has low amount, wrong country, and old user - fails all conditions
+        Event event = new Event("evt-no-match", "TRANSACTION", Map.of(
+                "transaction_amount", 500,      // fails HIGH_VALUE (needs > 10000)
+                "country_code", "FR",           // fails HIGH_VALUE (needs US/CA/GB)
+                "user_age_days", 100            // fails NEW_USER (needs < 2)
+        ));
+
+        // When
+        MatchResult result = ruleEvaluator.evaluate(event);
+
+        // Then
+        // Verify no rules matched
+        assertThat(result.matchedRules()).isEmpty();
+
+        // BUG FIX VERIFICATION: These should be > 0 even when no rules match
+        // The event had attributes that were evaluated against predicates
+        assertThat(result.predicatesEvaluated())
+                .as("predicatesEvaluated should be > 0 even when no rules match")
+                .isGreaterThan(0);
+
+        assertThat(result.rulesEvaluated())
+                .as("rulesEvaluated should be > 0 even when no rules match")
+                .isGreaterThan(0);
+
+        // Verify we evaluated the expected number of rules (2 rules in setup)
+        assertThat(result.rulesEvaluated())
+                .as("rulesEvaluated should equal the number of rules (2)")
+                .isEqualTo(2);
+
+        // Log actual values for debugging
+        System.out.printf("No-match evaluation stats: matchedRules=%d, predicatesEvaluated=%d, rulesEvaluated=%d%n",
+                result.matchedRules().size(),
+                result.predicatesEvaluated(),
+                result.rulesEvaluated());
+    }
+
+    /**
+     * Test that statistics are accurate when some rules match and some don't.
+     */
+    @Test
+    @DisplayName("Should report accurate statistics when some rules match")
+    void shouldReportAccurateStatisticsWhenSomeRulesMatch() {
+        // Given - an event that matches only NEW_USER_ALERT (not HIGH_VALUE_TRANSACTION)
+        Event event = new Event("evt-partial", "TRANSACTION", Map.of(
+                "transaction_amount", 500,      // fails HIGH_VALUE (needs > 10000)
+                "country_code", "FR",           // fails HIGH_VALUE (needs US/CA/GB)
+                "user_age_days", 1              // passes NEW_USER (needs < 2)
+        ));
+
+        // When
+        MatchResult result = ruleEvaluator.evaluate(event);
+
+        // Then
+        // Verify only NEW_USER_ALERT matched
+        assertThat(result.matchedRules()).hasSize(1);
+        assertThat(result.matchedRules().get(0).ruleCode()).isEqualTo("NEW_USER_ALERT");
+
+        // Statistics should show ALL rules were evaluated (not just the one that matched)
+        assertThat(result.predicatesEvaluated())
+                .as("predicatesEvaluated should be > 0")
+                .isGreaterThan(0);
+
+        assertThat(result.rulesEvaluated())
+                .as("rulesEvaluated should equal the total number of rules (2), not just matched (1)")
+                .isEqualTo(2);
+
+        // Log actual values for debugging
+        System.out.printf("Partial-match evaluation stats: matchedRules=%d, predicatesEvaluated=%d, rulesEvaluated=%d%n",
+                result.matchedRules().size(),
+                result.predicatesEvaluated(),
+                result.rulesEvaluated());
+    }
+    @Test
+    @DisplayName("Should report predicates evaluated when fields are missing")
+    void shouldReportPredicatesEvaluatedWhenFieldsAreMissing() {
+        // Given - an empty event (missing all required fields)
+        // This triggers the missing field logic in BaseConditionEvaluator
+        Event event = new Event("evt-missing-fields", "TRANSACTION", Map.of());
+
+        // When
+        MatchResult result = ruleEvaluator.evaluate(event);
+
+        // Then
+        assertThat(result.matchedRules()).isEmpty();
+
+        // Should count checking of missing fields as evaluations
+        assertThat(result.predicatesEvaluated())
+                .as("predicatesEvaluated should be > 0 even when fields are missing")
+                .isGreaterThan(0);
+
+        assertThat(result.rulesEvaluated())
+                .as("rulesEvaluated should equal the number of rules (2)")
+                .isEqualTo(2);
+    }
 }
