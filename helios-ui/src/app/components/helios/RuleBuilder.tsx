@@ -56,9 +56,11 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
   // React Query client for cache invalidation
   const queryClient = useQueryClient();
 
-  // Determine if we're in edit mode
-  const isEditMode = !!editingRule;
+  // State for tracking original rule code (only set for true edit mode, not clone)
   const [originalRuleCode, setOriginalRuleCode] = useState<string | null>(null);
+
+  // Determine if we're in edit mode (only true when originalRuleCode is set)
+  const isEditMode = !!originalRuleCode;
 
   // Form state
   const [family, setFamily] = useState('');
@@ -91,7 +93,14 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
       const ruleFamily = parts.length > 1 ? parts[0] : '';
       const ruleNamePart = parts.length > 1 ? parts.slice(1).join('.') : editingRule.rule_code;
 
-      setOriginalRuleCode(editingRule.rule_code);
+      // Detect if this is a clone operation:
+      // - version is undefined/null (clones have version removed)
+      // - OR created_at/created_by are undefined (clones have these removed)
+      const isClone = editingRule.version === undefined ||
+                      editingRule.created_at === undefined;
+
+      // Only set originalRuleCode for true edit mode (not clone)
+      setOriginalRuleCode(isClone ? null : editingRule.rule_code);
       setFamily(ruleFamily);
       setRuleName(ruleNamePart);
       setDescription(editingRule.description || '');
@@ -606,16 +615,21 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
     estimatedLatency: filledConditions.length > 0 ? 0.2 + filledConditions.length * 0.05 : 0
   };
 
+  // Determine if this is clone mode (editingRule present but no originalRuleCode)
+  const isCloneMode = !!editingRule && !originalRuleCode;
+
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle>
-            {isEditMode ? 'Edit Rule' : 'Visual Rule Builder'}
+            {isEditMode ? 'Edit Rule' : isCloneMode ? 'Clone Rule' : 'Visual Rule Builder'}
           </CardTitle>
           <CardDescription>
             {isEditMode
               ? `Editing rule: ${originalRuleCode}`
+              : isCloneMode
+              ? `Cloning rule as a new rule (edit the name as needed)`
               : 'Create business rules with automatic optimization detection'}
           </CardDescription>
         </CardHeader>
@@ -1121,25 +1135,27 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
                 </>
               )}
             </Button>
-            <Button
-              className="flex-1"
-              variant="outline"
-              size="lg"
-              onClick={handleSaveAsDraft}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="size-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="size-4 mr-2" />
-                  Save as Draft
-                </>
-              )}
-            </Button>
+            {!isEditMode && (
+              <Button
+                className="flex-1"
+                variant="outline"
+                size="lg"
+                onClick={handleSaveAsDraft}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="size-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="size-4 mr-2" />
+                    Save as Draft
+                  </>
+                )}
+              </Button>
+            )}
             <Button
               variant="outline"
               size="lg"
