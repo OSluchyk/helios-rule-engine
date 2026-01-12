@@ -30,7 +30,8 @@ import java.util.stream.Collectors;
 
 public class RuleCompiler implements IRuleCompiler {
     private static final Logger logger = Logger.getLogger(RuleCompiler.class.getName());
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     private Tracer tracer;
     private com.helios.ruleengine.api.CompilationListener listener;
 
