@@ -39,12 +39,12 @@ public class SqlLoader {
     public static Map<String, String> loadQueries(String resourcePath) {
         Map<String, String> queries = new HashMap<>();
 
-        try (InputStream is = SqlLoader.class.getClassLoader().getResourceAsStream(resourcePath);
-             BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
-
-            if (is == null) {
-                throw new IOException("Resource not found: " + resourcePath);
-            }
+        InputStream is = SqlLoader.class.getClassLoader().getResourceAsStream(resourcePath);
+        if (is == null) {
+            throw new RuntimeException("Failed to load SQL queries",
+                new IOException("Resource not found: " + resourcePath));
+        }
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
 
             String line;
             String currentQueryName = null;
@@ -99,12 +99,12 @@ public class SqlLoader {
      * @return SQL schema as a single string
      */
     public static String loadSchema(String resourcePath) {
-        try (InputStream is = SqlLoader.class.getClassLoader().getResourceAsStream(resourcePath);
-             BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
-
-            if (is == null) {
-                throw new IOException("Resource not found: " + resourcePath);
-            }
+        InputStream is = SqlLoader.class.getClassLoader().getResourceAsStream(resourcePath);
+        if (is == null) {
+            throw new RuntimeException("Failed to load SQL schema",
+                new IOException("Resource not found: " + resourcePath));
+        }
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
 
             StringBuilder schema = new StringBuilder();
             String line;

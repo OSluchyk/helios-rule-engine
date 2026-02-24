@@ -25,7 +25,6 @@ import org.jboss.resteasy.reactive.RestStreamElementType;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
 /**
@@ -69,7 +68,7 @@ public class CompilationResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
                     .build();
         } finally {
             span.end();
@@ -105,7 +104,7 @@ public class CompilationResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
                     .build();
         } finally {
             span.end();
@@ -134,7 +133,7 @@ public class CompilationResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
                     .build();
         } finally {
             span.end();
@@ -163,7 +162,7 @@ public class CompilationResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
                     .build();
         } finally {
             span.end();
@@ -218,7 +217,7 @@ public class CompilationResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
                     .build();
         } finally {
             span.end();
@@ -246,7 +245,7 @@ public class CompilationResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
                     .build();
         } finally {
             span.end();
@@ -281,7 +280,7 @@ public class CompilationResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
                     .build();
         } finally {
             span.end();
@@ -299,78 +298,45 @@ public class CompilationResource {
     @Produces(MediaType.SERVER_SENT_EVENTS)
     @RestStreamElementType(MediaType.APPLICATION_JSON)
     public Multi<CompilationEvent> getCompilationProgress() {
-        List<CompilationEvent> events = new CopyOnWriteArrayList<>();
+        // Stream events as they are generated using emitter-based approach
+        return Multi.createFrom().emitter(emitter -> {
+            new Thread(() -> {
+                try {
+                    modelManager.recompile(new CompilationListener() {
+                        @Override
+                        public void onStageStart(String stageName, int stageNumber, int totalStages) {
+                            emitter.emit(new CompilationEvent(
+                                "stage_start", stageName, stageNumber, totalStages, null, null, null
+                            ));
+                        }
 
-        // Create a compilation listener that captures events
-        CompilationListener listener = new CompilationListener() {
-            @Override
-            public void onStageStart(String stageName, int stageNumber, int totalStages) {
-                events.add(new CompilationEvent(
-                    "stage_start",
-                    stageName,
-                    stageNumber,
-                    totalStages,
-                    null,
-                    null,
-                    null
-                ));
-            }
+                        @Override
+                        public void onStageComplete(String stageName, StageResult result) {
+                            emitter.emit(new CompilationEvent(
+                                "stage_complete", stageName, null, null, result.durationMillis(), result.metrics(), null
+                            ));
+                        }
 
-            @Override
-            public void onStageComplete(String stageName, StageResult result) {
-                events.add(new CompilationEvent(
-                    "stage_complete",
-                    stageName,
-                    null,
-                    null,
-                    result.durationMillis(),
-                    result.metrics(),
-                    null
-                ));
-            }
-
-            @Override
-            public void onError(String stageName, Exception error) {
-                events.add(new CompilationEvent(
-                    "error",
-                    stageName,
-                    null,
-                    null,
-                    null,
-                    null,
-                    error.getMessage()
-                ));
-            }
-        };
-
-        // Trigger recompilation in background with listener
-        new Thread(() -> {
-            try {
-                modelManager.recompile(listener);
-                events.add(new CompilationEvent(
-                    "complete",
-                    "COMPILATION",
-                    null,
-                    null,
-                    null,
-                    Map.of("success", true),
-                    null
-                ));
-            } catch (Exception e) {
-                events.add(new CompilationEvent(
-                    "error",
-                    "COMPILATION",
-                    null,
-                    null,
-                    null,
-                    null,
-                    e.getMessage()
-                ));
-            }
-        }).start();
-
-        // Stream events as they are added
-        return Multi.createFrom().iterable(events);
+                        @Override
+                        public void onError(String stageName, Exception error) {
+                            emitter.emit(new CompilationEvent(
+                                "error", stageName, null, null, null, null, error.getMessage()
+                            ));
+                        }
+                    });
+                    emitter.emit(new CompilationEvent(
+                        "complete", "COMPILATION", null, null, null, Map.of("success", true), null
+                    ));
+                    emitter.complete();
+                } catch (Exception e) {
+                    emitter.emit(new CompilationEvent(
+                        "error", "COMPILATION", null, null, null, null,
+                        e.getMessage() != null ? e.getMessage() : e.getClass().getName()
+                    ));
+                    emitter.complete();
+                }
+            }).start();
+        });
     }
 
     /**
@@ -511,7 +477,7 @@ public class CompilationResource {
                     .entity(Map.of(
                             "success", false,
                             "error", "Compilation failed",
-                            "message", e.getMessage()
+                            "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()
                     ))
                     .build();
         } finally {

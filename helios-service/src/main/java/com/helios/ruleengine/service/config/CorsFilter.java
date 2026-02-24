@@ -12,17 +12,21 @@ import jakarta.ws.rs.ext.Provider;
 @Provider
 public class CorsFilter implements ContainerResponseFilter {
 
+    private static final java.util.Set<String> ALLOWED_ORIGINS = java.util.Set.of(
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8080"
+    );
+
     @Override
     public void filter(ContainerRequestContext requestContext, ContainerResponseContext responseContext) {
-        // Allow requests from any origin in development
         String origin = requestContext.getHeaderString("Origin");
-        if (origin != null) {
+        if (origin != null && ALLOWED_ORIGINS.contains(origin)) {
             responseContext.getHeaders().add("Access-Control-Allow-Origin", origin);
-        } else {
-            responseContext.getHeaders().add("Access-Control-Allow-Origin", "*");
+            responseContext.getHeaders().add("Access-Control-Allow-Credentials", "true");
         }
 
-        responseContext.getHeaders().add("Access-Control-Allow-Credentials", "true");
         responseContext.getHeaders().add("Access-Control-Allow-Headers",
             "origin, content-type, accept, authorization, x-requested-with");
         responseContext.getHeaders().add("Access-Control-Allow-Methods",

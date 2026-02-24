@@ -461,7 +461,7 @@ public class AdaptiveCaffeineCache implements BaseConditionCache {
                 stats.missCount(),
                 stats.evictionCount(),
                 cache.estimatedSize(),
-                stats.hitRate() * 100, // Convert to percentage (e.g., 0.99 -> 99.0)
+                stats.hitRate(), // Raw ratio 0.0-1.0 (format() multiplies by 100)
                 (long) stats.averageLoadPenalty(), // Cast double to long
                 0 // Put time not tracked by Caffeine
         );
