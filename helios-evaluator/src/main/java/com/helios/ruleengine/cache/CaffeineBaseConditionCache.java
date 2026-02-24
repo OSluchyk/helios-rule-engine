@@ -129,23 +129,22 @@ public class CaffeineBaseConditionCache implements BaseConditionCache {
     public CacheMetrics getMetrics() {
         CacheStats stats = statsEnabled ? cache.stats() : CacheStats.empty();
 
-        // Convert all double values to long as required by CacheMetrics
-        long hitRate = (long) (stats.hitRate() * 100); // Convert 0.75 → 75
         long requestCount = stats.requestCount();
         long hitCount = stats.hitCount();
         long missCount = stats.missCount();
         long evictionCount = stats.evictionCount();
         long size = cache.estimatedSize();
+        double hitRate = stats.hitRate(); // Raw ratio 0.0-1.0 (format() multiplies by 100)
         long avgLoadPenalty = (long) Math.round(stats.averageLoadPenalty());
         long avgPutLatency = 0L; // Not tracked by Caffeine
 
         return new CacheMetrics(
-                hitRate,
                 requestCount,
                 hitCount,
                 missCount,
                 evictionCount,
                 size,
+                hitRate,
                 avgLoadPenalty,
                 avgPutLatency);
     }

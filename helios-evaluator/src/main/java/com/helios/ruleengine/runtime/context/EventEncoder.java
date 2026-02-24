@@ -51,7 +51,8 @@ public final class EventEncoder {
             .withInitial(() -> new Int2ObjectOpenHashMap<>(32));
 
     // Global string normalization cache (shared across threads for maximum reuse)
-    // ConcurrentHashMap provides thread-safe, lock-free access
+    // Bounded to prevent OOM from diverse string values (user IDs, session tokens, etc.)
+    private static final int MAX_STRING_CACHE_SIZE = 100_000;
     private static final ConcurrentMap<String, String> NORMALIZED_STRING_CACHE = new ConcurrentHashMap<>(1024);
 
     // ThreadLocal cache for the last flattened event to avoid re-flattening
@@ -142,7 +143,15 @@ public final class EventEncoder {
      * This eliminates the 51% CPU overhead from repeated toUpperCase() calls.
      */
     private String getNormalizedString(String original) {
-        return NORMALIZED_STRING_CACHE.computeIfAbsent(original, String::toUpperCase);
+        String cached = NORMALIZED_STRING_CACHE.get(original);
+        if (cached != null) {
+            return cached;
+        }
+        String normalized = original.toUpperCase();
+        if (NORMALIZED_STRING_CACHE.size() < MAX_STRING_CACHE_SIZE) {
+            NORMALIZED_STRING_CACHE.putIfAbsent(original, normalized);
+        }
+        return normalized;
     }
 
     // Cache for normalized field keys (UPPER_SNAKE_CASE)

@@ -737,10 +737,22 @@ public class RuleCompiler implements IRuleCompiler {
     /**
      * Helper to generate the Cartesian product of predicate lists.
      */
+    private static final int MAX_COMBINATIONS = 100_000;
+
     private List<List<Predicate>> generateCombinations(List<List<Predicate>> lists) {
         List<List<Predicate>> result = new ArrayList<>();
         if (lists.isEmpty())
             return result;
+        // Check estimated size to prevent Cartesian product explosion
+        long estimatedSize = 1;
+        for (List<Predicate> list : lists) {
+            estimatedSize *= Math.max(1, list.size());
+            if (estimatedSize > MAX_COMBINATIONS) {
+                throw new CompilationException("Rule generates too many combinations (" + estimatedSize
+                        + "). Max allowed: " + MAX_COMBINATIONS
+                        + ". Reduce IS_ANY_OF list sizes or split into multiple rules.");
+            }
+        }
         generateCombinationsRecursive(lists, 0, new ArrayList<>(), result);
         return result;
     }
@@ -1037,10 +1049,7 @@ public class RuleCompiler implements IRuleCompiler {
                 case GREATER_THAN, LESS_THAN -> baseSelectivity * 0.3f;
                 case GREATER_THAN_OR_EQUAL, LESS_THAN_OR_EQUAL -> baseSelectivity * 0.35f;
                 case IS_ANY_OF, IS_NONE_OF ->
-                    baseSelectivity * (value instanceof List ? ((List<?>) value).size() * 0.15f : 0.2f); // Less
-                                                                                                         // selective as
-                                                                                                         // list size
-                                                                                                         // grows
+                    Math.min(1.0f, baseSelectivity * (value instanceof List ? ((List<?>) value).size() * 0.15f : 0.2f));
                 case CONTAINS, STARTS_WITH, ENDS_WITH -> baseSelectivity * 0.4f;
                 case REGEX -> baseSelectivity * 0.5f; // Assumed low selectivity
                 case IS_NULL, IS_NOT_NULL -> baseSelectivity * 0.05f; // Assumed very high selectivity
@@ -1097,13 +1106,13 @@ public class RuleCompiler implements IRuleCompiler {
             case "NOT_EQUAL_TO", "NOT_EQUALS", "NE", "NEQ", "!=", "<>" -> "NOT_EQUAL_TO";
             case "IS_NOT_EQUAL_TO", "IS_NOT_EQUAL" -> "NOT_EQUAL_TO";
 
-            // GREATER_THAN aliases (including >= which maps to strict >)
+            // GREATER_THAN aliases
             case "GREATER_THAN", "GT", ">", "IS_GREATER_THAN", "GREATER" -> "GREATER_THAN";
-            case "GREATER_THAN_OR_EQUAL", "GTE", "GE", ">=", "IS_GREATER_THAN_OR_EQUAL" -> "GREATER_THAN";
+            case "GREATER_THAN_OR_EQUAL", "GTE", "GE", ">=", "IS_GREATER_THAN_OR_EQUAL" -> "GREATER_THAN_OR_EQUAL";
 
-            // LESS_THAN aliases (including <= which maps to strict <)
+            // LESS_THAN aliases
             case "LESS_THAN", "LT", "<", "IS_LESS_THAN", "LESS" -> "LESS_THAN";
-            case "LESS_THAN_OR_EQUAL", "LTE", "LE", "<=", "IS_LESS_THAN_OR_EQUAL" -> "LESS_THAN";
+            case "LESS_THAN_OR_EQUAL", "LTE", "LE", "<=", "IS_LESS_THAN_OR_EQUAL" -> "LESS_THAN_OR_EQUAL";
 
             // BETWEEN aliases
             case "BETWEEN", "IN_RANGE", "RANGE" -> "BETWEEN";
