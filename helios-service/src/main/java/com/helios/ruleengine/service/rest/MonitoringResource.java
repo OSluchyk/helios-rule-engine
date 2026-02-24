@@ -52,7 +52,7 @@ public class MonitoringResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
                     .build();
         } finally {
             span.end();
@@ -115,7 +115,7 @@ public class MonitoringResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
                     .build();
         } finally {
             span.end();
@@ -147,7 +147,7 @@ public class MonitoringResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
                     .build();
         } finally {
             span.end();
@@ -174,7 +174,7 @@ public class MonitoringResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
                     .build();
         } finally {
             span.end();
@@ -201,7 +201,7 @@ public class MonitoringResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
                     .build();
         } finally {
             span.end();
@@ -228,7 +228,7 @@ public class MonitoringResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
                     .build();
         } finally {
             span.end();
@@ -252,7 +252,7 @@ public class MonitoringResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
                     .build();
         } finally {
             span.end();
@@ -279,7 +279,7 @@ public class MonitoringResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage()))
+                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
                     .build();
         } finally {
             span.end();

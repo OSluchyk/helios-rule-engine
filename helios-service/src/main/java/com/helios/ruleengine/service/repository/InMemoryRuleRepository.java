@@ -37,57 +37,54 @@ public class InMemoryRuleRepository implements RuleRepository {
     public String save(RuleMetadata rule) {
         String ruleCode = rule.ruleCode();
 
-        // Update timestamps
-        RuleMetadata updatedRule;
-        if (rules.containsKey(ruleCode)) {
-            RuleMetadata existing = rules.get(ruleCode);
+        rules.compute(ruleCode, (key, existing) -> {
+            if (existing != null) {
+                // Check if conditions changed - only increment version if conditions changed
+                boolean conditionsChanged = !java.util.Objects.equals(existing.conditions(), rule.conditions());
+                int newVersion = conditionsChanged ? existing.version() + 1 : existing.version();
 
-            // Check if conditions changed - only increment version if conditions changed
-            boolean conditionsChanged = !java.util.Objects.equals(existing.conditions(), rule.conditions());
-            int newVersion = conditionsChanged ? existing.version() + 1 : existing.version();
+                // Update existing rule - increment version ONLY if conditions changed
+                return new RuleMetadata(
+                    rule.ruleCode(),
+                    rule.description(),
+                    rule.conditions(),
+                    rule.priority(),
+                    rule.enabled(),
+                    existing.createdBy(),
+                    existing.createdAt(), // Keep original creation time
+                    "system", // TODO: Get from security context
+                    Instant.now(),
+                    newVersion,
+                    rule.tags(),
+                    rule.labels(),
+                    rule.combinationIds(),
+                    rule.estimatedSelectivity(),
+                    rule.isVectorizable(),
+                    rule.compilationStatus()
+                );
+            } else {
+                // New rule - set creation timestamp
+                return new RuleMetadata(
+                    rule.ruleCode(),
+                    rule.description(),
+                    rule.conditions(),
+                    rule.priority(),
+                    rule.enabled(),
+                    "system", // TODO: Get from security context
+                    Instant.now(),
+                    "system",
+                    Instant.now(),
+                    1, // Initial version
+                    rule.tags(),
+                    rule.labels(),
+                    null, // combinationIds - will be set after compilation
+                    null, // estimatedSelectivity
+                    null, // isVectorizable
+                    "PENDING" // compilationStatus
+                );
+            }
+        });
 
-            // Update existing rule - increment version ONLY if conditions changed
-            updatedRule = new RuleMetadata(
-                rule.ruleCode(),
-                rule.description(),
-                rule.conditions(),
-                rule.priority(),
-                rule.enabled(),
-                existing.createdBy(),
-                existing.createdAt(), // Keep original creation time
-                "system", // TODO: Get from security context
-                Instant.now(),
-                newVersion,
-                rule.tags(),
-                rule.labels(),
-                rule.combinationIds(),
-                rule.estimatedSelectivity(),
-                rule.isVectorizable(),
-                rule.compilationStatus()
-            );
-        } else {
-            // New rule - set creation timestamp
-            updatedRule = new RuleMetadata(
-                rule.ruleCode(),
-                rule.description(),
-                rule.conditions(),
-                rule.priority(),
-                rule.enabled(),
-                "system", // TODO: Get from security context
-                Instant.now(),
-                "system",
-                Instant.now(),
-                1, // Initial version
-                rule.tags(),
-                rule.labels(),
-                null, // combinationIds - will be set after compilation
-                null, // estimatedSelectivity
-                null, // isVectorizable
-                "PENDING" // compilationStatus
-            );
-        }
-
-        rules.put(ruleCode, updatedRule);
         return ruleCode;
     }
 

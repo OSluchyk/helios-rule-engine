@@ -280,11 +280,14 @@ public class RuleMetricsAggregator {
         synchronized void record(long nanos) {
             if (samples.size() < 1000) {
                 samples.add(nanos);
+                sum += nanos;
             } else {
-                // Replace oldest sample (circular buffer)
-                samples.set(count % 1000, nanos);
+                // Replace oldest sample (circular buffer) - subtract old value first
+                int idx = count % 1000;
+                sum -= samples.get(idx);
+                sum += nanos;
+                samples.set(idx, nanos);
             }
-            sum += nanos;
             max = Math.max(max, nanos);
             count++;
         }
@@ -299,7 +302,8 @@ public class RuleMetricsAggregator {
         }
 
         synchronized long getAvg() {
-            return count > 0 ? sum / count : 0;
+            int sampleCount = samples.size();
+            return sampleCount > 0 ? sum / sampleCount : 0;
         }
 
         synchronized long getMax() {

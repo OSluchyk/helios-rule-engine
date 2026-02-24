@@ -169,7 +169,12 @@ export function EvaluationView() {
                 result={evaluateMutation.data}
                 onExplainRule={(ruleCode) => {
                   setSelectedRuleForExplanation(ruleCode);
-                  handleExplain();
+                  try {
+                    const event: Event = JSON.parse(eventJson);
+                    explainMutation.mutate({ ruleCode, event });
+                  } catch (error) {
+                    console.error('Invalid JSON:', error);
+                  }
                 }}
               />
             )}

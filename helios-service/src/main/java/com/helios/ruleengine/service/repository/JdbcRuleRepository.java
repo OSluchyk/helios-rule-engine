@@ -73,35 +73,12 @@ public class JdbcRuleRepository implements RuleRepository {
     public String save(RuleMetadata rule) {
         String ruleCode = rule.ruleCode();
 
-        try {
-            java.nio.file.Files.writeString(
-                java.nio.file.Paths.get("/tmp/helios_save.txt"),
-                "SAVE called for: " + ruleCode + "\n",
-                java.nio.file.StandardOpenOption.CREATE,
-                java.nio.file.StandardOpenOption.APPEND
-            );
-        } catch (Exception e) {}
-
         try (Connection conn = dataSource.getConnection()) {
             boolean exists = exists(ruleCode);
 
             if (exists) {
-                try {
-                    java.nio.file.Files.writeString(
-                        java.nio.file.Paths.get("/tmp/helios_save.txt"),
-                        "  Rule exists, calling UPDATE\n",
-                        java.nio.file.StandardOpenOption.APPEND
-                    );
-                } catch (Exception e) {}
                 return update(conn, rule, null, null);
             } else {
-                try {
-                    java.nio.file.Files.writeString(
-                        java.nio.file.Paths.get("/tmp/helios_save.txt"),
-                        "  Rule doesn't exist, calling INSERT\n",
-                        java.nio.file.StandardOpenOption.APPEND
-                    );
-                } catch (Exception e) {}
                 return insert(conn, rule);
             }
         } catch (SQLException e) {
@@ -316,6 +293,7 @@ public class JdbcRuleRepository implements RuleRepository {
             }
         } catch (SQLException e) {
             logger.log(Level.SEVERE, "Failed to find rule: " + ruleCode, e);
+            throw new RuntimeException("Failed to find rule: " + ruleCode, e);
         }
 
         return Optional.empty();
@@ -334,6 +312,7 @@ public class JdbcRuleRepository implements RuleRepository {
             }
         } catch (SQLException e) {
             logger.log(Level.SEVERE, "Failed to find all rules", e);
+            throw new RuntimeException("Failed to find all rules", e);
         }
 
         return rules;
