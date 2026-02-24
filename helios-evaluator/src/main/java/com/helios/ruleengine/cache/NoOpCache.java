@@ -88,12 +88,12 @@ public class NoOpCache implements BaseConditionCache {
     private static final CompletableFuture<Map<Object, CacheEntry>> EMPTY_MAP_RESULT = CompletableFuture
             .completedFuture(Collections.emptyMap());
 
-    // Metrics tracking (request counts only)
-    private volatile long requestCount = 0;
-    private volatile long missCount = 0;
-    private volatile long putCount = 0;
-    private volatile long hits = 0;
-    private volatile long evictions = 0;
+    // Metrics tracking (request counts only) - use AtomicLong for thread-safe increments
+    private final java.util.concurrent.atomic.AtomicLong requestCount = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong missCount = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong putCount = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong hits = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong evictions = new java.util.concurrent.atomic.AtomicLong();
 
     /**
      * Create NoOp cache instance.
@@ -108,14 +108,14 @@ public class NoOpCache implements BaseConditionCache {
 
     @Override
     public CompletableFuture<Optional<CacheEntry>> get(Object cacheKey) {
-        requestCount++;
-        missCount++;
+        requestCount.incrementAndGet();
+        missCount.incrementAndGet();
         return EMPTY_RESULT;
     }
 
     @Override
     public CompletableFuture<Void> put(Object cacheKey, RoaringBitmap result, long ttl, TimeUnit timeUnit) {
-        putCount++;
+        putCount.incrementAndGet();
         return VOID_RESULT;
     }
 
@@ -127,8 +127,8 @@ public class NoOpCache implements BaseConditionCache {
         Object ignored : cacheKeys) {
             count++;
         }
-        requestCount += count;
-        missCount += count;
+        requestCount.addAndGet(count);
+        missCount.addAndGet(count);
 
         return EMPTY_MAP_RESULT;
     }
@@ -156,10 +156,10 @@ public class NoOpCache implements BaseConditionCache {
     @Override
     public CacheMetrics getMetrics() {
         return new CacheMetrics(
-                requestCount,
-                hits,
-                missCount,
-                evictions,
+                requestCount.get(),
+                hits.get(),
+                missCount.get(),
+                evictions.get(),
                 0L,
                 0.0,
                 0L,
@@ -188,7 +188,7 @@ public class NoOpCache implements BaseConditionCache {
      * Get operation count statistics.
      */
     public NoOpStats getNoOpStats() {
-        return new NoOpStats(requestCount, missCount, putCount);
+        return new NoOpStats(requestCount.get(), missCount.get(), putCount.get());
     }
 
     /**
@@ -215,9 +215,9 @@ public class NoOpCache implements BaseConditionCache {
 
     @Override
     public String toString() {
-        return "NoOpCache{requests=" + requestCount +
-                ", misses=" + missCount +
-                ", puts=" + putCount +
+        return "NoOpCache{requests=" + requestCount.get() +
+                ", misses=" + missCount.get() +
+                ", puts=" + putCount.get() +
                 ", hitRate=0.0%}";
     }
 }

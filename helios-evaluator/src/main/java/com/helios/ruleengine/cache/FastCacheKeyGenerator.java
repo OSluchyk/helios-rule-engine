@@ -160,6 +160,7 @@ public class FastCacheKeyGenerator {
         // Compute xxHash3-128
         buffer.flip();
         long hash1 = xxHash3_128(buffer, PRIME64_1);
+        buffer.rewind(); // Reset position for second hash
         long hash2 = xxHash3_128(buffer, PRIME64_2);
 
         return encodeCompact(hash1, hash2);

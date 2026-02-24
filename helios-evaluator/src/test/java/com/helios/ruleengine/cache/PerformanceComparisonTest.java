@@ -43,16 +43,16 @@ class PerformanceComparisonTest {
             System.out.println("Fixed cache duration:    " + (fixedDuration / 1_000_000) + "ms");
             System.out.println("Adaptive cache duration: " + (adaptiveDuration / 1_000_000) + "ms");
 
-            double expectedFixedHitRate = 99.0;
+            double expectedFixedHitRate = 0.99; // Raw ratio (0.0-1.0)
 
             BaseConditionCache.CacheMetrics fixedMetrics = fixedCache.getMetrics();
             BaseConditionCache.CacheMetrics adaptiveMetrics = adaptiveCache.getMetrics();
 
-            System.out.println("Fixed hit rate:    " + fixedMetrics.hitRate() + "%");
-            System.out.println("Adaptive hit rate: " + adaptiveMetrics.hitRate() + "%");
+            System.out.println("Fixed hit rate:    " + (fixedMetrics.hitRate() * 100) + "%");
+            System.out.println("Adaptive hit rate: " + (adaptiveMetrics.hitRate() * 100) + "%");
 
             // Adaptive should have similar or better hit rate
-            assertThat(adaptiveMetrics.hitRate()).isGreaterThanOrEqualTo(expectedFixedHitRate - 5);
+            assertThat(adaptiveMetrics.hitRate()).isGreaterThanOrEqualTo(expectedFixedHitRate - 0.05);
         } finally {
             adaptiveCache.shutdown();
         }

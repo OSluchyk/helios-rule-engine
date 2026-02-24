@@ -101,11 +101,12 @@ public record Predicate(
             case EQUAL_TO -> value.equals(eventValue);
             case NOT_EQUAL_TO -> !value.equals(eventValue);
             case CONTAINS -> (eventValue instanceof String) && ((String) eventValue).contains((String) value);
-            case REGEX -> (eventValue instanceof String) && pattern.matcher((String) eventValue).matches();
-            case GREATER_THAN, LESS_THAN, BETWEEN -> evaluateNumeric(eventValue);
+            case STARTS_WITH -> (eventValue instanceof String) && ((String) eventValue).startsWith((String) value);
+            case ENDS_WITH -> (eventValue instanceof String) && ((String) eventValue).endsWith((String) value);
+            case REGEX -> (eventValue instanceof String) && pattern != null && pattern.matcher((String) eventValue).matches();
+            case GREATER_THAN, LESS_THAN, BETWEEN, GREATER_THAN_OR_EQUAL, LESS_THAN_OR_EQUAL -> evaluateNumeric(eventValue);
             case IS_ANY_OF -> (value instanceof List) && ((List<?>) value).contains(eventValue);
             case IS_NONE_OF -> (value instanceof List) && !((List<?>) value).contains(eventValue);
-            default -> false;
         };
     }
 
@@ -136,7 +137,9 @@ public record Predicate(
 
         return switch (operator) {
             case GREATER_THAN -> eventDouble > toDouble(value);
+            case GREATER_THAN_OR_EQUAL -> eventDouble >= toDouble(value);
             case LESS_THAN -> eventDouble < toDouble(value);
+            case LESS_THAN_OR_EQUAL -> eventDouble <= toDouble(value);
             case BETWEEN -> {
                 List<?> range = (List<?>) value;
                 double lower = toDouble(range.get(0));

@@ -34,7 +34,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { toast } from 'sonner';
-import axios from 'axios';
+import apiClient from '../../../api/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { updateRule } from '../../../api/rules';
 import type { RuleMetadata } from '../../../types/api';
@@ -447,9 +447,7 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
         toast.success(`Rule "${ruleCode}" updated successfully!`);
       } else {
         // Create new rule
-        await axios.post('/api/v1/rules', payload, {
-          headers: { 'Content-Type': 'application/json' }
-        });
+        await apiClient.post('/rules', payload);
         toast.success(`Rule "${ruleCode}" created successfully!`);
       }
 
@@ -509,13 +507,7 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
       // Override enabled status to false for draft
       payload.enabled = false;
 
-      await axios.post(
-        '/api/v1/rules',
-        payload,
-        {
-          headers: { 'Content-Type': 'application/json' }
-        }
-      );
+      await apiClient.post('/rules', payload);
 
       toast.success(`Rule "${ruleCode}" saved as draft successfully!`);
 
@@ -571,12 +563,9 @@ export function RuleBuilder({ onRuleCreated, editingRule }: RuleBuilderProps) {
     setIsSubmitting(true);
     try {
       const payload = buildPayload();
-      const response = await axios.post(
-        '/api/v1/rules/validate',
-        payload,
-        {
-          headers: { 'Content-Type': 'application/json' }
-        }
+      const response = await apiClient.post(
+        '/rules/validate',
+        payload
       );
 
       if (response.data.valid) {

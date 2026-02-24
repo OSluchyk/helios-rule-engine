@@ -18,7 +18,6 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.regex.Pattern;
 
 /**
  * The compiled, executable representation of a ruleset.
@@ -74,7 +73,18 @@ public final class EngineModel implements Serializable {
      * It is 'transient' so it is not serialized with the model.
      * It is re-initialized on-demand after deserialization.
      */
-    private final transient com.github.benmanes.caffeine.cache.Cache<RoaringBitmap, IntSet> eligiblePredicateSetCache;
+    private transient com.github.benmanes.caffeine.cache.Cache<RoaringBitmap, IntSet> eligiblePredicateSetCache;
+
+    /**
+     * Reinitializes transient fields after deserialization.
+     * The eligiblePredicateSetCache is transient and must be recreated.
+     */
+    private void readObject(java.io.ObjectInputStream in) throws java.io.IOException, ClassNotFoundException {
+        in.defaultReadObject();
+        this.eligiblePredicateSetCache = Caffeine.newBuilder()
+                .maximumSize(ELIGIBLE_PREDICATE_CACHE_SIZE)
+                .build();
+    }
 
     // --- Deprecated / Legacy ---
     // Kept for backward compatibility or internal wiring
@@ -100,9 +110,10 @@ public final class EngineModel implements Serializable {
             int fieldId,
             Predicate.Operator operator,
             Object value,
-            Pattern pattern) implements Serializable {
+            String patternString) implements Serializable {
         static PredicateKey from(Predicate p) {
-            return new PredicateKey(p.fieldId(), p.operator(), p.value(), p.pattern());
+            return new PredicateKey(p.fieldId(), p.operator(), p.value(),
+                    p.pattern() != null ? p.pattern().pattern() : null);
         }
     }
 
