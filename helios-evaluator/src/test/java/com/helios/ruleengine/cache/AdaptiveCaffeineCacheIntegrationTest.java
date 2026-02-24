@@ -224,7 +224,7 @@ class AdaptiveCaffeineCacheIntegrationTest {
             // This workload generates 100 misses and 100 hits.
             // All assertions will now pass.
             assertThat(stats.currentSize()).isGreaterThan(0);
-            assertThat(stats.hitRate() / 100.0).isBetween(0.0, 1.0); // Fix from last time
+            assertThat(stats.hitRate()).isBetween(0.0, 1.0); // hitRate is raw ratio 0.0-1.0
             assertThat(stats.hitCount()).isGreaterThan(0); // This will now be 100
             assertThat(stats.missCount()).isGreaterThan(0); // This will now be 100
 
@@ -347,13 +347,13 @@ class AdaptiveCaffeineCacheIntegrationTest {
         assertThat(metrics.hits()).isGreaterThan(0);
         assertThat(metrics.misses()).isGreaterThan(0);
         assertThat(metrics.currentSize()).isGreaterThan(0);
-        assertThat(metrics.hitRate() / 100.0).isBetween(0.0, 1.0);
+        assertThat(metrics.hitRate()).isBetween(0.0, 1.0); // hitRate is raw ratio 0.0-1.0
 
         // Check adaptive-specific stats
         AdaptiveCaffeineCache.AdaptiveStats adaptiveStats = cache.getAdaptiveStats();
 
         assertThat(adaptiveStats.currentSize()).isGreaterThan(0);
-        assertThat(adaptiveStats.hitRate() / 100.0).isBetween(0.0, 1.0);
+        assertThat(adaptiveStats.hitRate()).isBetween(0.0, 1.0); // hitRate is raw ratio 0.0-1.0
 
         System.out.println("Cache metrics: " + metrics.format());
         System.out.println("Adaptive stats: " + adaptiveStats);
@@ -415,7 +415,7 @@ class AdaptiveCaffeineCacheIntegrationTest {
 
         // All should be cache hits
         BaseConditionCache.CacheMetrics metrics = cache.getMetrics();
-        assertThat(metrics.hitRate()).isEqualTo(100.0); // 100% hit rate
+        assertThat(metrics.hitRate()).isEqualTo(1.0); // 100% hit rate (raw ratio 0.0-1.0)
     }
 
     // ================================================================
