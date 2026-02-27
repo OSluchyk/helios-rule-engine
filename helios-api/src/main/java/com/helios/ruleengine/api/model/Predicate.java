@@ -3,6 +3,7 @@ package com.helios.ruleengine.api.model;
 import com.fasterxml.jackson.annotation.JsonValue;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
@@ -40,7 +41,7 @@ public record Predicate(
             if (text == null)
                 return null;
             try {
-                return Operator.valueOf(text.toUpperCase());
+                return Operator.valueOf(text.toUpperCase(Locale.ROOT));
             } catch (IllegalArgumentException e) {
                 return null; // Unknown operator
             }
@@ -177,6 +178,6 @@ public record Predicate(
     }
 
     private String patternToString() {
-        return pattern != null ? pattern.pattern() : null;
+        return pattern != null ? pattern.pattern() + "/" + pattern.flags() : null;
     }
 }

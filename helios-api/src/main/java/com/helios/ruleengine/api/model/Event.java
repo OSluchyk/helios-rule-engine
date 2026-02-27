@@ -17,7 +17,7 @@ import java.util.Map;
  *
  * @param eventId    Unique identifier for the event (must not be null).
  * @param eventType  Logical type of the event (can be null if not used).
- * @param attributes Map of event attributes (keys are normalized to uppercase).
+ * @param attributes Map of event attributes (keys are normalized to uppercase downstream by the runtime encoder).
  */
 public record Event(
                 String eventId,

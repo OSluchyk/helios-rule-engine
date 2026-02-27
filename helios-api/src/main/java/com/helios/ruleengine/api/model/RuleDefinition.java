@@ -1,4 +1,3 @@
-// File: src/main/java/com/google/ruleengine/model/RuleDefinition.java
 package com.helios.ruleengine.api.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
