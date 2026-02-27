@@ -106,6 +106,17 @@ public class EngineModelManager implements IEngineModelManager {
 
     public void shutdown() {
         monitoringExecutor.shutdown();
+        try {
+            if (!monitoringExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                monitoringExecutor.shutdownNow();
+                if (!monitoringExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
+                    logger.warning("Monitoring executor did not terminate cleanly.");
+                }
+            }
+        } catch (InterruptedException e) {
+            monitoringExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**

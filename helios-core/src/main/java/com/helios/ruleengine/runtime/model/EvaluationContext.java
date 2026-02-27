@@ -9,6 +9,7 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -193,7 +194,7 @@ public final class EvaluationContext {
      * and corrects the data race in the previous implementation.
      */
     private String getNormalizedString(String original) {
-        return normalizedStringsCache.computeIfAbsent(original, String::toUpperCase);
+        return normalizedStringsCache.computeIfAbsent(original, s -> s.toUpperCase(Locale.ROOT));
     }
 
     private Map<String, Object> flattenMap(Map<String, Object> map) {
