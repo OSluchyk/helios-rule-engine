@@ -161,29 +161,8 @@ public class RuleCompiler implements IRuleCompiler {
             long compilationTime = System.nanoTime() - startTime;
             span.setAttribute("compilationTimeMs", TimeUnit.NANOSECONDS.toMillis(compilationTime));
 
-            Map<String, Object> metadata = new HashMap<>();
-            int logicalRuleCount = validRules.size(); // Report count *before* factorization
-            int totalExpandedCombinations = builder.getTotalExpandedCombinations();
-            int uniqueCombinations = builder.getUniqueCombinationCount();
-            double deduplicationRate = totalExpandedCombinations > 0
-                    ? (1.0 - (double) uniqueCombinations / totalExpandedCombinations) * 100
-                    : 0;
-
-            metadata.put("logicalRules", logicalRuleCount);
-            metadata.put("totalExpandedCombinations", totalExpandedCombinations);
-            metadata.put("uniqueCombinations", uniqueCombinations);
-            metadata.put("deduplicationRatePercent", String.format("%.2f", deduplicationRate));
-
-            span.setAttribute("uniqueCombinationCount", uniqueCombinations);
-            // Note: This attribute name seems like a typo, but we keep it for consistency.
-            // It likely should be "deduplicationRatePercent".
-            metadata.put("deduplicationRatePercent", deduplicationRate);
-
-            EngineStats stats = new EngineStats(
-                    uniqueCombinations,
-                    builder.getPredicateCount(),
-                    compilationTime,
-                    metadata);
+            EngineStats stats = buildEngineStats(validRules.size(), builder, compilationTime);
+            span.setAttribute("uniqueCombinationCount", builder.getUniqueCombinationCount());
 
             EngineModel model = builder.withStats(stats)
                     .withFieldDictionary(fieldDictionary)
@@ -293,25 +272,7 @@ public class RuleCompiler implements IRuleCompiler {
             long compilationTime = System.nanoTime() - startTime;
             span.setAttribute("compilationTimeMs", TimeUnit.NANOSECONDS.toMillis(compilationTime));
 
-            Map<String, Object> metadata = new HashMap<>();
-            int logicalRuleCount = validRules.size();
-            int totalExpandedCombinations = builder.getTotalExpandedCombinations();
-            int uniqueCombinations = builder.getUniqueCombinationCount();
-            double deduplicationRate = totalExpandedCombinations > 0
-                    ? (1.0 - (double) uniqueCombinations / totalExpandedCombinations) * 100
-                    : 0;
-
-            metadata.put("logicalRules", logicalRuleCount);
-            metadata.put("totalExpandedCombinations", totalExpandedCombinations);
-            metadata.put("uniqueCombinations", uniqueCombinations);
-            metadata.put("deduplicationRatePercent", String.format("%.2f", deduplicationRate));
-            metadata.put("deduplicationRatePercent", deduplicationRate);
-
-            EngineStats stats = new EngineStats(
-                    uniqueCombinations,
-                    builder.getPredicateCount(),
-                    compilationTime,
-                    metadata);
+            EngineStats stats = buildEngineStats(validRules.size(), builder, compilationTime);
 
             EngineModel model = builder.withStats(stats)
                     .withFieldDictionary(fieldDictionary)
@@ -358,6 +319,30 @@ public class RuleCompiler implements IRuleCompiler {
         }
     }
 
+    /**
+     * Builds EngineStats with compilation metadata from the builder results.
+     */
+    private EngineStats buildEngineStats(int logicalRuleCount, EngineModel.Builder builder, long compilationTime) {
+        int totalExpandedCombinations = builder.getTotalExpandedCombinations();
+        int uniqueCombinations = builder.getUniqueCombinationCount();
+        double deduplicationRate = totalExpandedCombinations > 0
+                ? (1.0 - (double) uniqueCombinations / totalExpandedCombinations) * 100
+                : 0;
+
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("logicalRules", logicalRuleCount);
+        metadata.put("totalExpandedCombinations", totalExpandedCombinations);
+        metadata.put("uniqueCombinations", uniqueCombinations);
+        metadata.put("deduplicationRatePercent", deduplicationRate);
+        metadata.put("deduplicationRatePercentFormatted", String.format("%.2f", deduplicationRate));
+
+        return new EngineStats(
+                uniqueCombinations,
+                builder.getPredicateCount(),
+                compilationTime,
+                metadata);
+    }
+
     private void buildDictionaries(List<RuleDefinition> definitions, Dictionary fieldDictionary,
             Dictionary valueDictionary) {
         Span span = tracer.spanBuilder("build-dictionaries").startSpan();
@@ -371,7 +356,7 @@ public class RuleCompiler implements IRuleCompiler {
                         continue;
 
                     // Encode field name (uppercase and normalize)
-                    fieldDictionary.encode(cond.field().toUpperCase().replace('-', '_'));
+                    fieldDictionary.encode(cond.field().toUpperCase(Locale.ROOT).replace('-', '_'));
 
                     if (cond.operator() == null)
                         continue;
@@ -385,7 +370,7 @@ public class RuleCompiler implements IRuleCompiler {
                         ((List<?>) cond.value()).forEach(v -> {
                             if (v instanceof String) {
                                 // Uppercase string values for consistency
-                                valueDictionary.encode(((String) v).toUpperCase());
+                                valueDictionary.encode(((String) v).toUpperCase(Locale.ROOT));
                             }
                         });
                     } else if (cond.value() instanceof String) {
@@ -399,7 +384,7 @@ public class RuleCompiler implements IRuleCompiler {
                                 op == Predicate.Operator.STARTS_WITH ||
                                 op == Predicate.Operator.ENDS_WITH) {
                             // Uppercase string values for consistency
-                            valueDictionary.encode(((String) cond.value()).toUpperCase());
+                            valueDictionary.encode(((String) cond.value()).toUpperCase(Locale.ROOT));
                         }
                     }
                 }
@@ -488,7 +473,7 @@ public class RuleCompiler implements IRuleCompiler {
     private boolean hasContradictoryConditions(List<RuleDefinition.Condition> conditions) {
         // Group conditions by their canonical field name
         Map<String, List<RuleDefinition.Condition>> byField = conditions.stream()
-                .collect(Collectors.groupingBy(c -> c.field().toUpperCase().replace('-', '_')));
+                .collect(Collectors.groupingBy(c -> c.field().toUpperCase(Locale.ROOT).replace('-', '_')));
 
         for (Map.Entry<String, List<RuleDefinition.Condition>> entry : byField.entrySet()) {
             List<RuleDefinition.Condition> fieldConds = entry.getValue();
@@ -520,14 +505,14 @@ public class RuleCompiler implements IRuleCompiler {
                 }
             }
 
-            // Check BETWEEN inverted range
+            // Check BETWEEN inverted range (handles both Number and String-encoded numbers)
             for (RuleDefinition.Condition cond : fieldConds) {
                 if ("BETWEEN".equalsIgnoreCase(cond.operator()) && cond.value() instanceof List) {
                     List<?> range = (List<?>) cond.value();
-                    if (range.size() == 2 && range.get(0) instanceof Number && range.get(1) instanceof Number) {
-                        double min = ((Number) range.get(0)).doubleValue();
-                        double max = ((Number) range.get(1)).doubleValue();
-                        if (min > max) {
+                    if (range.size() == 2) {
+                        Number minNum = toNumber(range.get(0));
+                        Number maxNum = toNumber(range.get(1));
+                        if (minNum != null && maxNum != null && minNum.doubleValue() > maxNum.doubleValue()) {
                             return true; // Inverted range = contradiction
                         }
                     }
@@ -542,11 +527,12 @@ public class RuleCompiler implements IRuleCompiler {
             Double maxLTE = null; // Maximum value from LESS_THAN_OR_EQUAL (≤)
 
             for (RuleDefinition.Condition cond : fieldConds) {
-                if (cond.value() == null || !(cond.value() instanceof Number))
+                Number numVal = toNumber(cond.value());
+                if (numVal == null)
                     continue;
-                double val = ((Number) cond.value()).doubleValue();
+                double val = numVal.doubleValue();
 
-                String operator = cond.operator().toUpperCase();
+                String operator = cond.operator().toUpperCase(Locale.ROOT);
                 switch (operator) {
                     case "GREATER_THAN":
                         minGT = (minGT == null) ? val : Math.max(minGT, val);
@@ -620,7 +606,7 @@ public class RuleCompiler implements IRuleCompiler {
             if (cond.field() == null || cond.operator() == null)
                 continue;
 
-            int fieldId = fieldDictionary.getId(cond.field().toUpperCase().replace('-', '_'));
+            int fieldId = fieldDictionary.getId(cond.field().toUpperCase(Locale.ROOT).replace('-', '_'));
             // Normalize operator aliases to canonical forms before creating Predicate
             String normalizedOperatorStr = normalizeOperator(cond.operator());
             Predicate.Operator operator = Predicate.Operator.fromString(normalizedOperatorStr);
@@ -640,7 +626,7 @@ public class RuleCompiler implements IRuleCompiler {
                     Object processedValue = v;
                     if (v instanceof String) {
                         // Uppercase string value before dictionary lookup
-                        processedValue = valueDictionary.getId(((String) v).toUpperCase());
+                        processedValue = valueDictionary.getId(((String) v).toUpperCase(Locale.ROOT));
                     }
                     // Create an EQUAL_TO predicate for each value in the list
                     expanded.add(new Predicate(fieldId, Predicate.Operator.EQUAL_TO, processedValue, null, weight,
@@ -655,7 +641,7 @@ public class RuleCompiler implements IRuleCompiler {
                 for (Object v : values) {
                     Object processedValue = v;
                     if (v instanceof String) {
-                        processedValue = valueDictionary.getId(((String) v).toUpperCase());
+                        processedValue = valueDictionary.getId(((String) v).toUpperCase(Locale.ROOT));
                     }
                     // Add each value as a separate NOT_EQUAL_TO static predicate
                     // We use the same weight/selectivity as the original IS_NONE_OF for now,
@@ -669,7 +655,7 @@ public class RuleCompiler implements IRuleCompiler {
                 // Process and dictionary-encode string values based on operator
                 if ((operator == Predicate.Operator.EQUAL_TO || operator == Predicate.Operator.NOT_EQUAL_TO)
                         && cond.value() instanceof String) {
-                    String stringValue = ((String) cond.value()).toUpperCase();
+                    String stringValue = ((String) cond.value()).toUpperCase(Locale.ROOT);
                     predicateValue = valueDictionary.getId(stringValue);
                 } else if (operator == Predicate.Operator.REGEX && cond.value() instanceof String) {
                     // Do not dictionary-encode regex patterns. Store AS-IS.
@@ -679,7 +665,7 @@ public class RuleCompiler implements IRuleCompiler {
                         operator == Predicate.Operator.ENDS_WITH)
                         && cond.value() instanceof String) {
                     // Store the raw (uppercased) string value for substring matching.
-                    predicateValue = ((String) cond.value()).toUpperCase();
+                    predicateValue = ((String) cond.value()).toUpperCase(Locale.ROOT);
                 } else if (operator.isNumeric() && cond.value() instanceof String) {
                     // Convert String to Number for numeric operators (GREATER_THAN, LESS_THAN, etc.)
                     Number num = toNumber(cond.value());
@@ -687,7 +673,7 @@ public class RuleCompiler implements IRuleCompiler {
                         predicateValue = num;
                     } else {
                         // This shouldn't happen since we validate earlier, but fallback to dictionary encoding
-                        predicateValue = valueDictionary.getId(((String) cond.value()).toUpperCase());
+                        predicateValue = valueDictionary.getId(((String) cond.value()).toUpperCase(Locale.ROOT));
                     }
                 } else if (operator == Predicate.Operator.BETWEEN && cond.value() instanceof List) {
                     // Convert BETWEEN array values to Numbers
@@ -700,7 +686,7 @@ public class RuleCompiler implements IRuleCompiler {
                     predicateValue = numericList;
                 } else if (cond.value() instanceof String) {
                     // Fallback for other string operators: encode them.
-                    predicateValue = valueDictionary.getId(((String) cond.value()).toUpperCase());
+                    predicateValue = valueDictionary.getId(((String) cond.value()).toUpperCase(Locale.ROOT));
                 } else {
                     // This handles numbers, booleans, and other non-string types
                     predicateValue = cond.value();
@@ -845,8 +831,9 @@ public class RuleCompiler implements IRuleCompiler {
                             "Rule '" + def.ruleCode() + "' condition " + j + " has null operator");
                 }
 
-                // Validate operator
-                Predicate.Operator operator = Predicate.Operator.fromString(cond.operator());
+                // Normalize operator aliases early (e.g., "IN" -> "IS_ANY_OF", ">=" -> "GREATER_THAN_OR_EQUAL")
+                String normalizedOperatorStr = normalizeOperator(cond.operator());
+                Predicate.Operator operator = Predicate.Operator.fromString(normalizedOperatorStr);
                 if (operator == null) {
                     throw new CompilationException(
                             "Rule '" + def.ruleCode() + "' has unknown operator: " + cond.operator());
@@ -870,6 +857,13 @@ public class RuleCompiler implements IRuleCompiler {
                         throw new CompilationException("Rule '" + def.ruleCode() + "' operator " + operator
                                 + " cannot have empty array value.");
                     }
+                    // Enforce homogeneous element types (all strings or all numbers)
+                    boolean hasStrings = list.stream().anyMatch(v -> v instanceof String);
+                    boolean hasNumbers = list.stream().anyMatch(v -> v instanceof Number);
+                    if (hasStrings && hasNumbers) {
+                        throw new CompilationException("Rule '" + def.ruleCode() + "' operator " + operator
+                                + " has mixed element types (strings and numbers). All elements must be the same type.");
+                    }
                 }
 
                 if (operator == Predicate.Operator.BETWEEN) {
@@ -891,12 +885,14 @@ public class RuleCompiler implements IRuleCompiler {
                                 + list.get(0).getClass().getSimpleName() + ", "
                                 + list.get(1).getClass().getSimpleName() + "]");
                     }
-                    // Check for inverted range
+                    // Normalize inverted range by swapping min/max
                     double min = minNum.doubleValue();
                     double max = maxNum.doubleValue();
                     if (min > max) {
                         logger.warning("Rule '" + def.ruleCode() + "' has inverted BETWEEN range: [" + min + ", "
-                                + max + "]");
+                                + max + "] — normalizing to [" + max + ", " + min + "]");
+                        // Swap values in the condition to normalize
+                        cond = new RuleDefinition.Condition(cond.field(), cond.operator(), List.of(maxNum, minNum));
                     }
                 }
 
@@ -924,13 +920,27 @@ public class RuleCompiler implements IRuleCompiler {
                     }
                 }
 
-                // Canonize field name
-                String canonField = cond.field().toUpperCase().replace('-', '_');
-                canonizedConditions.add(new RuleDefinition.Condition(canonField, cond.operator(), cond.value()));
+                // Canonize field name and store normalized operator
+                String canonField = cond.field().toUpperCase(Locale.ROOT).replace('-', '_');
+                canonizedConditions.add(new RuleDefinition.Condition(canonField, normalizedOperatorStr, cond.value()));
             }
 
             // Perform an early check for *obvious* contradictions and log warnings
             detectContradictions(def.ruleCode(), canonizedConditions);
+
+            // Early per-rule combination explosion estimate
+            long estimatedCombinations = 1;
+            for (RuleDefinition.Condition c : canonizedConditions) {
+                if ("IS_ANY_OF".equals(c.operator()) && c.value() instanceof List) {
+                    estimatedCombinations *= ((List<?>) c.value()).size();
+                    if (estimatedCombinations > MAX_COMBINATIONS) {
+                        throw new CompilationException("Rule '" + def.ruleCode()
+                                + "' would generate too many combinations (estimated " + estimatedCombinations
+                                + "). Max allowed: " + MAX_COMBINATIONS
+                                + ". Reduce IS_ANY_OF list sizes or split into multiple rules.");
+                    }
+                }
+            }
 
             // Create canonized rule
             validated.add(new RuleDefinition(
@@ -952,7 +962,7 @@ public class RuleCompiler implements IRuleCompiler {
     private void detectContradictions(String ruleCode, List<RuleDefinition.Condition> conditions) {
         // Group conditions by field
         Map<String, List<RuleDefinition.Condition>> byField = conditions.stream()
-                .collect(Collectors.groupingBy(c -> c.field().toUpperCase().replace('-', '_')));
+                .collect(Collectors.groupingBy(c -> c.field().toUpperCase(Locale.ROOT).replace('-', '_')));
 
         for (Map.Entry<String, List<RuleDefinition.Condition>> entry : byField.entrySet()) {
             List<RuleDefinition.Condition> fieldConditions = entry.getValue();
@@ -1018,7 +1028,7 @@ public class RuleCompiler implements IRuleCompiler {
                 for (RuleDefinition.Condition cond : def.conditions()) {
                     if (cond.field() == null)
                         continue;
-                    int fieldId = fieldDictionary.getId(cond.field().toUpperCase().replace('-', '_'));
+                    int fieldId = fieldDictionary.getId(cond.field().toUpperCase(Locale.ROOT).replace('-', '_'));
                     fieldCounts.addTo(fieldId, 1);
                     // if (cond.value() != null) {
                     // valueCounts.merge(String.valueOf(cond.value()), 1, Integer::sum);
@@ -1094,7 +1104,7 @@ public class RuleCompiler implements IRuleCompiler {
         if (operator == null) return null;
 
         // Normalize to uppercase and trim
-        String normalized = operator.toUpperCase().trim();
+        String normalized = operator.toUpperCase(Locale.ROOT).trim();
 
         // Map aliases to canonical operators
         return switch (normalized) {

@@ -264,9 +264,11 @@ class CompilationValidationTest {
                         ]}]
                         """),
 
-                new ContradictionTest("BETWEEN with inverted range", true,
+                // BETWEEN with inverted range is now auto-normalized (swapped to [18, 65]),
+                // so it is no longer treated as a contradiction
+                new ContradictionTest("BETWEEN with inverted range", false,
                         """
-                        [{"rule_code": "CONTRADICTION", "conditions": [
+                        [{"rule_code": "VALID", "conditions": [
                             {"field": "age", "operator": "BETWEEN", "value": [65, 18]}
                         ]}]
                         """),
