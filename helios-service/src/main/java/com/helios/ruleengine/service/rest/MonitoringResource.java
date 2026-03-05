@@ -15,6 +15,8 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * JAX-RS resource for monitoring and metrics endpoints.
@@ -25,6 +27,8 @@ import java.util.Map;
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class MonitoringResource {
+
+    private static final Logger logger = Logger.getLogger(MonitoringResource.class.getName());
 
     @Inject
     RuleEvaluationService evaluationService;
@@ -52,7 +56,7 @@ public class MonitoringResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
+                    .entity(Map.of("error", "Internal Server Error"))
                     .build();
         } finally {
             span.end();
@@ -83,8 +87,9 @@ public class MonitoringResource {
 
         } catch (Exception e) {
             span.recordException(e);
+            logger.log(Level.SEVERE, "Health check failed", e);
             return Response.status(Response.Status.SERVICE_UNAVAILABLE)
-                    .entity(Map.of("status", "DOWN", "error", e.getMessage()))
+                    .entity(Map.of("status", "DOWN"))
                     .build();
         } finally {
             span.end();
@@ -115,7 +120,7 @@ public class MonitoringResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
+                    .entity(Map.of("error", "Internal Server Error"))
                     .build();
         } finally {
             span.end();
@@ -147,7 +152,7 @@ public class MonitoringResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
+                    .entity(Map.of("error", "Internal Server Error"))
                     .build();
         } finally {
             span.end();
@@ -174,7 +179,7 @@ public class MonitoringResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
+                    .entity(Map.of("error", "Internal Server Error"))
                     .build();
         } finally {
             span.end();
@@ -201,7 +206,7 @@ public class MonitoringResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
+                    .entity(Map.of("error", "Internal Server Error"))
                     .build();
         } finally {
             span.end();
@@ -228,7 +233,7 @@ public class MonitoringResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
+                    .entity(Map.of("error", "Internal Server Error"))
                     .build();
         } finally {
             span.end();
@@ -252,7 +257,7 @@ public class MonitoringResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
+                    .entity(Map.of("error", "Internal Server Error"))
                     .build();
         } finally {
             span.end();
@@ -279,7 +284,7 @@ public class MonitoringResource {
         } catch (Exception e) {
             span.recordException(e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
+                    .entity(Map.of("error", "Internal Server Error"))
                     .build();
         } finally {
             span.end();

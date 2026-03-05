@@ -19,6 +19,7 @@ import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Logger;
 
 /**
  * Service for rule evaluation.
@@ -27,6 +28,8 @@ import java.util.Map;
  */
 @ApplicationScoped
 public class RuleEvaluationService {
+
+    private static final Logger logger = Logger.getLogger(RuleEvaluationService.class.getName());
 
     @Inject
     EngineModelManager modelManager;
@@ -42,7 +45,7 @@ public class RuleEvaluationService {
      * Ensures each thread has its own evaluator, recreated when model is hot-reloaded.
      */
     private final ThreadLocal<RuleEvaluator> evaluatorPool = ThreadLocal.withInitial(() -> {
-        System.out.println("Initializing new RuleEvaluator for thread: " + Thread.currentThread().getName());
+        logger.info("Initializing new RuleEvaluator for thread: " + Thread.currentThread().getName());
         return createNewEvaluator(modelManager.getEngineModel());
     });
 

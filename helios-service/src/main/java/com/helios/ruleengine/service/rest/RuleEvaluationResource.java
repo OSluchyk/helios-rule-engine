@@ -18,6 +18,8 @@ import jakarta.ws.rs.core.Response;
 
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * JAX-RS resource for rule evaluation endpoints.
@@ -27,6 +29,9 @@ import java.util.Map;
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class RuleEvaluationResource {
+
+    private static final Logger logger = Logger.getLogger(RuleEvaluationResource.class.getName());
+    private static final int MAX_BATCH_SIZE = 1000;
 
     @Inject
     RuleEvaluationService evaluationService;
@@ -51,8 +56,9 @@ public class RuleEvaluationResource {
 
         } catch (Exception e) {
             span.recordException(e);
+            logger.log(Level.SEVERE, "Evaluation failed", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
+                    .entity(Map.of("error", "Internal Server Error"))
                     .build();
         } finally {
             span.end();
@@ -92,8 +98,9 @@ public class RuleEvaluationResource {
 
         } catch (Exception e) {
             span.recordException(e);
+            logger.log(Level.SEVERE, "Trace evaluation failed", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
+                    .entity(Map.of("error", "Internal Server Error"))
                     .build();
         } finally {
             span.end();
@@ -127,12 +134,13 @@ public class RuleEvaluationResource {
 
         } catch (IllegalArgumentException e) {
             return Response.status(Response.Status.NOT_FOUND)
-                    .entity(Map.of("error", "Rule not found", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
+                    .entity(Map.of("error", "Rule not found", "ruleCode", ruleCode))
                     .build();
         } catch (Exception e) {
             span.recordException(e);
+            logger.log(Level.SEVERE, "Rule explanation failed for: " + ruleCode, e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
+                    .entity(Map.of("error", "Internal Server Error"))
                     .build();
         } finally {
             span.end();
@@ -170,6 +178,18 @@ public class RuleEvaluationResource {
             @QueryParam("level") @DefaultValue("NONE") TraceLevel level) {
         Span span = tracer.spanBuilder("http-evaluate-batch").startSpan();
         try (Scope scope = span.makeCurrent()) {
+            if (events == null || events.isEmpty()) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(Map.of("error", "No events provided"))
+                        .build();
+            }
+
+            if (events.size() > MAX_BATCH_SIZE) {
+                return Response.status(Response.Status.BAD_REQUEST)
+                        .entity(Map.of("error", "Batch size exceeds maximum", "maxBatchSize", MAX_BATCH_SIZE, "receivedSize", events.size()))
+                        .build();
+            }
+
             span.setAttribute("eventCount", events.size());
             span.setAttribute("traceLevel", level.name());
 
@@ -182,8 +202,9 @@ public class RuleEvaluationResource {
 
         } catch (Exception e) {
             span.recordException(e);
+            logger.log(Level.SEVERE, "Batch evaluation failed", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Internal Server Error", "message", e.getMessage() != null ? e.getMessage() : e.getClass().getName()))
+                    .entity(Map.of("error", "Internal Server Error"))
                     .build();
         } finally {
             span.end();

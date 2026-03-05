@@ -24,7 +24,11 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * High-performance, lightweight HTTP server for the Helios Rule Engine.
@@ -47,10 +51,14 @@ import java.util.concurrent.Executors;
  */
 public class HttpServer {
 
+    private static final Logger logger = Logger.getLogger(HttpServer.class.getName());
+    private static final int MAX_REQUEST_BODY_BYTES = 1024 * 1024; // 1 MB
+
     private final com.sun.net.httpserver.HttpServer server;
     private final Tracer tracer;
     private final ObjectMapper objectMapper;
     private final EngineModelManager modelManager;
+    private final ExecutorService executor;
 
     /**
      * Thread-local pool for RuleEvaluator instances.
@@ -74,6 +82,19 @@ public class HttpServer {
      * @throws IOException if the server cannot be created
      */
     public HttpServer(int port, EngineModelManager modelManager, Tracer tracer) throws IOException {
+        this(port, modelManager, tracer, Runtime.getRuntime().availableProcessors() * 2);
+    }
+
+    /**
+     * Creates a new HttpServer with configurable thread pool size.
+     *
+     * @param port         the port to listen on
+     * @param modelManager the engine model manager for hot-reload support
+     * @param tracer       OpenTelemetry tracer for observability
+     * @param threadPoolSize the number of threads in the executor pool
+     * @throws IOException if the server cannot be created
+     */
+    public HttpServer(int port, EngineModelManager modelManager, Tracer tracer, int threadPoolSize) throws IOException {
         this.modelManager = Objects.requireNonNull(modelManager, "EngineModelManager cannot be null");
         this.tracer = Objects.requireNonNull(tracer, "Tracer cannot be null");
         this.objectMapper = new ObjectMapper();
@@ -81,7 +102,7 @@ public class HttpServer {
 
         // Initialize the ThreadLocal pool
         this.evaluatorPool = ThreadLocal.withInitial(() -> {
-            System.out.println("Initializing new RuleEvaluator for thread: " + Thread.currentThread().getName());
+            logger.info("Initializing new RuleEvaluator for thread: " + Thread.currentThread().getName());
             return createNewEvaluator(modelManager.getEngineModel());
         });
 
@@ -91,8 +112,8 @@ public class HttpServer {
         this.server.createContext("/metrics", new MetricsHandler());
 
         // Use a fixed thread pool for handling requests
-        int coreCount = Runtime.getRuntime().availableProcessors();
-        this.server.setExecutor(Executors.newFixedThreadPool(coreCount * 2));
+        this.executor = Executors.newFixedThreadPool(threadPoolSize);
+        this.server.setExecutor(this.executor);
     }
 
     /**
@@ -109,17 +130,31 @@ public class HttpServer {
     public void start() {
         this.modelManager.start(); // Start the file watcher
         this.server.start();
-        System.out.println("Helios Rule Engine server started on port 8080.");
-        System.out.println("Endpoints: /evaluate (POST), /health (GET), /metrics (GET)");
+        logger.info("Helios Rule Engine server started on port " + this.server.getAddress().getPort());
+        logger.info("Endpoints: /evaluate (POST), /health (GET), /metrics (GET)");
     }
 
     /**
      * Stops the HTTP server.
      */
     public void stop(int delay) {
-        System.out.println("Stopping server...");
+        logger.info("Stopping server...");
         this.modelManager.shutdown(); // Stop the file watcher
         this.server.stop(delay);
+
+        // Clean up ThreadLocal to prevent memory leaks
+        evaluatorPool.remove();
+
+        // Shut down the executor service
+        this.executor.shutdown();
+        try {
+            if (!this.executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                this.executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            this.executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**
@@ -134,6 +169,19 @@ public class HttpServer {
                 return;
             }
 
+            // Reject oversized payloads early
+            long contentLength = exchange.getRequestBody().available();
+            String contentLengthHeader = exchange.getRequestHeaders().getFirst("Content-Length");
+            if (contentLengthHeader != null) {
+                try {
+                    contentLength = Long.parseLong(contentLengthHeader);
+                } catch (NumberFormatException ignored) { }
+            }
+            if (contentLength > MAX_REQUEST_BODY_BYTES) {
+                sendResponse(exchange, 413, "{\"error\":\"Payload Too Large\"}");
+                return;
+            }
+
             Span span = tracer.spanBuilder("http-evaluate").startSpan();
             try (Scope scope = span.makeCurrent()) {
 
@@ -143,8 +191,6 @@ public class HttpServer {
                 // 2. Get the evaluator from the thread-local pool and check for staleness
                 RuleEvaluator evaluator = evaluatorPool.get();
                 if (evaluator.getModel() != currentModel) {
-                    // The model has changed (hot-reload).
-                    // Create a new evaluator for the new model and update the pool.
                     span.addEvent("Stale model detected. Creating new evaluator.");
                     evaluator = createNewEvaluator(currentModel);
                     evaluatorPool.set(evaluator);
@@ -156,7 +202,6 @@ public class HttpServer {
                     event = objectMapper.readValue(is, Event.class);
                 }
 
-                // FIX: Use record accessor eventId() instead of getEventId()
                 span.setAttribute("eventId", event.eventId());
 
                 // 4. Evaluate using the correct, pooled, up-to-date evaluator
@@ -168,8 +213,7 @@ public class HttpServer {
 
             } catch (Exception e) {
                 span.recordException(e);
-                System.err.println("Error during evaluation: " + e.getMessage());
-                e.printStackTrace();
+                logger.log(Level.SEVERE, "Error during evaluation", e);
                 sendResponse(exchange, 500, "{\"error\":\"Internal Server Error\"}");
             } finally {
                 span.end();
@@ -213,7 +257,7 @@ public class HttpServer {
                 String responseBody = objectMapper.writeValueAsString(metrics);
                 sendResponse(exchange, 200, responseBody);
             } catch (Exception e) {
-                System.err.println("Error getting metrics: " + e.getMessage());
+                logger.log(Level.SEVERE, "Error getting metrics", e);
                 sendResponse(exchange, 500, "{\"error\":\"Internal Server Error\"}");
             }
         }

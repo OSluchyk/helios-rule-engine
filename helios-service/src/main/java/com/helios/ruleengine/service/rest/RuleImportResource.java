@@ -11,6 +11,8 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * JAX-RS resource for rule import operations.
@@ -20,6 +22,8 @@ import java.util.Map;
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class RuleImportResource {
+
+    private static final Logger logger = Logger.getLogger(RuleImportResource.class.getName());
 
     @Inject
     RuleImportService importService;
@@ -58,8 +62,9 @@ public class RuleImportResource {
 
         } catch (Exception e) {
             span.recordException(e);
+            logger.log(Level.SEVERE, "Import validation failed", e);
             return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(Map.of("error", "Validation Failed", "message", e.getMessage()))
+                    .entity(Map.of("error", "Validation Failed"))
                     .build();
         } finally {
             span.end();
@@ -92,8 +97,9 @@ public class RuleImportResource {
 
         } catch (Exception e) {
             span.recordException(e);
+            logger.log(Level.SEVERE, "Import execution failed", e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(Map.of("error", "Import Failed", "message", e.getMessage()))
+                    .entity(Map.of("error", "Import Failed"))
                     .build();
         } finally {
             span.end();

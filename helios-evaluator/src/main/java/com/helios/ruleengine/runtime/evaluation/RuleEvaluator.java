@@ -648,11 +648,7 @@ public final class RuleEvaluator implements IRuleEvaluator {
         }
 
         // OPTIMIZATION: Copy only the delta - predicates that changed during this
-        // evaluation
-        // This is much smaller than copying all predicates or storing references
-        // OPTIMIZATION: Copy only the delta - predicates that changed during this
-        // evaluation
-        // This is much smaller than copying all predicates or storing references
+        // evaluation. This is much smaller than copying all predicates or storing references.
         if (tracing && collector != null) {
             collector.capturePredicateSnapshot(
                     eligiblePredicateIds,
@@ -867,13 +863,9 @@ public final class RuleEvaluator implements IRuleEvaluator {
                     // Reuse pooled bitmap to maintain zero-allocation property
                     RoaringBitmap intersectionBuffer = INTERSECTION_BUFFER.get();
                     intersectionBuffer.clear();
-
-                    // Perform intersection: O(n+m) complexity
-                    RoaringBitmap.and(affectedRules, eligibleRulesRoaring).forEach(updater);
-
-                    // Alternative if mutable buffer is needed:
-                    // affectedRules.andCardinality(eligibleRulesRoaring); would give size
-                    // For now, use immutable and() which is still faster than contains() loop
+                    intersectionBuffer.or(affectedRules);
+                    intersectionBuffer.and(eligibleRulesRoaring);
+                    intersectionBuffer.forEach(updater);
                 }
             } else {
                 // No eligibility filter - process all affected rules
@@ -955,10 +947,7 @@ public final class RuleEvaluator implements IRuleEvaluator {
                 var predicate = model.getPredicate(predicateId);
                 if (predicate != null) {
                     String fieldName = model.getFieldDictionary().decode(predicate.fieldId());
-                    String desc = String.format("%s %s %s",
-                            fieldName,
-                            predicate.operator().name(),
-                            predicate.value());
+                    String desc = fieldName + " " + predicate.operator().name() + " " + predicate.value();
                     failed.add(desc);
                 }
             }
@@ -1362,10 +1351,8 @@ public final class RuleEvaluator implements IRuleEvaluator {
             // trace object
             // but it may be empty of details.
 
-            // OPTIMIZATION: Lazily build predicate outcomes only when trace is consumed
-            // Uses selective delta copy instead of full context retention
-            // OPTIMIZATION: Lazily build predicate outcomes only when trace is consumed
-            // Uses selective delta copy instead of full context retention
+            // OPTIMIZATION: Lazily build predicate outcomes only when trace is consumed.
+            // Uses selective delta copy instead of full context retention.
             List<EvaluationTrace.PredicateOutcome> predicateOutcomes = List.of();
             if (newTruePredicates != null) {
                 predicateOutcomes = buildPredicateOutcomes(
