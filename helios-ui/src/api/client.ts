@@ -6,10 +6,13 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
 import type { ApiError } from '../types/api';
 
+// Debug logging flag — opt-in via VITE_API_DEBUG=true
+const API_DEBUG = import.meta.env.VITE_API_DEBUG === 'true';
+
 // Determine the API base URL
 // In development on localhost: use relative path to go through Vite proxy
 // In development on network IP: use same host with backend port (8080)
-// In production: use configured API URL or default to localhost:8080
+// In production: require VITE_API_URL — log error if missing
 const getBaseUrl = (): string => {
   if (typeof window === 'undefined') {
     return import.meta.env.VITE_API_URL || 'http://localhost:8080';
@@ -22,6 +25,11 @@ const getBaseUrl = (): string => {
     // In dev mode on localhost, use proxy (empty base URL)
     // On network IP, connect directly to backend on same host with port 8080
     return isLocalhost ? '' : `http://${hostname}:8080`;
+  }
+
+  // Production: require VITE_API_URL to be set
+  if (!import.meta.env.VITE_API_URL) {
+    console.error('[API] VITE_API_URL is not configured. Set it in environment variables for production builds.');
   }
 
   return import.meta.env.VITE_API_URL || 'http://localhost:8080';
@@ -49,11 +57,10 @@ apiClient.interceptors.request.use(
     // Add request timestamp for performance tracking
     config.metadata = { startTime: Date.now() };
 
-    // Log requests in development mode
-    if (import.meta.env.DEV) {
+    // Log requests when API debug is enabled
+    if (API_DEBUG) {
       console.log(`[API Request] ${config.method?.toUpperCase()} ${config.url}`, {
         params: config.params,
-        data: config.data,
       });
     }
 
@@ -80,26 +87,25 @@ apiClient.interceptors.response.use(
     // Calculate request duration
     const duration = Date.now() - (response.config.metadata?.startTime || 0);
 
-    // Log responses in development mode
-    if (import.meta.env.DEV) {
+    // Log responses when API debug is enabled
+    if (API_DEBUG) {
       console.log(
         `[API Response] ${response.config.method?.toUpperCase()} ${response.config.url} (${duration}ms)`,
-        {
-          status: response.status,
-          data: response.data,
-        }
+        { status: response.status }
       );
     }
 
     return response;
   },
   (error: AxiosError<ApiError>) => {
-    // Log errors
-    console.error('[API Response Error]', {
-      message: error.message,
-      status: error.response?.status,
-      data: error.response?.data,
-    });
+    // Log errors (details only when debug enabled)
+    if (API_DEBUG) {
+      console.error('[API Response Error]', {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data,
+      });
+    }
 
     // Transform error for better handling
     const apiError: ApiError = {
@@ -133,8 +139,12 @@ apiClient.interceptors.response.use(
  * Utility function to handle API errors in components
  */
 export const getErrorMessage = (error: unknown): string => {
+  if (axios.isAxiosError(error)) {
+    return error.response?.data?.message || error.message;
+  }
   if (typeof error === 'object' && error !== null && 'message' in error) {
-    return (error as ApiError).message;
+    const msg = (error as Record<string, unknown>).message;
+    return typeof msg === 'string' ? msg : 'An unexpected error occurred';
   }
   return 'An unexpected error occurred';
 };

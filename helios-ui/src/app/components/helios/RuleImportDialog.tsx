@@ -32,6 +32,13 @@ import type {
   RuleMetadata,
 } from '../../../types/api';
 
+// Maximum import file size (10 MB)
+const MAX_IMPORT_FILE_SIZE = 10 * 1024 * 1024;
+
+// Accepted file extensions and MIME types
+const ACCEPTED_FILE_TYPES = ['.json', '.jsonl'];
+const ACCEPTED_MIME_TYPES = ['application/json', 'text/plain', ''];
+
 // Supported operators that match the backend Predicate.Operator enum
 const SUPPORTED_OPERATORS = new Set([
   'EQUAL_TO', 'NOT_EQUAL_TO', 'IS_ANY_OF', 'IS_NONE_OF',
@@ -151,8 +158,8 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
       setStep('configure');
       toast.success('Validation complete');
     },
-    onError: (error: any) => {
-      toast.error(`Validation failed: ${error.message}`);
+    onError: () => {
+      toast.error('Validation failed. Please check the file format and try again.');
       setStep('upload');
     }
   });
@@ -199,19 +206,37 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
       }
       setStep('complete');
     },
-    onError: (error: any) => {
-      toast.error(`Import failed: ${error.message}`);
+    onError: () => {
+      toast.error('Import failed. Please try again or check server connectivity.');
       setStep('configure');
     }
   });
 
   const handleFileSelect = (file: File) => {
+    // Validate file extension
+    const ext = '.' + (file.name.split('.').pop()?.toLowerCase() || '');
+    if (!ACCEPTED_FILE_TYPES.includes(ext)) {
+      toast.error(`Unsupported file type. Only ${ACCEPTED_FILE_TYPES.join(', ')} files are accepted.`);
+      return;
+    }
+
+    // Validate MIME type (allow empty since .jsonl may not have a standard MIME)
+    if (file.type && !ACCEPTED_MIME_TYPES.includes(file.type)) {
+      toast.error(`Unsupported file type: ${file.type}. Please upload a JSON or JSONL file.`);
+      return;
+    }
+
+    // Validate file size
+    if (file.size > MAX_IMPORT_FILE_SIZE) {
+      toast.error(`File too large (${(file.size / (1024 * 1024)).toFixed(1)} MB). Maximum size is ${MAX_IMPORT_FILE_SIZE / (1024 * 1024)} MB.`);
+      return;
+    }
+
     setUploadedFile(file);
 
     // Detect format from file extension
-    const ext = file.name.split('.').pop()?.toLowerCase();
-    if (ext === 'jsonl') setSelectedFormat('jsonl');
-    else if (ext === 'json') setSelectedFormat('json');
+    if (ext === '.jsonl') setSelectedFormat('jsonl');
+    else if (ext === '.json') setSelectedFormat('json');
 
     toast.success(`File selected: ${file.name}`);
   };
@@ -305,8 +330,9 @@ export function RuleImportDialog({ open, onOpenChange }: RuleImportDialogProps) 
         rules
       });
 
-    } catch (error: any) {
-      toast.error(`Failed to parse ${selectedFormat.toUpperCase()}: ${error.message}`);
+    } catch (error) {
+      const detail = error instanceof SyntaxError ? 'Invalid JSON syntax' : 'Parse error';
+      toast.error(`Failed to parse ${selectedFormat.toUpperCase()}: ${detail}`);
       setStep('upload');
     }
   };
