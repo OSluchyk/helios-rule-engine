@@ -1,8 +1,9 @@
-import { useState, lazy, Suspense } from 'react'
+import { useState, useCallback, lazy, Suspense } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs'
 import { RuleListView } from './components/helios/RuleListView'
 import { RuleBuilder } from './components/helios/RuleBuilder'
 import type { RuleMetadata } from '../types/api'
+import type { TestRuleRequest } from './components/helios/UnifiedEvaluationView'
 import { Loader2 } from 'lucide-react'
 
 // Lazy load heavy components to improve initial bundle size and load time
@@ -26,6 +27,7 @@ function LoadingFallback() {
 function App() {
   const [activeTab, setActiveTab] = useState('overview')
   const [editingRule, setEditingRule] = useState<RuleMetadata | null>(null)
+  const [testRuleRequest, setTestRuleRequest] = useState<TestRuleRequest | null>(null)
 
   const handleEditRule = (rule: RuleMetadata) => {
     setEditingRule(rule)
@@ -47,6 +49,16 @@ function App() {
     setEditingRule(clonedRule)
     setActiveTab('builder')
   }
+
+  const handleTestRule = useCallback((ruleCode: string) => {
+    const family = ruleCode.split('.')[0] || 'general'
+    setTestRuleRequest({ ruleCode, family })
+    setActiveTab('evaluation')
+  }, [])
+
+  const handleTestRuleHandled = useCallback(() => {
+    setTestRuleRequest(null)
+  }, [])
 
   const handleRuleCreated = () => {
     setEditingRule(null)
@@ -103,6 +115,7 @@ function App() {
               }}
               onEditRule={handleEditRule}
               onCloneRule={handleCloneRule}
+              onTestRule={handleTestRule}
             />
           </TabsContent>
 
@@ -115,7 +128,10 @@ function App() {
 
           <TabsContent value="evaluation">
             <Suspense fallback={<LoadingFallback />}>
-              <UnifiedEvaluationView />
+              <UnifiedEvaluationView
+                testRuleRequest={testRuleRequest}
+                onTestRuleHandled={handleTestRuleHandled}
+              />
             </Suspense>
           </TabsContent>
 

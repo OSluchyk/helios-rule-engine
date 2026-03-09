@@ -81,9 +81,10 @@ interface RuleListViewProps {
   onNewRule?: () => void;
   onEditRule?: (rule: RuleMetadata) => void;
   onCloneRule?: (rule: RuleMetadata) => void;
+  onTestRule?: (ruleCode: string) => void;
 }
 
-export function RuleListView({ onNewRule, onEditRule, onCloneRule }: RuleListViewProps) {
+export function RuleListView({ onNewRule, onEditRule, onCloneRule, onTestRule }: RuleListViewProps) {
   // API data fetching
   const { data: apiRules, isLoading, error, refetch } = useRules();
 
@@ -269,6 +270,12 @@ export function RuleListView({ onNewRule, onEditRule, onCloneRule }: RuleListVie
   const bulkAction = (action: string) => {
     if (selectedRules.size === 0) {
       toast.error('No rules selected');
+      return;
+    }
+    if (action === 'Test' && onTestRule && selectedRules.size === 1) {
+      // Single selected rule - navigate to evaluation tab with that rule
+      const ruleCode = Array.from(selectedRules)[0];
+      onTestRule(ruleCode);
       return;
     }
     toast.success(`${action} applied to ${selectedRules.size} rules`);
@@ -1278,9 +1285,13 @@ export function RuleListView({ onNewRule, onEditRule, onCloneRule }: RuleListVie
                                       <Button
                                         size="sm"
                                         variant="outline"
-                                        onClick={() =>
-                                          toast.info(`Testing ${rule.rule_code}`)
-                                        }
+                                        onClick={() => {
+                                          if (onTestRule) {
+                                            onTestRule(rule.rule_code);
+                                          } else {
+                                            toast.info(`Testing ${rule.rule_code}`);
+                                          }
+                                        }}
                                       >
                                         <TestTube className="size-4 mr-2" />
                                         Test
@@ -1570,9 +1581,13 @@ export function RuleListView({ onNewRule, onEditRule, onCloneRule }: RuleListVie
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() =>
-                                  toast.info(`Testing ${rule.rule_code}`)
-                                }
+                                onClick={() => {
+                                  if (onTestRule) {
+                                    onTestRule(rule.rule_code);
+                                  } else {
+                                    toast.info(`Testing ${rule.rule_code}`);
+                                  }
+                                }}
                               >
                                 <TestTube className="size-4 mr-2" />
                                 Test

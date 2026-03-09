@@ -1,11 +1,14 @@
 /**
  * Unified Evaluation View - Single event and batch testing in one interface
+ *
+ * Supports rule-level filtering via a multi-select modal and navigation
+ * from the Rules tab "Test" button with pre-selected rules.
  */
 
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useEvaluateWithTrace, useExplainRule, useEvaluateBatch } from '../../../hooks/useEvaluation';
 import { useRules } from '../../../hooks/useRules';
-import type { Event, TraceLevel, BatchEvaluationResult, MatchResult } from '../../../types/api';
+import type { Event, TraceLevel, BatchEvaluationResult, MatchResult, MatchedRule } from '../../../types/api';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
@@ -13,8 +16,19 @@ import { Alert, AlertDescription } from '../ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Label } from '../ui/label';
 import { SearchableSelect, SearchableSelectOption } from '../ui/searchable-select';
+import { RuleFilterModal, type RuleFilterOption } from '../ui/rule-filter-modal';
 
-export function UnifiedEvaluationView() {
+export interface TestRuleRequest {
+  ruleCode: string;
+  family: string;
+}
+
+interface UnifiedEvaluationViewProps {
+  testRuleRequest?: TestRuleRequest | null;
+  onTestRuleHandled?: () => void;
+}
+
+export function UnifiedEvaluationView({ testRuleRequest, onTestRuleHandled }: UnifiedEvaluationViewProps) {
   // Mode toggle
   const [mode, setMode] = useState<'single' | 'batch'>('single');
 
@@ -41,6 +55,10 @@ export function UnifiedEvaluationView() {
   const [selectedFamily, setSelectedFamily] = useState<string>('all');
   const [selectedRuleForExplanation, setSelectedRuleForExplanation] = useState('');
 
+  // Rule filter state
+  const [selectedRuleCodes, setSelectedRuleCodes] = useState<Set<string>>(new Set());
+  const [ruleFilterInitialized, setRuleFilterInitialized] = useState(false);
+
   // Fetch all rules to get families
   const { data: allRules } = useRules();
 
@@ -55,21 +73,74 @@ export function UnifiedEvaluationView() {
     return Array.from(familySet).sort();
   }, [allRules]);
 
-  // Convert rules to searchable select options
-  const ruleOptions = useMemo<SearchableSelectOption[]>(() => {
+  // Build rule filter options
+  const ruleFilterOptions = useMemo<RuleFilterOption[]>(() => {
     if (!allRules) return [];
     return allRules.map(rule => ({
-      value: rule.rule_code,
-      label: rule.rule_code,
-      description: rule.description
+      ruleCode: rule.rule_code,
+      description: rule.description,
+      family: rule.rule_code.split('.')[0] || 'general',
+      enabled: rule.enabled,
     }));
   }, [allRules]);
+
+  // Initialize rule selection: all rules selected by default
+  useEffect(() => {
+    if (allRules && allRules.length > 0 && !ruleFilterInitialized) {
+      setSelectedRuleCodes(new Set(allRules.map(r => r.rule_code)));
+      setRuleFilterInitialized(true);
+    }
+  }, [allRules, ruleFilterInitialized]);
+
+  // When family filter changes, auto-select all rules in that family
+  const handleFamilyChange = useCallback((family: string) => {
+    setSelectedFamily(family);
+    if (!allRules) return;
+    if (family === 'all') {
+      setSelectedRuleCodes(new Set(allRules.map(r => r.rule_code)));
+    } else {
+      setSelectedRuleCodes(new Set(
+        allRules
+          .filter(r => r.rule_code.split('.')[0] === family)
+          .map(r => r.rule_code)
+      ));
+    }
+  }, [allRules]);
+
+  // Handle test rule request from Rules tab
+  useEffect(() => {
+    if (testRuleRequest && allRules && allRules.length > 0) {
+      setMode('single');
+      setSelectedFamily(testRuleRequest.family);
+      setSelectedRuleCodes(new Set([testRuleRequest.ruleCode]));
+      onTestRuleHandled?.();
+    }
+  }, [testRuleRequest, allRules, onTestRuleHandled]);
+
+  // Convert selected rules to searchable select options (only rules in the active filter)
+  const ruleOptions = useMemo<SearchableSelectOption[]>(() => {
+    if (!allRules) return [];
+    return allRules
+      .filter(rule => selectedRuleCodes.has(rule.rule_code))
+      .map(rule => ({
+        value: rule.rule_code,
+        label: rule.rule_code,
+        description: rule.description
+      }));
+  }, [allRules, selectedRuleCodes]);
 
   // Get selected rule data
   const selectedRule = useMemo(() => {
     if (!allRules || !selectedRuleForExplanation) return null;
     return allRules.find(rule => rule.rule_code === selectedRuleForExplanation);
   }, [allRules, selectedRuleForExplanation]);
+
+  // Clear explain selection if the rule is no longer in the active filter
+  useEffect(() => {
+    if (selectedRuleForExplanation && !selectedRuleCodes.has(selectedRuleForExplanation)) {
+      setSelectedRuleForExplanation('');
+    }
+  }, [selectedRuleCodes, selectedRuleForExplanation]);
 
   const evaluateMutation = useEvaluateWithTrace();
   const explainMutation = useExplainRule();
@@ -98,6 +169,12 @@ export function UnifiedEvaluationView() {
       }
     }
   }, [selectedRuleForExplanation]);
+
+  // Filter matched rules by selected rule codes
+  const filterMatchedRules = useCallback((matchedRules: MatchedRule[]): MatchedRule[] => {
+    if (selectedRuleCodes.size === 0) return matchedRules;
+    return matchedRules.filter(r => selectedRuleCodes.has(r.ruleCode));
+  }, [selectedRuleCodes]);
 
   const handleEvaluateSingle = () => {
     try {
@@ -171,9 +248,13 @@ export function UnifiedEvaluationView() {
   const getFilteredAndSortedResults = (): MatchResult[] => {
     if (!batchResult) return [];
 
-    let filtered = batchResult.results;
+    // Apply rule filter to each result's matched rules
+    let filtered = batchResult.results.map(r => ({
+      ...r,
+      matchedRules: filterMatchedRules(r.matchedRules),
+    }));
 
-    // Apply filter
+    // Apply match status filter
     if (filterStatus === 'matched') {
       filtered = filtered.filter((r) => r.matchedRules.length > 0);
     } else if (filterStatus === 'unmatched') {
@@ -256,6 +337,12 @@ export function UnifiedEvaluationView() {
     URL.revokeObjectURL(url);
   };
 
+  // Get filtered single-event matched rules
+  const filteredSingleMatchedRules = useMemo(() => {
+    if (!evaluateMutation.data) return [];
+    return filterMatchedRules(evaluateMutation.data.match_result.matchedRules);
+  }, [evaluateMutation.data, filterMatchedRules]);
+
   return (
     <div className="space-y-6">
       <div>
@@ -336,7 +423,7 @@ export function UnifiedEvaluationView() {
                 <Label htmlFor="family-filter" className="block text-sm font-medium mb-2">
                   Rule Family Filter
                 </Label>
-                <Select value={selectedFamily} onValueChange={setSelectedFamily}>
+                <Select value={selectedFamily} onValueChange={handleFamilyChange}>
                   <SelectTrigger id="family-filter">
                     <SelectValue placeholder="All families" />
                   </SelectTrigger>
@@ -350,21 +437,33 @@ export function UnifiedEvaluationView() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Evaluate against specific rule family or all rules
+                  Filter by rule family, then select specific rules below
                 </p>
+              </div>
+
+              <div>
+                <Label className="block text-sm font-medium mb-2">
+                  Rule Filter
+                </Label>
+                <RuleFilterModal
+                  rules={ruleFilterOptions}
+                  selectedRuleCodes={selectedRuleCodes}
+                  onSelectionChange={setSelectedRuleCodes}
+                  familyFilter={selectedFamily}
+                />
               </div>
 
               <Button
                 onClick={handleEvaluateSingle}
-                disabled={evaluateMutation.isPending}
+                disabled={evaluateMutation.isPending || selectedRuleCodes.size === 0}
                 className="w-full"
               >
-                {evaluateMutation.isPending ? 'Evaluating...' : 'Evaluate Event'}
+                {evaluateMutation.isPending ? 'Evaluating...' : `Evaluate Event (${selectedRuleCodes.size} rules)`}
               </Button>
             </CardContent>
           </Card>
 
-          {/* Right Panel: Results (same as original) */}
+          {/* Right Panel: Results */}
           <Card>
             <CardHeader>
               <CardTitle>Evaluation Results</CardTitle>
@@ -386,7 +485,7 @@ export function UnifiedEvaluationView() {
                       <h3 className="font-semibold mb-2">Summary</h3>
                       <div className="grid grid-cols-2 gap-2 text-sm">
                         <div>Matched Rules:</div>
-                        <div className="font-mono">{evaluateMutation.data.match_result.matchedRules.length}</div>
+                        <div className="font-mono">{filteredSingleMatchedRules.length}</div>
                         <div>Evaluation Time:</div>
                         <div className="font-mono">{formatNanos(evaluateMutation.data.match_result.evaluationTimeNanos)}</div>
                         <div>Predicates Evaluated:</div>
@@ -396,10 +495,10 @@ export function UnifiedEvaluationView() {
                       </div>
                     </div>
 
-                    {evaluateMutation.data.match_result.matchedRules.length > 0 ? (
+                    {filteredSingleMatchedRules.length > 0 ? (
                       <div className="space-y-2">
                         <h3 className="font-semibold">Matched Rules:</h3>
-                        {evaluateMutation.data.match_result.matchedRules.map((rule) => (
+                        {filteredSingleMatchedRules.map((rule) => (
                           <div key={rule.ruleId} className="p-3 border rounded-lg">
                             <div className="flex items-start justify-between">
                               <div>
@@ -416,7 +515,7 @@ export function UnifiedEvaluationView() {
                     ) : (
                       <Alert>
                         <AlertDescription>
-                          No rules matched this event.
+                          No rules matched this event{selectedRuleCodes.size < (allRules?.length ?? 0) ? ' (within selected rules)' : ''}.
                         </AlertDescription>
                       </Alert>
                     )}
@@ -691,7 +790,7 @@ export function UnifiedEvaluationView() {
                 <Label htmlFor="batch-family-filter" className="block text-sm font-medium mb-2">
                   Rule Family Filter
                 </Label>
-                <Select value={selectedFamily} onValueChange={setSelectedFamily}>
+                <Select value={selectedFamily} onValueChange={handleFamilyChange}>
                   <SelectTrigger id="batch-family-filter">
                     <SelectValue placeholder="All families" />
                   </SelectTrigger>
@@ -705,16 +804,28 @@ export function UnifiedEvaluationView() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Evaluate against specific rule family or all rules
+                  Filter by rule family, then select specific rules below
                 </p>
+              </div>
+
+              <div>
+                <Label className="block text-sm font-medium mb-2">
+                  Rule Filter
+                </Label>
+                <RuleFilterModal
+                  rules={ruleFilterOptions}
+                  selectedRuleCodes={selectedRuleCodes}
+                  onSelectionChange={setSelectedRuleCodes}
+                  familyFilter={selectedFamily}
+                />
               </div>
 
               <Button
                 onClick={handleEvaluateBatch}
-                disabled={!eventsJson.trim() || evaluateBatch.isPending}
+                disabled={!eventsJson.trim() || evaluateBatch.isPending || selectedRuleCodes.size === 0}
                 className="w-full"
               >
-                {evaluateBatch.isPending ? 'Evaluating...' : 'Evaluate Batch'}
+                {evaluateBatch.isPending ? 'Evaluating...' : `Evaluate Batch (${selectedRuleCodes.size} rules)`}
               </Button>
 
               {evaluateBatch.isError && (
@@ -842,14 +953,14 @@ export function UnifiedEvaluationView() {
                         variant={filterStatus === 'matched' ? 'default' : 'outline'}
                         size="sm"
                       >
-                        Matched ({batchResult.results.filter((r) => r.matchedRules.length > 0).length})
+                        Matched ({batchResult.results.filter((r) => filterMatchedRules(r.matchedRules).length > 0).length})
                       </Button>
                       <Button
                         onClick={() => setFilterStatus('unmatched')}
                         variant={filterStatus === 'unmatched' ? 'default' : 'outline'}
                         size="sm"
                       >
-                        Unmatched ({batchResult.results.filter((r) => r.matchedRules.length === 0).length})
+                        Unmatched ({batchResult.results.filter((r) => filterMatchedRules(r.matchedRules).length === 0).length})
                       </Button>
                     </div>
                   </div>
