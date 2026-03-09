@@ -1,0 +1,17 @@
+
+# Claude Code
+.claude/
+../.claude/
+
+# IDE
+.idea/
+**/.idea/
+
+# H2 databases
+*.mv.db
+*.trace.db
+
+# Output files
+output-git.txt
+rules.json
+code_review_*.md
