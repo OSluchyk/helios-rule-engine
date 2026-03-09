@@ -46,6 +46,7 @@ import {
   ChevronLeft,
   ChevronsLeft,
   ChevronsRight,
+  ChevronDown,
   Tag,
   X,
   Loader2
@@ -94,6 +95,8 @@ export function RuleListView({ onNewRule, onEditRule, onCloneRule, onTestRule }:
   const [statusFilter, setStatusFilter] = useState<string[]>(['active', 'inactive', 'draft']);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [customTagInput, setCustomTagInput] = useState('');
+  const [tagSectionOpen, setTagSectionOpen] = useState(false);
+  const [showAllCustomTags, setShowAllCustomTags] = useState(false);
   const [compilationStatusFilter, setCompilationStatusFilter] = useState<string>('all');
 
   // Debounce search query to reduce re-renders during typing (300ms delay)
@@ -519,136 +522,152 @@ export function RuleListView({ onNewRule, onEditRule, onCloneRule, onTestRule }:
             </div>
 
             {/* Tag Filter */}
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Tag className="size-4" />
-                <label className="font-medium">Filter by Tags</label>
-              </div>
-
-              {/* Predefined Tags */}
-              <div className="space-y-2">
-                <div className="text-xs font-medium text-gray-500 uppercase">
-                  Predefined Tags
+            <div className="space-y-2">
+              <button
+                onClick={() => setTagSectionOpen(!tagSectionOpen)}
+                className="flex items-center justify-between w-full group"
+              >
+                <div className="flex items-center gap-2">
+                  <Tag className="size-4" />
+                  <label className="font-medium cursor-pointer">Filter by Tags</label>
+                  {selectedTags.length > 0 && (
+                    <Badge variant="secondary" className="text-xs h-5 px-1.5">
+                      {selectedTags.length}
+                    </Badge>
+                  )}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(PREDEFINED_TAGS).map(([tag, config]) => {
-                    const count = (apiRules || []).filter(
-                      r => r.tags && r.tags.includes(tag)
-                    ).length;
-                    if (count === 0) return null;
+                <ChevronDown className={`size-4 text-gray-400 transition-transform ${tagSectionOpen ? 'rotate-180' : ''}`} />
+              </button>
 
-                    return (
-                      <TooltipProvider key={tag}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              onClick={() => toggleTagFilter(tag)}
-                              className={`
-                                px-2 py-1 rounded-md text-xs font-medium border transition-all
-                                ${
-                                  selectedTags.includes(tag)
-                                    ? `${getTagStyle(tag)} ring-2 ring-offset-1 ring-current`
-                                    : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
-                                }
-                              `}
-                            >
-                              {tag} ({count})
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>{config.description}</TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Custom Tags */}
-              {allTags.some(tag => !PREDEFINED_TAGS[tag as PredefinedTagKey]) && (
-                <div className="space-y-2">
-                  <div className="text-xs font-medium text-gray-500 uppercase">
-                    Custom Tags
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {allTags
-                      .filter(tag => !PREDEFINED_TAGS[tag as PredefinedTagKey])
-                      .map(tag => {
-                        const count = (apiRules || []).filter(
-                          r => r.tags && r.tags.includes(tag)
-                        ).length;
-                        return (
-                          <button
-                            key={tag}
-                            onClick={() => toggleTagFilter(tag)}
-                            className={`
-                              px-2 py-1 rounded-md text-xs font-medium border transition-all
-                              ${
-                                selectedTags.includes(tag)
-                                  ? `${getTagStyle(tag)} ring-2 ring-offset-1 ring-current`
-                                  : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
-                              }
-                            `}
-                          >
-                            {tag} ({count})
-                          </button>
-                        );
-                      })}
-                  </div>
+              {/* Active Tag Filters - always visible when tags selected */}
+              {selectedTags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedTags.map(tag => (
+                    <Badge key={tag} className={`${getTagStyle(tag)} gap-1 pr-1 text-xs`}>
+                      {tag}
+                      <button
+                        onClick={() => toggleTagFilter(tag)}
+                        className="hover:bg-black/10 rounded-full p-0.5"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                  <button
+                    onClick={() => setSelectedTags([])}
+                    className="text-xs text-gray-400 hover:text-gray-600 px-1"
+                  >
+                    Clear all
+                  </button>
                 </div>
               )}
 
-              {/* Add Custom Tag Input */}
-              <div className="space-y-2 pt-2 border-t">
-                <div className="text-xs font-medium text-gray-500 uppercase">
-                  Add Custom Tag Filter
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="e.g., my-custom-tag"
-                    value={customTagInput}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCustomTagInput(e.target.value)}
-                    onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && addCustomTag()}
-                    className="text-sm"
-                  />
-                  <Button
-                    size="sm"
-                    onClick={addCustomTag}
-                    disabled={!customTagInput.trim()}
-                  >
-                    <Plus className="size-4" />
-                  </Button>
-                </div>
-                <p className="text-xs text-gray-500">Filter by any custom tag name</p>
-              </div>
-
-              {/* Active Tag Filters */}
-              {selectedTags.length > 0 && (
-                <div className="space-y-2 pt-2 border-t">
-                  <div className="flex items-center justify-between">
+              {tagSectionOpen && (
+                <div className="space-y-3">
+                  {/* Predefined Tags */}
+                  <div className="space-y-1.5">
                     <div className="text-xs font-medium text-gray-500 uppercase">
-                      Active Tag Filters
+                      Predefined Tags
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setSelectedTags([])}
-                      className="h-6 text-xs"
-                    >
-                      Clear
-                    </Button>
+                    <div className="flex flex-wrap gap-1.5">
+                      {Object.entries(PREDEFINED_TAGS).map(([tag, config]) => {
+                        const count = (apiRules || []).filter(
+                          r => r.tags && r.tags.includes(tag)
+                        ).length;
+                        if (count === 0) return null;
+
+                        return (
+                          <TooltipProvider key={tag}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={() => toggleTagFilter(tag)}
+                                  className={`
+                                    px-2 py-0.5 rounded-md text-xs font-medium border transition-all
+                                    ${
+                                      selectedTags.includes(tag)
+                                        ? `${getTagStyle(tag)} ring-2 ring-offset-1 ring-current`
+                                        : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                                    }
+                                  `}
+                                >
+                                  {tag} ({count})
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>{config.description}</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedTags.map(tag => (
-                      <Badge key={tag} className={`${getTagStyle(tag)} gap-1 pr-1`}>
-                        {tag}
-                        <button
-                          onClick={() => toggleTagFilter(tag)}
-                          className="hover:bg-black/10 rounded-full p-0.5"
-                        >
-                          <X className="size-3" />
-                        </button>
-                      </Badge>
-                    ))}
+
+                  {/* Custom Tags */}
+                  {(() => {
+                    const customTags = allTags.filter(tag => !PREDEFINED_TAGS[tag as PredefinedTagKey]);
+                    if (customTags.length === 0) return null;
+
+                    const MAX_VISIBLE = 12;
+                    const visibleTags = showAllCustomTags ? customTags : customTags.slice(0, MAX_VISIBLE);
+                    const hiddenCount = customTags.length - MAX_VISIBLE;
+
+                    return (
+                      <div className="space-y-1.5">
+                        <div className="text-xs font-medium text-gray-500 uppercase">
+                          Custom Tags ({customTags.length})
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {visibleTags.map(tag => {
+                            const count = (apiRules || []).filter(
+                              r => r.tags && r.tags.includes(tag)
+                            ).length;
+                            return (
+                              <button
+                                key={tag}
+                                onClick={() => toggleTagFilter(tag)}
+                                className={`
+                                  px-2 py-0.5 rounded-md text-xs font-medium border transition-all
+                                  ${
+                                    selectedTags.includes(tag)
+                                      ? `${getTagStyle(tag)} ring-2 ring-offset-1 ring-current`
+                                      : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                                  }
+                                `}
+                              >
+                                {tag} ({count})
+                              </button>
+                            );
+                          })}
+                          {hiddenCount > 0 && (
+                            <button
+                              onClick={() => setShowAllCustomTags(!showAllCustomTags)}
+                              className="px-2 py-0.5 rounded-md text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors"
+                            >
+                              {showAllCustomTags ? 'Show less' : `+${hiddenCount} more`}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Add Custom Tag Input */}
+                  <div className="flex gap-2 pt-2 border-t">
+                    <Input
+                      placeholder="e.g., my-custom-tag"
+                      value={customTagInput}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCustomTagInput(e.target.value)}
+                      onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && addCustomTag()}
+                      className="text-sm h-8"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={addCustomTag}
+                      disabled={!customTagInput.trim()}
+                      className="h-8"
+                    >
+                      <Plus className="size-4" />
+                    </Button>
                   </div>
                 </div>
               )}
