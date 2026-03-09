@@ -1,12 +1,14 @@
 # ============================================================
 # Maven / Java Build
 # ============================================================
+helios-mock-ui/
 target/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
 *.class
 dependency-reduced-pom.xml
+**/code_review*.md
 
 # ============================================================
 # IntelliJ IDEA
