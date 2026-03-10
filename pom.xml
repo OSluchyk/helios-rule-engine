@@ -23,6 +23,7 @@
         <module>helios-evaluator</module>
         <module>helios-service</module>
         <module>helios-benchmarks</module>
+        <module>helios-gatling</module>
     </modules>
 
     <!-- ═══════════════════════════════════════════════════════════════════════════════ -->
