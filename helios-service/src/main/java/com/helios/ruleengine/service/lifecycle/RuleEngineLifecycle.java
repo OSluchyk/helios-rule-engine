@@ -4,6 +4,7 @@ import com.helios.ruleengine.api.model.RuleDefinition;
 import com.helios.ruleengine.api.model.RuleMetadata;
 import com.helios.ruleengine.infra.management.EngineModelManager;
 import com.helios.ruleengine.infra.telemetry.TracingService;
+import com.helios.ruleengine.service.monitoring.RuleMetricsAggregator;
 import com.helios.ruleengine.service.repository.JdbcRuleRepository;
 import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.StartupEvent;
@@ -36,6 +37,9 @@ public class RuleEngineLifecycle {
     @Inject
     JdbcRuleRepository ruleRepository;
 
+    @Inject
+    RuleMetricsAggregator metricsAggregator;
+
     /**
      * Called when the application starts.
      * Loads rules from the database and compiles the engine model.
@@ -44,6 +48,7 @@ public class RuleEngineLifecycle {
         logger.info("Starting Helios Rule Engine with Quarkus");
         modelManager.start();
         loadRulesFromDatabase();
+        metricsAggregator.startThroughputSampler();
         logger.info("Rule Engine is ready to serve requests");
     }
 
@@ -97,6 +102,7 @@ public class RuleEngineLifecycle {
      */
     void onStop(@Observes ShutdownEvent event) {
         logger.info("Shutting down Rule Engine");
+        metricsAggregator.shutdownThroughputSampler();
         modelManager.shutdown();
         tracingService.shutdown();
         logger.info("Rule Engine shutdown complete");

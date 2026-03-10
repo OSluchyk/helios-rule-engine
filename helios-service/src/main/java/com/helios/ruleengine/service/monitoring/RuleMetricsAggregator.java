@@ -10,7 +10,11 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
@@ -45,6 +49,50 @@ public class RuleMetricsAggregator {
     // Cache hit tracking
     private final LongAdder cacheHits = new LongAdder();
     private final LongAdder cacheMisses = new LongAdder();
+
+    // Throughput sampler
+    private static final Logger logger = Logger.getLogger(RuleMetricsAggregator.class.getName());
+    private volatile ScheduledExecutorService throughputSampler;
+    private volatile long previousEventCount = 0;
+
+    /**
+     * Starts the background throughput sampler that records events/second every second.
+     * Should be called once during application startup.
+     */
+    public void startThroughputSampler() {
+        if (throughputSampler != null) {
+            return;
+        }
+        throughputSampler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "metrics-throughput-sampler");
+            t.setDaemon(true);
+            return t;
+        });
+        previousEventCount = totalEventEvaluations.sum();
+        throughputSampler.scheduleAtFixedRate(() -> {
+            try {
+                long currentCount = totalEventEvaluations.sum();
+                long delta = currentCount - previousEventCount;
+                previousEventCount = currentCount;
+                recordThroughput(delta);
+            } catch (Exception e) {
+                logger.warning("Throughput sampling error: " + e.getMessage());
+            }
+        }, 1, 1, TimeUnit.SECONDS);
+        logger.info("Throughput sampler started (1-second interval)");
+    }
+
+    /**
+     * Stops the background throughput sampler.
+     * Should be called during application shutdown.
+     */
+    public void shutdownThroughputSampler() {
+        if (throughputSampler != null) {
+            throughputSampler.shutdownNow();
+            throughputSampler = null;
+            logger.info("Throughput sampler stopped");
+        }
+    }
 
     /**
      * Record a rule evaluation event.
