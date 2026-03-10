@@ -290,6 +290,7 @@ public class CompilationResource {
     /**
      * Get compilation progress stream.
      * Returns Server-Sent Events (SSE) with real-time compilation stage updates.
+     * Compiles all enabled rules from the database.
      *
      * @return SSE stream of compilation events
      */
@@ -298,11 +299,16 @@ public class CompilationResource {
     @Produces(MediaType.SERVER_SENT_EVENTS)
     @RestStreamElementType(MediaType.APPLICATION_JSON)
     public Multi<CompilationEvent> getCompilationProgress() {
-        // Stream events as they are generated using emitter-based approach
         return Multi.createFrom().emitter(emitter -> {
             new Thread(() -> {
                 try {
-                    modelManager.recompile(new CompilationListener() {
+                    List<RuleMetadata> allRules = ruleRepository().findAll();
+                    List<RuleDefinition> definitions = allRules.stream()
+                            .filter(r -> r.enabled() != null && r.enabled())
+                            .map(this::toRuleDefinition)
+                            .collect(Collectors.toList());
+
+                    modelManager.compileFromRules(definitions, new CompilationListener() {
                         @Override
                         public void onStageStart(String stageName, int stageNumber, int totalStages) {
                             emitter.emit(new CompilationEvent(

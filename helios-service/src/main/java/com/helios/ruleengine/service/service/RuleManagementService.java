@@ -4,7 +4,7 @@
  */
 package com.helios.ruleengine.service.service;
 
-import com.helios.ruleengine.api.IRuleCompiler;
+import com.helios.ruleengine.api.model.RuleDefinition;
 import com.helios.ruleengine.api.model.RuleMetadata;
 import com.helios.ruleengine.api.model.RuleVersion;
 import com.helios.ruleengine.infra.management.EngineModelManager;
@@ -16,11 +16,7 @@ import io.opentelemetry.context.Scope;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -51,9 +47,6 @@ public class RuleManagementService {
 
     @Inject
     EngineModelManager modelManager;
-
-    @Inject
-    IRuleCompiler compiler;
 
     @Inject
     Tracer tracer;
@@ -363,128 +356,34 @@ public class RuleManagementService {
     }
 
     /**
-     * Schedule asynchronous recompilation.
+     * Schedule asynchronous recompilation from the database.
      * Uses a single-threaded executor to ensure only one recompilation runs at a time.
      */
     private void scheduleRecompilation() {
         CompletableFuture.runAsync(() -> {
-            try {
-                Span span = tracer.spanBuilder("async-recompilation").startSpan();
-                try (Scope scope = span.makeCurrent()) {
-                    // Write current rules to temporary file
-                    Path tempFile = writeTempRulesFile();
+            Span span = tracer.spanBuilder("async-recompilation").startSpan();
+            try (Scope scope = span.makeCurrent()) {
+                List<RuleMetadata> allRules = ruleRepository().findAll();
+                List<RuleDefinition> definitions = allRules.stream()
+                        .filter(r -> r.enabled() != null && r.enabled())
+                        .map(r -> new RuleDefinition(
+                                r.ruleCode(), r.conditions(),
+                                r.priority() != null ? r.priority() : 0,
+                                r.description(),
+                                r.enabled() != null ? r.enabled() : true))
+                        .toList();
 
-                    // Recompile from file
-                    var newModel = compiler.compile(tempFile);
-
-                    // Hot-swap the model
-                    modelManager.updateModel(newModel);
-
-                    span.addEvent("Recompilation successful");
-
-                } catch (Exception e) {
-                    span.recordException(e);
-                    System.err.println("Recompilation failed: " + e.getMessage());
-                    e.printStackTrace();
-                } finally {
-                    span.end();
-                }
+                modelManager.compileFromRules(definitions, null);
+                span.addEvent("Recompilation successful");
+                span.setAttribute("ruleCount", definitions.size());
             } catch (Exception e) {
-                System.err.println("Recompilation scheduling failed: " + e.getMessage());
+                span.recordException(e);
+                System.err.println("Recompilation failed: " + e.getMessage());
                 e.printStackTrace();
+            } finally {
+                span.end();
             }
         }, recompilationExecutor);
-    }
-
-    /**
-     * Write current rules to a temporary JSON file for compilation.
-     *
-     * @return path to the temporary file
-     * @throws IOException if file writing fails
-     */
-    private Path writeTempRulesFile() throws IOException {
-        List<RuleMetadata> rules = ruleRepository().findAll();
-
-        // Convert to JSON
-        String json = convertRulesToJson(rules);
-
-        // Write to temp file
-        Path tempFile = Files.createTempFile("helios-rules-", ".json");
-        Files.writeString(tempFile, json);
-
-        return tempFile;
-    }
-
-    /**
-     * Convert rules to JSON format.
-     * Simple implementation - in production, use Jackson or similar.
-     */
-    private String convertRulesToJson(List<RuleMetadata> rules) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("[\n");
-
-        for (int i = 0; i < rules.size(); i++) {
-            RuleMetadata rule = rules.get(i);
-
-            sb.append("  {\n");
-            sb.append("    \"rule_code\": \"").append(rule.ruleCode()).append("\",\n");
-            sb.append("    \"description\": \"").append(rule.description() != null ? rule.description() : "").append("\",\n");
-            sb.append("    \"priority\": ").append(rule.priority()).append(",\n");
-            sb.append("    \"enabled\": ").append(rule.enabled()).append(",\n");
-            sb.append("    \"conditions\": [\n");
-
-            for (int j = 0; j < rule.conditions().size(); j++) {
-                var condition = rule.conditions().get(j);
-
-                sb.append("      {\n");
-                sb.append("        \"field\": \"").append(condition.field()).append("\",\n");
-                sb.append("        \"operator\": \"").append(condition.operator()).append("\",\n");
-
-                // Handle value based on type
-                Object value = condition.value();
-                if (value instanceof String) {
-                    // Escape quotes in string values
-                    String escapedValue = ((String) value).replace("\"", "\\\"");
-                    sb.append("        \"value\": \"").append(escapedValue).append("\"\n");
-                } else if (value instanceof List<?>) {
-                    // Handle array values (for IN/NOT_IN operators)
-                    sb.append("        \"value\": [");
-                    List<?> list = (List<?>) value;
-                    for (int k = 0; k < list.size(); k++) {
-                        Object item = list.get(k);
-                        if (item instanceof String) {
-                            String escapedItem = ((String) item).replace("\"", "\\\"");
-                            sb.append("\"").append(escapedItem).append("\"");
-                        } else {
-                            sb.append(item);
-                        }
-                        if (k < list.size() - 1) {
-                            sb.append(", ");
-                        }
-                    }
-                    sb.append("]\n");
-                } else {
-                    // Handle numbers and other types
-                    sb.append("        \"value\": ").append(value).append("\n");
-                }
-
-                sb.append("      }");
-                if (j < rule.conditions().size() - 1) {
-                    sb.append(",");
-                }
-                sb.append("\n");
-            }
-
-            sb.append("    ]\n");
-            sb.append("  }");
-            if (i < rules.size() - 1) {
-                sb.append(",");
-            }
-            sb.append("\n");
-        }
-
-        sb.append("]\n");
-        return sb.toString();
     }
 
     /**

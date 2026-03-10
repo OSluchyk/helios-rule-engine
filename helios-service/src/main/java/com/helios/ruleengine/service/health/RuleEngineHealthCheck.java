@@ -23,17 +23,18 @@ public class RuleEngineHealthCheck implements HealthCheck {
     public HealthCheckResponse call() {
         EngineModel model = modelManager.getEngineModel();
 
-        if (model != null && model.getNumRules() > 0) {
+        if (model != null) {
             return HealthCheckResponse.builder()
                     .name("rule-engine")
                     .up()
                     .withData("numRules", (long) model.getNumRules())
+                    .withData("status", model.getNumRules() > 0 ? "active" : "empty_awaiting_rules")
                     .build();
         } else {
             return HealthCheckResponse.builder()
                     .name("rule-engine")
                     .down()
-                    .withData("reason", "EngineModel not loaded or no rules present")
+                    .withData("reason", "EngineModel not initialized")
                     .build();
         }
     }

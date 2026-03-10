@@ -49,6 +49,10 @@ public class EngineModelManager implements IEngineModelManager {
      */
     private Consumer<EngineModel> cacheWarmupCallback = null;
 
+    /**
+     * Creates an EngineModelManager that loads rules from a file on startup
+     * and watches it for changes. Used by benchmarks and standalone mode.
+     */
     public EngineModelManager(Path rulesPath, Tracer tracer, IRuleCompiler compiler)
             throws CompilationException, IOException {
         this.rulesPath = rulesPath;
@@ -68,7 +72,25 @@ public class EngineModelManager implements IEngineModelManager {
             logger.info("Rules file not found: " + rulesPath + ". Starting with empty model.");
             activeModel.set(EngineModel.empty());
         }
+    }
 
+    /**
+     * Creates an EngineModelManager without file-based loading.
+     * Starts with an empty model; rules must be loaded via compileFromRules().
+     * Used when the database is the primary source of truth.
+     */
+    public EngineModelManager(Tracer tracer, IRuleCompiler compiler) {
+        this.rulesPath = null;
+        this.tracer = tracer;
+        this.compiler = compiler;
+        this.compiler.setTracer(tracer);
+        this.monitoringExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "Rule-File-Monitor");
+            t.setDaemon(true);
+            return t;
+        });
+        activeModel.set(EngineModel.empty());
+        logger.info("EngineModelManager initialized in database mode (no file monitoring).");
     }
 
     public EngineModel getEngineModel() {
@@ -101,7 +123,11 @@ public class EngineModelManager implements IEngineModelManager {
     }
 
     public void start() {
-        monitoringExecutor.scheduleAtFixedRate(this::checkForUpdates, 10, 10, TimeUnit.SECONDS);
+        if (rulesPath != null) {
+            monitoringExecutor.scheduleAtFixedRate(this::checkForUpdates, 10, 10, TimeUnit.SECONDS);
+        } else {
+            logger.info("File monitoring disabled — rules loaded from database.");
+        }
     }
 
     public void shutdown() {
@@ -131,24 +157,7 @@ public class EngineModelManager implements IEngineModelManager {
             activeModel.set(newModel);
             span.setAttribute("newModel.uniqueCombinations", newModel.getNumRules());
             logger.info("Successfully updated to new rule model (CRUD operation).");
-
-            // Trigger cache warmup if callback is configured
-            if (cacheWarmupCallback != null) {
-                Span warmupSpan = tracer.spanBuilder("cache-warmup").startSpan();
-                try (Scope warmupScope = warmupSpan.makeCurrent()) {
-                    logger.info("Starting cache warmup...");
-                    long warmupStart = System.nanoTime();
-                    cacheWarmupCallback.accept(newModel);
-                    long warmupDuration = System.nanoTime() - warmupStart;
-                    warmupSpan.setAttribute("warmupDurationMs", warmupDuration / 1_000_000.0);
-                    logger.info(String.format("Cache warmup completed in %.2f ms", warmupDuration / 1_000_000.0));
-                } catch (Exception e) {
-                    warmupSpan.recordException(e);
-                    logger.log(Level.WARNING, "Cache warmup failed, continuing with cold cache", e);
-                } finally {
-                    warmupSpan.end();
-                }
-            }
+            triggerCacheWarmup(newModel);
         } catch (Exception e) {
             span.recordException(e);
             logger.log(Level.SEVERE, "Failed to update model", e);
@@ -166,12 +175,13 @@ public class EngineModelManager implements IEngineModelManager {
      * @throws IOException if rules file cannot be read
      */
     public void recompile(CompilationListener listener) throws CompilationException, IOException {
+        if (rulesPath == null) {
+            throw new IllegalStateException("Cannot recompile from file — no rules file configured. Use compileFromRules() instead.");
+        }
         Span span = tracer.spanBuilder("manual-recompile").startSpan();
         try (Scope scope = span.makeCurrent()) {
-            // Set the listener on the compiler
             compiler.setCompilationListener(listener);
 
-            // Trigger recompilation
             long modifiedTime = Files.getLastModifiedTime(rulesPath).toMillis();
             EngineModel newModel = compiler.compile(rulesPath);
             activeModel.set(newModel);
@@ -179,26 +189,8 @@ public class EngineModelManager implements IEngineModelManager {
             span.setAttribute("newModel.uniqueCombinations", newModel.getNumRules());
             logger.info("Successfully recompiled and swapped to new rule model.");
 
-            // Clear the listener after compilation
             compiler.setCompilationListener(null);
-
-            // Trigger cache warmup if callback is configured
-            if (cacheWarmupCallback != null) {
-                Span warmupSpan = tracer.spanBuilder("cache-warmup").startSpan();
-                try (Scope warmupScope = warmupSpan.makeCurrent()) {
-                    logger.info("Starting cache warmup...");
-                    long warmupStart = System.nanoTime();
-                    cacheWarmupCallback.accept(newModel);
-                    long warmupDuration = System.nanoTime() - warmupStart;
-                    warmupSpan.setAttribute("warmupDurationMs", warmupDuration / 1_000_000.0);
-                    logger.info(String.format("Cache warmup completed in %.2f ms", warmupDuration / 1_000_000.0));
-                } catch (Exception e) {
-                    warmupSpan.recordException(e);
-                    logger.log(Level.WARNING, "Cache warmup failed, continuing with cold cache", e);
-                } finally {
-                    warmupSpan.end();
-                }
-            }
+            triggerCacheWarmup(newModel);
         } catch (IOException | RuntimeException e) {
             span.recordException(e);
             throw e;
@@ -212,7 +204,7 @@ public class EngineModelManager implements IEngineModelManager {
 
     /**
      * Compiles and loads a new model from a list of rule definitions.
-     * This is useful for compiling rules loaded from a database.
+     * This is used for compiling rules loaded from a database.
      *
      * @param rules    list of rule definitions to compile
      * @param listener optional compilation listener for progress tracking
@@ -223,37 +215,17 @@ public class EngineModelManager implements IEngineModelManager {
         try (Scope scope = span.makeCurrent()) {
             span.setAttribute("ruleCount", rules.size());
 
-            // Set the listener on the compiler
             if (listener != null) {
                 compiler.setCompilationListener(listener);
             }
 
-            // Compile the rules
             EngineModel newModel = compiler.compile(rules);
             activeModel.set(newModel);
             span.setAttribute("newModel.uniqueCombinations", newModel.getNumRules());
             logger.info("Successfully compiled and loaded " + rules.size() + " rules from database.");
 
-            // Clear the listener after compilation
             compiler.setCompilationListener(null);
-
-            // Trigger cache warmup if callback is configured
-            if (cacheWarmupCallback != null) {
-                Span warmupSpan = tracer.spanBuilder("cache-warmup").startSpan();
-                try (Scope warmupScope = warmupSpan.makeCurrent()) {
-                    logger.info("Starting cache warmup...");
-                    long warmupStart = System.nanoTime();
-                    cacheWarmupCallback.accept(newModel);
-                    long warmupDuration = System.nanoTime() - warmupStart;
-                    warmupSpan.setAttribute("warmupDurationMs", warmupDuration / 1_000_000.0);
-                    logger.info(String.format("Cache warmup completed in %.2f ms", warmupDuration / 1_000_000.0));
-                } catch (Exception e) {
-                    warmupSpan.recordException(e);
-                    logger.log(Level.WARNING, "Cache warmup failed, continuing with cold cache", e);
-                } finally {
-                    warmupSpan.end();
-                }
-            }
+            triggerCacheWarmup(newModel);
         } catch (CompilationException e) {
             span.recordException(e);
             throw e;
@@ -265,158 +237,33 @@ public class EngineModelManager implements IEngineModelManager {
         }
     }
 
-    /**
-     * Update the active model directly (used for dynamic rule updates).
-     * This method atomically swaps in a new model without file-based monitoring.
-     *
-     * @param newModel the new engine model to activate
-     */
-    public void updateModel(EngineModel newModel) {
-        Span span = tracer.spanBuilder("update-model").startSpan();
-        try (Scope scope = span.makeCurrent()) {
-            activeModel.set(newModel);
-            span.setAttribute("newModel.uniqueCombinations", newModel.getNumRules());
-            logger.info("Successfully updated to new rule model (CRUD operation).");
-
-            // Trigger cache warmup if callback is configured
-            if (cacheWarmupCallback != null) {
-                Span warmupSpan = tracer.spanBuilder("cache-warmup").startSpan();
-                try (Scope warmupScope = warmupSpan.makeCurrent()) {
-                    logger.info("Starting cache warmup...");
-                    long warmupStart = System.nanoTime();
-                    cacheWarmupCallback.accept(newModel);
-                    long warmupDuration = System.nanoTime() - warmupStart;
-                    warmupSpan.setAttribute("warmupDurationMs", warmupDuration / 1_000_000.0);
-                    logger.info(String.format("Cache warmup completed in %.2f ms", warmupDuration / 1_000_000.0));
-                } catch (Exception e) {
-                    warmupSpan.recordException(e);
-                    logger.log(Level.WARNING, "Cache warmup failed, continuing with cold cache", e);
-                } finally {
-                    warmupSpan.end();
-                }
+    private void triggerCacheWarmup(EngineModel newModel) {
+        if (cacheWarmupCallback != null) {
+            Span warmupSpan = tracer.spanBuilder("cache-warmup").startSpan();
+            try (Scope warmupScope = warmupSpan.makeCurrent()) {
+                logger.info("Starting cache warmup...");
+                long warmupStart = System.nanoTime();
+                cacheWarmupCallback.accept(newModel);
+                long warmupDuration = System.nanoTime() - warmupStart;
+                warmupSpan.setAttribute("warmupDurationMs", warmupDuration / 1_000_000.0);
+                logger.info(String.format("Cache warmup completed in %.2f ms", warmupDuration / 1_000_000.0));
+            } catch (Exception e) {
+                warmupSpan.recordException(e);
+                logger.log(Level.WARNING, "Cache warmup failed, continuing with cold cache", e);
+            } finally {
+                warmupSpan.end();
             }
-        } catch (Exception e) {
-            span.recordException(e);
-            logger.log(Level.SEVERE, "Failed to update model", e);
-        } finally {
-            span.end();
-        }
-    }
-
-    /**
-     * Manually trigger a recompilation with a compilation listener.
-     * Used for monitoring compilation progress in real-time.
-     *
-     * @param listener compilation listener to receive stage events
-     * @throws CompilationException if compilation fails
-     * @throws IOException if rules file cannot be read
-     */
-    public void recompile(CompilationListener listener) throws CompilationException, IOException {
-        Span span = tracer.spanBuilder("manual-recompile").startSpan();
-        try (Scope scope = span.makeCurrent()) {
-            // Set the listener on the compiler
-            compiler.setCompilationListener(listener);
-
-            // Trigger recompilation
-            long modifiedTime = Files.getLastModifiedTime(rulesPath).toMillis();
-            EngineModel newModel = compiler.compile(rulesPath);
-            activeModel.set(newModel);
-            this.lastModifiedTime = modifiedTime;
-            span.setAttribute("newModel.uniqueCombinations", newModel.getNumRules());
-            logger.info("Successfully recompiled and swapped to new rule model.");
-
-            // Clear the listener after compilation
-            compiler.setCompilationListener(null);
-
-            // Trigger cache warmup if callback is configured
-            if (cacheWarmupCallback != null) {
-                Span warmupSpan = tracer.spanBuilder("cache-warmup").startSpan();
-                try (Scope warmupScope = warmupSpan.makeCurrent()) {
-                    logger.info("Starting cache warmup...");
-                    long warmupStart = System.nanoTime();
-                    cacheWarmupCallback.accept(newModel);
-                    long warmupDuration = System.nanoTime() - warmupStart;
-                    warmupSpan.setAttribute("warmupDurationMs", warmupDuration / 1_000_000.0);
-                    logger.info(String.format("Cache warmup completed in %.2f ms", warmupDuration / 1_000_000.0));
-                } catch (Exception e) {
-                    warmupSpan.recordException(e);
-                    logger.log(Level.WARNING, "Cache warmup failed, continuing with cold cache", e);
-                } finally {
-                    warmupSpan.end();
-                }
-            }
-        } catch (IOException | RuntimeException e) {
-            span.recordException(e);
-            throw e;
-        } catch (Exception e) {
-            span.recordException(e);
-            throw new RuntimeException("Unexpected error during manual recompile", e);
-        } finally {
-            span.end();
-        }
-    }
-
-    /**
-     * Compiles and loads a new model from a list of rule definitions.
-     * This is useful for compiling rules loaded from a database.
-     *
-     * @param rules    list of rule definitions to compile
-     * @param listener optional compilation listener for progress tracking
-     * @throws CompilationException if compilation fails
-     */
-    public void compileFromRules(List<RuleDefinition> rules, CompilationListener listener) throws CompilationException {
-        Span span = tracer.spanBuilder("compile-from-rules").startSpan();
-        try (Scope scope = span.makeCurrent()) {
-            span.setAttribute("ruleCount", rules.size());
-
-            // Set the listener on the compiler
-            if (listener != null) {
-                compiler.setCompilationListener(listener);
-            }
-
-            // Compile the rules
-            EngineModel newModel = compiler.compile(rules);
-            activeModel.set(newModel);
-            span.setAttribute("newModel.uniqueCombinations", newModel.getNumRules());
-            logger.info("Successfully compiled and loaded " + rules.size() + " rules from database.");
-
-            // Clear the listener after compilation
-            compiler.setCompilationListener(null);
-
-            // Trigger cache warmup if callback is configured
-            if (cacheWarmupCallback != null) {
-                Span warmupSpan = tracer.spanBuilder("cache-warmup").startSpan();
-                try (Scope warmupScope = warmupSpan.makeCurrent()) {
-                    logger.info("Starting cache warmup...");
-                    long warmupStart = System.nanoTime();
-                    cacheWarmupCallback.accept(newModel);
-                    long warmupDuration = System.nanoTime() - warmupStart;
-                    warmupSpan.setAttribute("warmupDurationMs", warmupDuration / 1_000_000.0);
-                    logger.info(String.format("Cache warmup completed in %.2f ms", warmupDuration / 1_000_000.0));
-                } catch (Exception e) {
-                    warmupSpan.recordException(e);
-                    logger.log(Level.WARNING, "Cache warmup failed, continuing with cold cache", e);
-                } finally {
-                    warmupSpan.end();
-                }
-            }
-        } catch (CompilationException e) {
-            span.recordException(e);
-            throw e;
-        } catch (Exception e) {
-            span.recordException(e);
-            throw new RuntimeException("Unexpected error during compilation from rules", e);
-        } finally {
-            span.end();
         }
     }
 
     private void checkForUpdates() {
+        if (rulesPath == null) {
+            return;
+        }
         Span span = tracer.spanBuilder("check-for-rule-updates").startSpan();
         try (Scope scope = span.makeCurrent()) {
             span.setAttribute("ruleFile", rulesPath.toString());
             if (!Files.exists(rulesPath)) {
-                // File doesn't exist yet, skip check silently
                 return;
             }
             long currentModifiedTime = Files.getLastModifiedTime(rulesPath).toMillis();
@@ -453,24 +300,7 @@ public class EngineModelManager implements IEngineModelManager {
             this.lastModifiedTime = modifiedTime;
             span.setAttribute("newModel.uniqueCombinations", newModel.getNumRules());
             logger.info("Successfully reloaded and swapped to new rule model.");
-
-            // Trigger cache warmup if callback is configured
-            if (cacheWarmupCallback != null) {
-                Span warmupSpan = tracer.spanBuilder("cache-warmup").startSpan();
-                try (Scope warmupScope = warmupSpan.makeCurrent()) {
-                    logger.info("Starting cache warmup...");
-                    long warmupStart = System.nanoTime();
-                    cacheWarmupCallback.accept(newModel);
-                    long warmupDuration = System.nanoTime() - warmupStart;
-                    warmupSpan.setAttribute("warmupDurationMs", warmupDuration / 1_000_000.0);
-                    logger.info(String.format("Cache warmup completed in %.2f ms", warmupDuration / 1_000_000.0));
-                } catch (Exception e) {
-                    warmupSpan.recordException(e);
-                    logger.log(Level.WARNING, "Cache warmup failed, continuing with cold cache", e);
-                } finally {
-                    warmupSpan.end();
-                }
-            }
+            triggerCacheWarmup(newModel);
         } catch (IOException | RuntimeException e) {
             span.recordException(e);
             throw e;

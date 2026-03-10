@@ -124,6 +124,10 @@
                         </goals>
                     </execution>
                 </executions>
+                <configuration>
+                    <!-- Run from project root so ./data/helios resolves consistently -->
+                    <workingDir>${project.parent.basedir}</workingDir>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

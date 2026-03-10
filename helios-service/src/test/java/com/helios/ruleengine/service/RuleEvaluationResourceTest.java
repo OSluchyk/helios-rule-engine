@@ -2,6 +2,7 @@ package com.helios.ruleengine.service;
 
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.http.ContentType;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -17,6 +18,47 @@ import static org.hamcrest.Matchers.*;
  */
 @QuarkusTest
 public class RuleEvaluationResourceTest {
+
+    private static volatile boolean seeded = false;
+
+    /**
+     * Seed the test database with a rule and trigger compilation.
+     * Since rules are now DB-based, the test DB starts empty.
+     */
+    @BeforeEach
+    void seedTestRules() {
+        if (seeded) return;
+        seeded = true;
+
+        String ruleJson = """
+            {
+                "rule_code": "TEST_RULE_1",
+                "description": "Test rule for unit tests",
+                "priority": 1,
+                "enabled": true,
+                "conditions": [
+                    {"field": "type", "operator": "EQUAL_TO", "value": "test"}
+                ]
+            }
+            """;
+
+        // Create rule — 201 if new, 400 if already exists (idempotent seed)
+        given()
+            .contentType(ContentType.JSON)
+            .body(ruleJson)
+        .when()
+            .post("/api/v1/rules")
+        .then()
+            .statusCode(anyOf(equalTo(201), equalTo(400)));
+
+        // Trigger synchronous compilation so rules are available for evaluation tests
+        given()
+            .contentType(ContentType.JSON)
+        .when()
+            .post("/api/v1/compilation/compile-from-db")
+        .then()
+            .statusCode(200);
+    }
 
     @Test
     public void testHealthEndpoint() {

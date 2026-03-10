@@ -11,7 +11,10 @@ import io.quarkus.runtime.Startup;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
+import org.eclipse.microprofile.config.inject.ConfigProperty;
+
 import javax.sql.DataSource;
+import java.io.File;
 import java.sql.*;
 import java.time.Instant;
 import java.util.*;
@@ -43,17 +46,46 @@ public class JdbcRuleRepository implements RuleRepository {
     @Inject
     DataSource dataSource;
 
+    @ConfigProperty(name = "quarkus.datasource.jdbc.url", defaultValue = "")
+    String jdbcUrl;
+
     /**
      * Initialize database schema on startup.
+     * Also ensures the data directory exists for file-based H2.
      */
     void onStart(@jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event) {
+        ensureDataDirectoryExists();
         logger.info("Initializing rule repository database schema...");
         try {
             createSchemaIfNotExists();
-            logger.info("Rule repository schema initialized successfully");
+            long ruleCount = count();
+            logger.info("Rule repository schema initialized successfully. Existing rules in DB: " + ruleCount);
         } catch (SQLException e) {
             logger.log(Level.SEVERE, "Failed to initialize database schema", e);
             throw new RuntimeException("Failed to initialize database schema", e);
+        }
+    }
+
+    /**
+     * Ensures the parent directory for file-based H2 database exists.
+     */
+    private void ensureDataDirectoryExists() {
+        if (jdbcUrl != null && jdbcUrl.startsWith("jdbc:h2:file:")) {
+            String filePath = jdbcUrl.substring("jdbc:h2:file:".length());
+            // Remove any H2 URL parameters (after ;)
+            int paramIdx = filePath.indexOf(';');
+            if (paramIdx > 0) {
+                filePath = filePath.substring(0, paramIdx);
+            }
+            File dbFile = new File(filePath);
+            File parentDir = dbFile.getParentFile();
+            if (parentDir != null && !parentDir.exists()) {
+                boolean created = parentDir.mkdirs();
+                if (created) {
+                    logger.info("Created database directory: " + parentDir.getAbsolutePath());
+                }
+            }
+            logger.info("H2 database file path: " + dbFile.getAbsolutePath());
         }
     }
 
