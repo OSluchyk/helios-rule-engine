@@ -3,18 +3,15 @@ package com.helios.ruleengine.gatling;
 import io.gatling.javaapi.core.*;
 import io.gatling.javaapi.http.*;
 
-import java.util.*;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.stream.Stream;
-
 import static io.gatling.javaapi.core.CoreDsl.*;
 import static io.gatling.javaapi.http.HttpDsl.*;
 
 /**
  * Spike / stress test simulation for the Helios Rule Engine.
  *
- * <p>Tests engine resilience under sudden bursts of traffic.
- * Pattern: low baseline → sudden spike → back to baseline → repeat.
+ * <p>Seeds the same 20-rule ruleset as the main simulation, then hammers
+ * the engine with sudden bursts of balanced (50/50 match) traffic.
+ * Pattern: baseline → spike → recovery → double-spike → cool-down.
  *
  * <h3>Running</h3>
  * <pre>
@@ -29,58 +26,63 @@ public class SpikeTestSimulation extends Simulation {
     private static final int SPIKE_USERS = Integer.getInteger("gatling.spikeUsers", 200);
     private static final int BASELINE_USERS = Integer.getInteger("gatling.baselineUsers", 10);
 
-    private static final String[] COUNTRIES = {"US", "GB", "DE", "FR", "JP", "XX"};
-
     private final HttpProtocolBuilder httpProtocol = http
             .baseUrl(BASE_URL)
             .acceptHeader("application/json")
             .contentTypeHeader("application/json")
             .shareConnections();
 
-    private static Iterator<Map<String, Object>> feeder() {
-        return Stream.generate(() -> {
-            ThreadLocalRandom rng = ThreadLocalRandom.current();
-            String body = String.format("""
-                    {
-                      "eventId": "spike-%s",
-                      "eventType": "ORDER",
-                      "attributes": {
-                        "AMOUNT": %d,
-                        "COUNTRY": "%s",
-                        "USER_RISK_SCORE": %d,
-                        "type": "order"
-                      }
-                    }""",
-                    UUID.randomUUID(),
-                    rng.nextInt(1, 100_001),
-                    COUNTRIES[rng.nextInt(COUNTRIES.length)],
-                    rng.nextInt(0, 101));
-            return Map.<String, Object>of("body", body);
-        }).iterator();
+    // ── Setup: seed rules before test ────────────────────────────────────────
+
+    @Override
+    public void before() {
+        HeliosTestData.seedRulesAndCompile(BASE_URL);
     }
 
-    private final ScenarioBuilder spikeScenario = scenario("Spike Test")
-            .feed(feeder())
+    // ── Scenarios ────────────────────────────────────────────────────────────
+
+    private final ScenarioBuilder spikeEvaluate = scenario("Spike — Single Evaluate")
+            .feed(HeliosTestData.balancedEventFeeder())
             .exec(
                     http("POST /evaluate")
                             .post("/api/v1/evaluate")
-                            .body(StringBody("#{body}"))
-                            .check(status().in(200, 503)) // allow backpressure
+                            .body(StringBody("#{eventBody}"))
+                            .check(status().in(200, 503)) // allow backpressure under spike
             );
+
+    private final ScenarioBuilder spikeBatch = scenario("Spike — Batch Evaluate")
+            .feed(HeliosTestData.balancedBatchFeeder())
+            .exec(
+                    http("POST /evaluate/batch")
+                            .post("/api/v1/evaluate/batch")
+                            .body(StringBody("#{batchBody}"))
+                            .check(status().in(200, 503))
+            );
+
+    // ── Load profile ─────────────────────────────────────────────────────────
 
     {
         setUp(
-                spikeScenario.injectOpen(
+                // Single-event spike pattern
+                spikeEvaluate.injectOpen(
                         // Phase 1: baseline
                         constantUsersPerSec(BASELINE_USERS).during(15),
                         // Phase 2: spike
                         rampUsers(SPIKE_USERS).during(5),
                         // Phase 3: recovery
                         constantUsersPerSec(BASELINE_USERS).during(15),
-                        // Phase 4: second spike (higher)
+                        // Phase 4: double spike
                         rampUsers(SPIKE_USERS * 2).during(5),
                         // Phase 5: cool-down
                         constantUsersPerSec(BASELINE_USERS).during(20)
+                ),
+                // Batch traffic running alongside
+                spikeBatch.injectOpen(
+                        constantUsersPerSec(2).during(15),
+                        rampUsers(BASELINE_USERS).during(5),
+                        constantUsersPerSec(2).during(15),
+                        rampUsers(BASELINE_USERS * 2).during(5),
+                        constantUsersPerSec(2).during(20)
                 )
         ).protocols(httpProtocol)
          .assertions(

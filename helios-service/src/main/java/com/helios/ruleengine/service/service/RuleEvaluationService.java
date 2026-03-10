@@ -6,6 +6,7 @@ import com.helios.ruleengine.api.model.Event;
 import com.helios.ruleengine.api.model.EvaluationResult;
 import com.helios.ruleengine.api.model.ExplanationResult;
 import com.helios.ruleengine.api.model.MatchResult;
+import com.helios.ruleengine.api.model.RuleMetadata;
 import com.helios.ruleengine.api.model.TraceLevel;
 import com.helios.ruleengine.infra.management.EngineModelManager;
 import com.helios.ruleengine.runtime.evaluation.RuleEvaluator;
@@ -17,8 +18,11 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Logger;
 
 /**
@@ -80,12 +84,12 @@ public class RuleEvaluationService {
         MatchResult result = evaluator.evaluate(event);
         long duration = System.nanoTime() - start;
 
-        // Record per-rule metrics
-        if (result.matchedRules() != null) {
-            for (MatchResult.MatchedRule matchedRule : result.matchedRules()) {
-                metricsAggregator.recordEvaluation(matchedRule.ruleCode(), true, duration);
-            }
-        }
+        // Record per-rule metrics for ALL evaluated rules (matched and non-matched)
+        boolean hasMatches = result.matchedRules() != null && !result.matchedRules().isEmpty();
+        recordPerRuleMetrics(currentModel, result, hasMatches, duration);
+
+        // Record event-level outcome (called for EVERY event, match or not)
+        metricsAggregator.recordEventOutcome(hasMatches, duration);
 
         return result;
     }
@@ -201,15 +205,17 @@ public class RuleEvaluationService {
             minNanos = Math.min(minNanos, duration);
             maxNanos = Math.max(maxNanos, duration);
 
-            if (result.matchedRules() != null && !result.matchedRules().isEmpty()) {
+            boolean hasMatches = result.matchedRules() != null && !result.matchedRules().isEmpty();
+            if (hasMatches) {
                 eventsWithMatches++;
                 totalMatchedRules += result.matchedRules().size();
-
-                // Record per-rule metrics
-                for (MatchResult.MatchedRule matchedRule : result.matchedRules()) {
-                    metricsAggregator.recordEvaluation(matchedRule.ruleCode(), true, duration);
-                }
             }
+
+            // Record per-rule metrics for ALL evaluated rules (matched and non-matched)
+            recordPerRuleMetrics(currentModel, result, hasMatches, duration);
+
+            // Record event-level outcome (called for EVERY event, match or not)
+            metricsAggregator.recordEventOutcome(hasMatches, duration);
 
             results.add(result);
         }
@@ -249,6 +255,31 @@ public class RuleEvaluationService {
     public Map<String, Object> getMetrics() {
         RuleEvaluator evaluator = evaluatorPool.get();
         return evaluator.getDetailedMetrics();
+    }
+
+    /**
+     * Records per-rule evaluation metrics for ALL rules in the model.
+     * Every rule gets an evaluation recorded; matched rules also get a match recorded.
+     * This ensures per-rule match rates reflect actual selectivity (not always 100%).
+     */
+    private void recordPerRuleMetrics(EngineModel model, MatchResult result, boolean hasMatches, long duration) {
+        // Build set of matched rule codes for O(1) lookup
+        Set<String> matchedCodes;
+        if (hasMatches) {
+            matchedCodes = new HashSet<>(result.matchedRules().size());
+            for (MatchResult.MatchedRule mr : result.matchedRules()) {
+                matchedCodes.add(mr.ruleCode());
+            }
+        } else {
+            matchedCodes = Set.of();
+        }
+
+        // Record evaluation for every rule in the model
+        Collection<RuleMetadata> allRules = model.getAllRuleMetadata();
+        for (RuleMetadata meta : allRules) {
+            metricsAggregator.recordEvaluation(
+                meta.ruleCode(), matchedCodes.contains(meta.ruleCode()), duration);
+        }
     }
 
     /**

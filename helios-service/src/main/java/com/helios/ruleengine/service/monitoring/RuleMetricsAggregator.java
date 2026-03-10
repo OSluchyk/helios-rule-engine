@@ -23,6 +23,10 @@ import java.util.stream.Collectors;
 @ApplicationScoped
 public class RuleMetricsAggregator {
 
+    // Event-level counters (every event, regardless of match outcome)
+    private final LongAdder totalEventEvaluations = new LongAdder();
+    private final LongAdder totalEventMatches = new LongAdder();
+
     // Per-rule evaluation counters
     private final ConcurrentMap<String, LongAdder> ruleEvaluationCounts = new ConcurrentHashMap<>();
 
@@ -60,8 +64,21 @@ public class RuleMetricsAggregator {
 
         // Record latency for this rule
         ruleLatencies.computeIfAbsent(ruleCode, k -> new LatencyTracker()).record(durationNanos);
+    }
 
-        // Record global latency sample
+    /**
+     * Record the outcome of a single event evaluation.
+     * Must be called once per event (regardless of whether any rules matched).
+     *
+     * @param matched true if at least one rule matched the event
+     * @param durationNanos total evaluation duration in nanoseconds
+     */
+    public void recordEventOutcome(boolean matched, long durationNanos) {
+        totalEventEvaluations.increment();
+        if (matched) {
+            totalEventMatches.increment();
+        }
+        // Record global latency for every event (including non-matches)
         latencyHistory.add(new LatencySample(Instant.now(), durationNanos));
     }
 
@@ -177,13 +194,8 @@ public class RuleMetricsAggregator {
      * @return Aggregated metrics
      */
     public MetricsSummary getSummary() {
-        long totalEvaluations = ruleEvaluationCounts.values().stream()
-            .mapToLong(LongAdder::sum)
-            .sum();
-
-        long totalMatches = ruleMatchCounts.values().stream()
-            .mapToLong(LongAdder::sum)
-            .sum();
+        long totalEvaluations = totalEventEvaluations.sum();
+        long totalMatches = totalEventMatches.sum();
 
         double overallMatchRate = totalEvaluations > 0 ? (double) totalMatches / totalEvaluations : 0.0;
 
@@ -211,6 +223,8 @@ public class RuleMetricsAggregator {
      * Reset all metrics (for testing or manual reset).
      */
     public void reset() {
+        totalEventEvaluations.reset();
+        totalEventMatches.reset();
         ruleEvaluationCounts.clear();
         ruleMatchCounts.clear();
         ruleLatencies.clear();
