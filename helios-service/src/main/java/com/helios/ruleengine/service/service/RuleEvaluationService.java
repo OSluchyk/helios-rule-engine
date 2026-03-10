@@ -9,6 +9,7 @@ import com.helios.ruleengine.api.model.MatchResult;
 import com.helios.ruleengine.api.model.RuleMetadata;
 import com.helios.ruleengine.api.model.TraceLevel;
 import com.helios.ruleengine.infra.management.EngineModelManager;
+import com.helios.ruleengine.runtime.evaluation.BaseConditionEvaluator;
 import com.helios.ruleengine.runtime.evaluation.RuleEvaluator;
 import com.helios.ruleengine.runtime.model.EngineModel;
 import com.helios.ruleengine.service.monitoring.RuleMetricsAggregator;
@@ -54,6 +55,12 @@ public class RuleEvaluationService {
     });
 
     /**
+     * Thread-local previous cache stats [hits, misses] for computing deltas.
+     * Reset when evaluator is refreshed (hot-reload).
+     */
+    private final ThreadLocal<long[]> prevCacheStats = ThreadLocal.withInitial(() -> new long[]{0, 0});
+
+    /**
      * Evaluates an event against the current rule engine model.
      * Records per-rule metrics for monitoring.
      *
@@ -74,6 +81,7 @@ public class RuleEvaluationService {
                 span.addEvent("Stale model detected. Creating new evaluator.");
                 evaluator = createNewEvaluator(currentModel);
                 evaluatorPool.set(evaluator);
+                prevCacheStats.set(new long[]{0, 0}); // Reset cache delta tracking
             } finally {
                 span.end();
             }
@@ -90,6 +98,9 @@ public class RuleEvaluationService {
 
         // Record event-level outcome (called for EVERY event, match or not)
         metricsAggregator.recordEventOutcome(hasMatches, duration);
+
+        // Record cache hit/miss stats
+        recordCacheStats(evaluator);
 
         return result;
     }
@@ -220,6 +231,9 @@ public class RuleEvaluationService {
             results.add(result);
         }
 
+        // Record cache hit/miss stats (once for entire batch)
+        recordCacheStats(evaluator);
+
         // Calculate statistics
         int totalEvents = events.size();
         long avgNanos = totalNanos / totalEvents;
@@ -255,6 +269,32 @@ public class RuleEvaluationService {
     public Map<String, Object> getMetrics() {
         RuleEvaluator evaluator = evaluatorPool.get();
         return evaluator.getDetailedMetrics();
+    }
+
+    /**
+     * Records base-condition cache hit/miss deltas to the metrics aggregator.
+     * Uses thread-local previous counters to compute per-evaluation deltas,
+     * since BaseConditionEvaluator tracks cumulative counts.
+     */
+    private void recordCacheStats(RuleEvaluator evaluator) {
+        BaseConditionEvaluator bce = evaluator.getBaseConditionEvaluator();
+        if (bce == null) {
+            return;
+        }
+
+        long currentHits = bce.getCacheHits();
+        long currentMisses = bce.getCacheMisses();
+
+        long[] prev = prevCacheStats.get();
+        long deltaHits = currentHits - prev[0];
+        long deltaMisses = currentMisses - prev[1];
+
+        if (deltaHits > 0 || deltaMisses > 0) {
+            metricsAggregator.recordCacheAccesses(deltaHits, deltaMisses);
+        }
+
+        prev[0] = currentHits;
+        prev[1] = currentMisses;
     }
 
     /**
@@ -296,6 +336,7 @@ public class RuleEvaluationService {
                 span.addEvent("Stale model detected. Creating new evaluator.");
                 evaluator = createNewEvaluator(currentModel);
                 evaluatorPool.set(evaluator);
+                prevCacheStats.set(new long[]{0, 0}); // Reset cache delta tracking
             } finally {
                 span.end();
             }

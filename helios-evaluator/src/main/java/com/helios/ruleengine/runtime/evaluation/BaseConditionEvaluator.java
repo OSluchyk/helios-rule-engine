@@ -287,6 +287,20 @@ public class BaseConditionEvaluator {
     }
 
     /**
+     * Returns the cumulative number of cache hits.
+     */
+    public long getCacheHits() {
+        return cacheHits;
+    }
+
+    /**
+     * Returns the cumulative number of cache misses.
+     */
+    public long getCacheMisses() {
+        return cacheMisses;
+    }
+
+    /**
      * Returns metrics about base condition evaluation.
      */
     public Map<String, Object> getMetrics() {

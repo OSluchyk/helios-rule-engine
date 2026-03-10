@@ -105,6 +105,17 @@ public class RuleMetricsAggregator {
     }
 
     /**
+     * Record multiple cache hits and misses at once (bulk recording).
+     *
+     * @param hits number of cache hits to record
+     * @param misses number of cache misses to record
+     */
+    public void recordCacheAccesses(long hits, long misses) {
+        cacheHits.add(hits);
+        cacheMisses.add(misses);
+    }
+
+    /**
      * Get the top N most frequently evaluated rules.
      *
      * @param topN Number of top rules to return
