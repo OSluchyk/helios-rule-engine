@@ -160,6 +160,37 @@ public class MonitoringResource {
     }
 
     /**
+     * Get the top N slowest rules by P99 latency (regardless of threshold).
+     *
+     * @param topN Number of slowest rules to return (default: 10)
+     * @return List of slowest rules sorted by P99 latency descending
+     */
+    @GET
+    @Path("/slowest-rules")
+    public Response getSlowestRules(@QueryParam("topN") @DefaultValue("10") int topN) {
+        Span span = tracer.spanBuilder("http-get-slowest-rules").startSpan();
+        try (Scope scope = span.makeCurrent()) {
+            span.setAttribute("topN", topN);
+
+            var slowestRules = metricsAggregator.getSlowestRules(topN);
+
+            return Response.ok(Map.of(
+                    "topN", topN,
+                    "rules", slowestRules,
+                    "total", slowestRules.size()
+            )).build();
+
+        } catch (Exception e) {
+            span.recordException(e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(Map.of("error", "Internal Server Error"))
+                    .build();
+        } finally {
+            span.end();
+        }
+    }
+
+    /**
      * Get latency history for the last hour.
      *
      * @return Time-series latency data (up to 3600 samples)

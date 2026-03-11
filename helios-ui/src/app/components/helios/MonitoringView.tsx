@@ -7,7 +7,6 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Alert } from '../ui/alert';
-import { Badge } from '../ui/badge';
 import { get } from '../../../api/client';
 
 interface MetricsSummary {
@@ -24,6 +23,9 @@ interface HotRule {
   evaluationCount: number;
   matchCount: number;
   matchRate: number;
+  p99Nanos: number;
+  avgNanos: number;
+  maxNanos: number;
 }
 
 interface SlowRule {
@@ -49,7 +51,7 @@ export function MonitoringView() {
       const [summaryData, hotRulesData, slowRulesData] = await Promise.all([
         get<MetricsSummary>('/monitoring/summary'),
         get<{ topN: number; rules: HotRule[]; total: number }>('/monitoring/hot-rules?topN=10'),
-        get<{ thresholdMs: number; rules: SlowRule[]; total: number }>('/monitoring/slow-rules?thresholdMs=100'),
+        get<{ topN: number; rules: SlowRule[]; total: number }>('/monitoring/slowest-rules?topN=10'),
       ]);
 
       setSummary(summaryData);
@@ -217,6 +219,24 @@ export function MonitoringView() {
                     </div>
                     <div className="text-xs text-muted-foreground">match rate</div>
                   </div>
+                  <div className="text-right">
+                    <div className="text-sm font-semibold text-orange-600">
+                      {formatNanos(rule.p99Nanos)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">P99</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-semibold">
+                      {formatNanos(rule.avgNanos)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Avg</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-semibold">
+                      {formatNanos(rule.maxNanos)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Max</div>
+                  </div>
                 </div>
               ))}
             </div>
@@ -227,42 +247,44 @@ export function MonitoringView() {
       {/* Slow Rules */}
       <Card>
         <CardHeader>
-          <CardTitle>Slow Rules</CardTitle>
-          <CardDescription>Rules with P99 latency above 100ms threshold</CardDescription>
+          <CardTitle>Slowest Rules (Top 10)</CardTitle>
+          <CardDescription>Rules with highest P99 evaluation latency</CardDescription>
         </CardHeader>
         <CardContent>
           {slowRules.length === 0 ? (
             <div className="text-center text-muted-foreground py-8">
-              No slow rules detected. All rules are performing well!
+              No rule latency data available. Start evaluating events to see metrics.
             </div>
           ) : (
             <div className="space-y-3">
-              {slowRules.map((rule) => (
-                <div key={rule.ruleCode} className="p-4 border border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950 rounded-md">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="font-medium">{rule.ruleCode}</div>
-                      <div className="text-sm text-muted-foreground mt-1">
-                        {formatNumber(rule.evaluationCount)} evaluations
-                      </div>
-                    </div>
-                    <Badge variant="destructive">Slow</Badge>
+              {slowRules.map((rule, index) => (
+                <div key={rule.ruleCode} className="flex items-center gap-4 p-3 bg-muted rounded-md">
+                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-orange-500 text-white font-bold text-sm">
+                    {index + 1}
                   </div>
-                  <div className="grid grid-cols-3 gap-4 mt-3">
-                    <div>
-                      <div className="text-xs text-muted-foreground">P99 Latency</div>
-                      <div className="text-sm font-semibold text-red-600">
-                        {formatNanos(rule.p99Nanos)}
-                      </div>
+                  <div className="flex-1">
+                    <div className="font-medium">{rule.ruleCode}</div>
+                    <div className="text-sm text-muted-foreground mt-1">
+                      {formatNumber(rule.evaluationCount)} evaluations
                     </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">Avg Latency</div>
-                      <div className="text-sm font-semibold">{formatNanos(rule.avgNanos)}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-semibold text-orange-600">
+                      {formatNanos(rule.p99Nanos)}
                     </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">Max Latency</div>
-                      <div className="text-sm font-semibold">{formatNanos(rule.maxNanos)}</div>
+                    <div className="text-xs text-muted-foreground">P99</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-semibold">
+                      {formatNanos(rule.avgNanos)}
                     </div>
+                    <div className="text-xs text-muted-foreground">Avg</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-semibold">
+                      {formatNanos(rule.maxNanos)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Max</div>
                   </div>
                 </div>
               ))}
@@ -310,16 +332,17 @@ export function MonitoringView() {
                 </div>
               )}
 
-              {slowRules.length > 5 && (
+              {slowRules.length > 0 && slowRules[0].p99Nanos > 100_000_000 && (
                 <div className="flex items-start gap-3 p-3 bg-orange-50 dark:bg-orange-950 rounded-md">
                   <div className="text-orange-600 mt-0.5">⚠</div>
                   <div>
                     <div className="font-medium text-orange-900 dark:text-orange-100">
-                      Multiple Slow Rules Detected
+                      High P99 Latency Detected
                     </div>
                     <div className="text-sm text-orange-700 dark:text-orange-200">
-                      {slowRules.length} rules have P99 latency above threshold. Review rule
-                      complexity and consider optimization.
+                      Slowest rule ({slowRules[0].ruleCode}) has P99 latency of{' '}
+                      {formatNanos(slowRules[0].p99Nanos)}. Review rule complexity and consider
+                      optimization.
                     </div>
                   </div>
                 </div>

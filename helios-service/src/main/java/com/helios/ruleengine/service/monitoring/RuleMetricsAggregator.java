@@ -177,9 +177,34 @@ public class RuleMetricsAggregator {
                 long matches = ruleMatchCounts.getOrDefault(ruleCode, new LongAdder()).sum();
                 double matchRate = evaluations > 0 ? (double) matches / evaluations : 0.0;
 
-                return new HotRule(ruleCode, evaluations, matches, matchRate);
+                LatencyTracker tracker = ruleLatencies.get(ruleCode);
+                long p99 = tracker != null ? tracker.getP99() : 0;
+                long avg = tracker != null ? tracker.getAvg() : 0;
+                long max = tracker != null ? tracker.getMax() : 0;
+
+                return new HotRule(ruleCode, evaluations, matches, matchRate, p99, avg, max);
             })
             .sorted(Comparator.comparingLong(HotRule::evaluationCount).reversed())
+            .limit(topN)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * Get the top N slowest rules by P99 latency (regardless of threshold).
+     *
+     * @param topN Number of slowest rules to return
+     * @return List of rules sorted by P99 latency (descending)
+     */
+    public List<SlowRule> getSlowestRules(int topN) {
+        return ruleLatencies.entrySet().stream()
+            .map(entry -> {
+                String ruleCode = entry.getKey();
+                LatencyTracker tracker = entry.getValue();
+                long p99 = tracker.getP99();
+                long evaluations = ruleEvaluationCounts.getOrDefault(ruleCode, new LongAdder()).sum();
+                return new SlowRule(ruleCode, p99, tracker.getAvg(), tracker.getMax(), evaluations);
+            })
+            .sorted(Comparator.comparingLong(SlowRule::p99Nanos).reversed())
             .limit(topN)
             .collect(Collectors.toList());
     }
@@ -390,7 +415,8 @@ public class RuleMetricsAggregator {
 
     public record ThroughputSample(Instant timestamp, long eventsProcessed) {}
 
-    public record HotRule(String ruleCode, long evaluationCount, long matchCount, double matchRate) {}
+    public record HotRule(String ruleCode, long evaluationCount, long matchCount, double matchRate,
+                          long p99Nanos, long avgNanos, long maxNanos) {}
 
     public record SlowRule(String ruleCode, long p99Nanos, long avgNanos, long maxNanos, long evaluationCount) {}
 
