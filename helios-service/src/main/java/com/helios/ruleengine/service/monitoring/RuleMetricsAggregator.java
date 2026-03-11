@@ -109,13 +109,15 @@ public class RuleMetricsAggregator {
         // Increment evaluation count
         ruleEvaluationCounts.computeIfAbsent(ruleCode, k -> new LongAdder()).increment();
 
-        // Increment match count if matched
+        // Increment match count and record latency only for matched rules.
+        // Latency is recorded per-matched-rule because the engine uses batch counter-based
+        // evaluation (all rules simultaneously), so there is no individual per-rule timing.
+        // Recording latency only for matched rules provides differentiation:
+        // the metric represents "event evaluation time when this rule matched".
         if (matched) {
             ruleMatchCounts.computeIfAbsent(ruleCode, k -> new LongAdder()).increment();
+            ruleLatencies.computeIfAbsent(ruleCode, k -> new LatencyTracker()).record(durationNanos);
         }
-
-        // Record latency for this rule
-        ruleLatencies.computeIfAbsent(ruleCode, k -> new LatencyTracker()).record(durationNanos);
     }
 
     /**
@@ -184,10 +186,10 @@ public class RuleMetricsAggregator {
     }
 
     /**
-     * Get the top N most frequently evaluated rules.
+     * Get the top N most frequently matched rules.
      *
      * @param topN Number of top rules to return
-     * @return List of hot rules sorted by evaluation count (descending)
+     * @return List of hot rules sorted by match count (descending)
      */
     public List<HotRule> getHotRules(int topN) {
         return ruleEvaluationCounts.entrySet().stream()
@@ -207,7 +209,7 @@ public class RuleMetricsAggregator {
 
                 return new HotRule(ruleCode, evaluations, matches, matchRate, p99, avg, max, ruleHits, ruleMisses);
             })
-            .sorted(Comparator.comparingLong(HotRule::evaluationCount).reversed())
+            .sorted(Comparator.comparingLong(HotRule::matchCount).reversed())
             .limit(topN)
             .collect(Collectors.toList());
     }

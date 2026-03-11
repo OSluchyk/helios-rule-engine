@@ -302,8 +302,11 @@ public class RuleEvaluationService {
 
     /**
      * Records per-rule evaluation metrics for ALL rules in the model.
-     * Every rule gets an evaluation recorded; matched rules also get a match recorded.
-     * Also distributes per-event cache hit/miss deltas to each rule.
+     * Every rule gets an evaluation count recorded; matched rules also get a match recorded.
+     * Latency and cache stats are only attributed to MATCHED rules, because the engine uses
+     * batch counter-based evaluation (all rules simultaneously), so there is no per-rule timing.
+     * By recording latency/cache only for matched rules, each rule's metrics reflect
+     * "evaluation characteristics when this rule fires", providing meaningful differentiation.
      */
     private void recordPerRuleMetrics(EngineModel model, MatchResult result, boolean hasMatches,
                                       long duration, long cacheHits, long cacheMisses) {
@@ -318,13 +321,17 @@ public class RuleEvaluationService {
             matchedCodes = Set.of();
         }
 
-        // Record evaluation and cache stats for every rule in the model
+        // Record evaluation count for every rule in the model (for match rate calculation)
         Collection<RuleMetadata> allRules = model.getAllRuleMetadata();
         for (RuleMetadata meta : allRules) {
-            String ruleCode = meta.ruleCode();
-            metricsAggregator.recordEvaluation(ruleCode, matchedCodes.contains(ruleCode), duration);
-            if (cacheHits > 0 || cacheMisses > 0) {
-                metricsAggregator.recordRuleCacheAccess(ruleCode, cacheHits, cacheMisses);
+            metricsAggregator.recordEvaluation(
+                meta.ruleCode(), matchedCodes.contains(meta.ruleCode()), duration);
+        }
+
+        // Record cache stats only for matched rules (provides differentiation)
+        if ((cacheHits > 0 || cacheMisses > 0) && hasMatches) {
+            for (String matchedCode : matchedCodes) {
+                metricsAggregator.recordRuleCacheAccess(matchedCode, cacheHits, cacheMisses);
             }
         }
     }

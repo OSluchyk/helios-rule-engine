@@ -201,7 +201,7 @@ export function MonitoringView() {
       <Card>
         <CardHeader>
           <CardTitle>Hot Rules (Top 10)</CardTitle>
-          <CardDescription>Most frequently evaluated rules</CardDescription>
+          <CardDescription>Most frequently matched rules · Latency and cache measured when rule matches</CardDescription>
         </CardHeader>
         <CardContent>
           {hotRules.length === 0 ? (
@@ -266,7 +266,7 @@ export function MonitoringView() {
       <Card>
         <CardHeader>
           <CardTitle>Slowest Rules (Top 10)</CardTitle>
-          <CardDescription>Rules with highest P99 evaluation latency</CardDescription>
+          <CardDescription>Rules with highest P99 evaluation latency when matched</CardDescription>
         </CardHeader>
         <CardContent>
           {slowRules.length === 0 ? (
