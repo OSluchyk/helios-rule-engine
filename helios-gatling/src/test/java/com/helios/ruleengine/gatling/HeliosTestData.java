@@ -421,11 +421,32 @@ public final class HeliosTestData {
 
     private static final String[] EVENT_TYPES = {"ORDER", "PAYMENT", "TRANSFER", "LOGIN", "REGISTRATION"};
     private static final String[] MATCH_COUNTRIES = {"US", "GB", "DE", "FR", "JP", "BR", "CA", "AU", "IT", "ES"};
-    private static final String[] MISS_COUNTRIES  = {"XX", "ZZ", "QQ"};
+    // Large pool of countries that appear in NO rule's conditions
+    private static final String[] MISS_COUNTRIES = {
+            "XX", "ZZ", "QQ", "AF", "AL", "DZ", "AD", "AO", "AG", "AM", "AZ", "BS", "BH", "BD",
+            "BB", "BY", "BZ", "BJ", "BT", "BO", "BA", "BW", "BN", "BF", "BI", "KH", "CM", "CV",
+            "CF", "TD", "CL", "CO", "KM", "CG", "CR", "HR", "CU", "CY", "CZ", "DK", "DJ", "DM",
+            "DO", "EC", "EG", "SV", "GQ", "ER", "EE", "SZ", "ET", "FJ", "FI", "GA", "GM", "GE",
+            "GH", "GR", "GD", "GT", "GN", "GW", "GY", "HT", "HN", "HU", "IS", "IN", "ID", "IR",
+            "IQ", "IE", "IL", "JM", "JO", "KZ", "KE", "KI", "KW", "KG", "LA", "LV", "LB", "LS"
+    };
     private static final String[] CHANNELS = {"WEB", "MOBILE", "API", "POS", "ATM"};
+    // Extended currency list — only USD/EUR/GBP appear in rules
+    private static final String[] MISS_CURRENCIES = {
+            "CAD", "CHF", "SEK", "NOK", "DKK", "PLN", "CZK", "HUF", "RON", "BGN",
+            "TRY", "RUB", "INR", "IDR", "MYR", "PHP", "THB", "VND", "KRW", "TWD",
+            "SGD", "HKD", "NZD", "MXN", "ARS", "COP", "PEN", "CLP", "ZAR", "NGN"
+    };
     private static final String[] CURRENCIES = {"USD", "EUR", "GBP", "JPY", "AUD", "CAD", "BRL"};
     private static final String[] TIERS = {"STANDARD", "GOLD", "PLATINUM", "BLOCKED"};
     private static final String[] RISK_LEVELS = {"LOW", "MEDIUM", "HIGH", "CRITICAL"};
+    // Extra noise attribute values to inflate cache key space
+    private static final String[] DEVICE_TYPES = {
+            "DESKTOP", "MOBILE_IOS", "MOBILE_ANDROID", "TABLET", "SMART_TV", "WEARABLE", "UNKNOWN"
+    };
+    private static final String[] IP_RANGES = {
+            "10.0.", "172.16.", "192.168.", "203.0.", "198.51.", "100.64.", "169.254."
+    };
 
     /**
      * Balanced feeder: alternates between matching and non-matching events (~50/50).
@@ -488,132 +509,132 @@ public final class HeliosTestData {
             // 1. Hits PERF_HIGH_AMOUNT (simple) + possibly PERF_FRAUD_ORDER_1 (complex)
             rng -> event(rng,
                     "ORDER",
-                    rng.nextInt(41000, 60000),     // AMOUNT > 40000
+                    rng.nextInt(41000, 500000),    // AMOUNT > 40000 — wide range
                     pick(rng, "US", "GB", "DE"),
-                    "USD",
-                    pick(rng, "WEB", "MOBILE"),
-                    rng.nextInt(65, 100),           // high RISK_SCORE
-                    rng.nextInt(5, 60),
-                    "GOLD",
-                    "MEDIUM",
-                    "ACTIVE"),
+                    pick(rng, CURRENCIES),
+                    pick(rng, "WEB", "MOBILE", "API"),
+                    rng.nextInt(61, 100),           // high RISK_SCORE
+                    rng.nextInt(1, 200),
+                    pick(rng, TIERS),
+                    pick(rng, RISK_LEVELS),
+                    pick(rng, "ACTIVE", "VERIFIED", "FLAGGED")),
 
             // 2. Hits PERF_BRAZIL_TXN (simple)
             rng -> event(rng,
                     pick(rng, EVENT_TYPES),
-                    rng.nextInt(100, 5000),
+                    rng.nextInt(1, 200000),         // any amount — rule only checks COUNTRY
                     "BR",                           // COUNTRY == BR
-                    "BRL",
+                    pick(rng, CURRENCIES),
                     pick(rng, CHANNELS),
-                    rng.nextInt(10, 50),
-                    rng.nextInt(1, 20),
-                    "STANDARD",
-                    "LOW",
-                    "ACTIVE"),
+                    rng.nextInt(0, 100),
+                    rng.nextInt(0, 100),
+                    pick(rng, TIERS),
+                    pick(rng, RISK_LEVELS),
+                    pick(rng, "ACTIVE", "VERIFIED", "PENDING")),
 
             // 3. Hits PERF_ATM_JPY (simple, 2 cond.)
             rng -> event(rng,
                     pick(rng, EVENT_TYPES),
-                    rng.nextInt(500, 10000),
-                    "JP",
+                    rng.nextInt(1, 500000),         // any amount
+                    pick(rng, MATCH_COUNTRIES),
                     "JPY",                          // CURRENCY == JPY
                     "ATM",                           // CHANNEL == ATM
-                    rng.nextInt(10, 40),
-                    rng.nextInt(1, 10),
-                    "STANDARD",
-                    "LOW",
-                    "ACTIVE"),
+                    rng.nextInt(0, 100),
+                    rng.nextInt(0, 100),
+                    pick(rng, TIERS),
+                    pick(rng, RISK_LEVELS),
+                    pick(rng, "ACTIVE", "VERIFIED")),
 
             // 4. Hits PERF_RISKY_ORDER (3 cond.) — ORDER + AMOUNT > 10k + RISK_SCORE > 70
             rng -> event(rng,
                     "ORDER",
-                    rng.nextInt(11000, 25000),
+                    rng.nextInt(11000, 300000),
                     pick(rng, MATCH_COUNTRIES),
                     pick(rng, CURRENCIES),
                     pick(rng, CHANNELS),
                     rng.nextInt(72, 100),
-                    rng.nextInt(5, 30),
-                    "STANDARD",
-                    "MEDIUM",
-                    "ACTIVE"),
+                    rng.nextInt(0, 200),
+                    pick(rng, TIERS),
+                    pick(rng, RISK_LEVELS),
+                    pick(rng, "ACTIVE", "PENDING", "VERIFIED")),
 
             // 5. Hits PERF_WEB_LOGIN_RISK (3 cond.) — LOGIN + RISK_SCORE > 80 + WEB
             rng -> event(rng,
                     "LOGIN",
-                    rng.nextInt(0, 100),
+                    rng.nextInt(0, 100000),
                     pick(rng, MATCH_COUNTRIES),
                     pick(rng, CURRENCIES),
                     "WEB",
                     rng.nextInt(82, 100),
-                    rng.nextInt(1, 100),
-                    "STANDARD",
-                    "HIGH",
-                    "ACTIVE"),
+                    rng.nextInt(0, 500),
+                    pick(rng, TIERS),
+                    pick(rng, RISK_LEVELS),
+                    pick(rng, "ACTIVE", "FLAGGED", "VERIFIED")),
 
             // 6. Hits PERF_FRAUD_TRANSFER_1 (5 cond.) — TRANSFER + AMOUNT > 10k + USD/EUR + RISK > 50 + API
             rng -> event(rng,
                     "TRANSFER",
-                    rng.nextInt(11000, 80000),
-                    pick(rng, "US", "GB", "DE", "FR"),
+                    rng.nextInt(11000, 500000),
+                    pick(rng, MATCH_COUNTRIES),
                     pick(rng, "USD", "EUR"),
                     "API",
-                    rng.nextInt(52, 95),
-                    rng.nextInt(10, 50),
-                    "GOLD",
-                    "HIGH",
-                    "ACTIVE"),
+                    rng.nextInt(52, 100),
+                    rng.nextInt(0, 200),
+                    pick(rng, TIERS),
+                    pick(rng, "HIGH", "CRITICAL", "MEDIUM"),
+                    pick(rng, "ACTIVE", "VERIFIED")),
 
             // 7. Hits PERF_JP_MOBILE_ORDER (5 cond.) — ORDER + JP + AMOUNT > 12k + RISK > 40 + MOBILE
             rng -> event(rng,
                     "ORDER",
-                    rng.nextInt(13000, 30000),
+                    rng.nextInt(13000, 200000),
                     "JP",
-                    "JPY",
+                    pick(rng, CURRENCIES),
                     "MOBILE",
-                    rng.nextInt(42, 85),
-                    rng.nextInt(5, 40),
-                    "GOLD",
-                    "MEDIUM",
-                    "ACTIVE"),
+                    rng.nextInt(42, 100),
+                    rng.nextInt(0, 200),
+                    pick(rng, TIERS),
+                    pick(rng, RISK_LEVELS),
+                    pick(rng, "ACTIVE", "VERIFIED")),
 
             // 8. Hits PERF_PREMIUM_PAYMENT (5 cond.) — PAYMENT + AMOUNT > 25k + HIGH + GOLD/PLAT + USD
             rng -> event(rng,
                     "PAYMENT",
-                    rng.nextInt(26000, 60000),
-                    "US",
+                    rng.nextInt(26000, 500000),
+                    pick(rng, MATCH_COUNTRIES),
                     "USD",
-                    pick(rng, "WEB", "MOBILE"),
-                    rng.nextInt(60, 95),
-                    rng.nextInt(10, 50),
+                    pick(rng, CHANNELS),
+                    rng.nextInt(0, 100),
+                    rng.nextInt(0, 200),
                     pick(rng, "GOLD", "PLATINUM"),
                     "HIGH",
-                    "ACTIVE"),
+                    pick(rng, "ACTIVE", "VERIFIED", "PENDING")),
 
             // 9. Hits PERF_AML_SCREEN_1 (5 cond.) — AMOUNT > 8k + US/GB/CA + RISK > 45 + TXN_COUNT > 20 + WEB/MOBILE
             rng -> event(rng,
                     pick(rng, EVENT_TYPES),
-                    rng.nextInt(9000, 40000),
+                    rng.nextInt(9000, 500000),
                     pick(rng, "US", "GB", "CA"),
                     pick(rng, CURRENCIES),
                     pick(rng, "WEB", "MOBILE"),
-                    rng.nextInt(47, 90),
-                    rng.nextInt(22, 80),
-                    "GOLD",
-                    "MEDIUM",
-                    "ACTIVE"),
+                    rng.nextInt(47, 100),
+                    rng.nextInt(22, 500),
+                    pick(rng, TIERS),
+                    pick(rng, RISK_LEVELS),
+                    pick(rng, "ACTIVE", "VERIFIED")),
 
             // 10. Hits PERF_VELOCITY_ORDER (5 cond.) — ORDER + TXN_COUNT > 40 + AMOUNT > 5k + RISK > 35 + US/GB/AU/CA
             rng -> event(rng,
                     "ORDER",
-                    rng.nextInt(6000, 20000),
+                    rng.nextInt(6000, 300000),
                     pick(rng, "US", "GB", "AU", "CA"),
                     pick(rng, CURRENCIES),
                     pick(rng, CHANNELS),
-                    rng.nextInt(37, 80),
-                    rng.nextInt(42, 100),
-                    "STANDARD",
-                    "MEDIUM",
-                    "ACTIVE")
+                    rng.nextInt(37, 100),
+                    rng.nextInt(42, 500),
+                    pick(rng, TIERS),
+                    pick(rng, RISK_LEVELS),
+                    pick(rng, "ACTIVE", "PENDING", "VERIFIED"))
     );
 
     private static String randomMatchingEvent() {
@@ -622,28 +643,37 @@ public final class HeliosTestData {
     }
 
     /**
-     * Generates events that are designed to <b>not</b> match any of the 20 rules:
+     * Generates diverse non-matching events. Every call randomizes ALL fields to
+     * maximize cache-key diversity while staying below rule thresholds.
+     *
+     * <p>Key constraints to avoid matching any rule:
      * <ul>
-     *   <li>Uses EVENT_TYPE = "REGISTRATION" (no rule targets it exclusively)</li>
-     *   <li>AMOUNT kept low (under all thresholds)</li>
-     *   <li>COUNTRY set to "XX" or "ZZ" (excluded by IS_NONE_OF / NOT_EQUAL_TO)</li>
-     *   <li>RISK_SCORE kept low (&lt;10)</li>
-     *   <li>RISK_LEVEL = "LOW", TIER = "BLOCKED", ACCOUNT_STATUS = "ACTIVE"</li>
+     *   <li>AMOUNT &lt; 90 (below all ≥100 thresholds)</li>
+     *   <li>COUNTRY from a large pool of countries absent from any rule</li>
+     *   <li>RISK_SCORE &lt; 8 (below all thresholds ≥35)</li>
+     *   <li>RISK_LEVEL = "LOW" (not HIGH/CRITICAL)</li>
+     *   <li>TIER = "BLOCKED" (excluded by NOT_EQUAL_TO filters)</li>
+     *   <li>ACCOUNT_STATUS ≠ "FLAGGED"</li>
      * </ul>
+     *
+     * <p>All other fields are fully randomized for maximum diversity.
      */
     private static String randomNonMatchingEvent() {
         ThreadLocalRandom rng = ThreadLocalRandom.current();
+        // Vary event type — "REGISTRATION" plus others; constraints on amount/risk
+        // ensure we don't match even ORDER/PAYMENT/TRANSFER/LOGIN rules
+        String eventType = pick(rng, EVENT_TYPES);
         return event(rng,
-                "REGISTRATION",                    // no complex rule targets this
-                rng.nextInt(1, 90),                // below all amount thresholds
-                pick(rng, MISS_COUNTRIES),          // XX/ZZ — excluded or unmatched
-                "CAD",                             // not in any IS_ANY_OF for currency
-                "POS",                             // not in any IS_ANY_OF for channel
-                rng.nextInt(1, 8),                 // below all RISK_SCORE thresholds
-                rng.nextInt(0, 5),                 // below all TRANSACTION_COUNT thresholds
-                "BLOCKED",                         // excluded by NOT_EQUAL_TO
-                "LOW",                             // not HIGH/CRITICAL
-                "NORMAL");                         // not FLAGGED
+                eventType,
+                rng.nextInt(1, 90),                // AMOUNT below all thresholds
+                pick(rng, MISS_COUNTRIES),          // Large pool of 80+ countries not in rules
+                pick(rng, MISS_CURRENCIES),         // 30 currencies not targeted by rules
+                pick(rng, CHANNELS),                // Fully random channel
+                rng.nextInt(0, 8),                  // RISK_SCORE below all thresholds
+                rng.nextInt(0, 5),                  // TRANSACTION_COUNT below all thresholds
+                "BLOCKED",                          // Excluded by NOT_EQUAL_TO
+                "LOW",                              // Not HIGH/CRITICAL
+                pick(rng, "NORMAL", "VERIFIED", "PENDING", "REVIEW"));  // Not FLAGGED
     }
 
     // ─── Event JSON builder ──────────────────────────────────────────────────
@@ -652,6 +682,15 @@ public final class HeliosTestData {
                                 String eventType, int amount, String country, String currency,
                                 String channel, int riskScore, int txnCount,
                                 String tier, String riskLevel, String accountStatus) {
+        // Add random noise attributes to inflate cache key diversity
+        String deviceType = pick(rng, DEVICE_TYPES);
+        String ipPrefix = pick(rng, IP_RANGES);
+        String sourceIp = ipPrefix + rng.nextInt(1, 255) + "." + rng.nextInt(1, 255);
+        int sessionAge = rng.nextInt(0, 86400);          // seconds in a day
+        int loginAttempts = rng.nextInt(0, 20);
+        String merchantId = "MER-" + rng.nextInt(10000, 99999);
+        long timestamp = System.currentTimeMillis() - rng.nextLong(0, 86400000); // last 24h
+
         return String.format("""
                 {
                   "eventId": "perf-%s",
@@ -666,12 +705,19 @@ public final class HeliosTestData {
                     "TRANSACTION_COUNT": %d,
                     "TIER": "%s",
                     "RISK_LEVEL": "%s",
-                    "ACCOUNT_STATUS": "%s"
+                    "ACCOUNT_STATUS": "%s",
+                    "DEVICE_TYPE": "%s",
+                    "SOURCE_IP": "%s",
+                    "SESSION_AGE_SEC": %d,
+                    "LOGIN_ATTEMPTS": %d,
+                    "MERCHANT_ID": "%s",
+                    "EVENT_TIMESTAMP": %d
                   }
                 }""",
                 UUID.randomUUID(), eventType,
                 eventType, amount, country, currency, channel,
-                riskScore, txnCount, tier, riskLevel, accountStatus);
+                riskScore, txnCount, tier, riskLevel, accountStatus,
+                deviceType, sourceIp, sessionAge, loginAttempts, merchantId, timestamp);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
