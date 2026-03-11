@@ -92,15 +92,15 @@ public class RuleEvaluationService {
         MatchResult result = evaluator.evaluate(event);
         long duration = System.nanoTime() - start;
 
+        // Compute per-event cache delta
+        long[] cacheDelta = computeCacheDelta(evaluator);
+
         // Record per-rule metrics for ALL evaluated rules (matched and non-matched)
         boolean hasMatches = result.matchedRules() != null && !result.matchedRules().isEmpty();
-        recordPerRuleMetrics(currentModel, result, hasMatches, duration);
+        recordPerRuleMetrics(currentModel, result, hasMatches, duration, cacheDelta[0], cacheDelta[1]);
 
         // Record event-level outcome (called for EVERY event, match or not)
         metricsAggregator.recordEventOutcome(hasMatches, duration);
-
-        // Record cache hit/miss stats
-        recordCacheStats(evaluator);
 
         return result;
     }
@@ -222,17 +222,17 @@ public class RuleEvaluationService {
                 totalMatchedRules += result.matchedRules().size();
             }
 
+            // Compute per-event cache delta
+            long[] cacheDelta = computeCacheDelta(evaluator);
+
             // Record per-rule metrics for ALL evaluated rules (matched and non-matched)
-            recordPerRuleMetrics(currentModel, result, hasMatches, duration);
+            recordPerRuleMetrics(currentModel, result, hasMatches, duration, cacheDelta[0], cacheDelta[1]);
 
             // Record event-level outcome (called for EVERY event, match or not)
             metricsAggregator.recordEventOutcome(hasMatches, duration);
 
             results.add(result);
         }
-
-        // Record cache hit/miss stats (once for entire batch)
-        recordCacheStats(evaluator);
 
         // Calculate statistics
         int totalEvents = events.size();
@@ -272,14 +272,15 @@ public class RuleEvaluationService {
     }
 
     /**
-     * Records base-condition cache hit/miss deltas to the metrics aggregator.
-     * Uses thread-local previous counters to compute per-evaluation deltas,
-     * since BaseConditionEvaluator tracks cumulative counts.
+     * Computes per-event cache hit/miss deltas and records them globally.
+     * Uses thread-local previous counters since BaseConditionEvaluator tracks cumulative counts.
+     *
+     * @return long array [deltaHits, deltaMisses]
      */
-    private void recordCacheStats(RuleEvaluator evaluator) {
+    private long[] computeCacheDelta(RuleEvaluator evaluator) {
         BaseConditionEvaluator bce = evaluator.getBaseConditionEvaluator();
         if (bce == null) {
-            return;
+            return new long[]{0, 0};
         }
 
         long currentHits = bce.getCacheHits();
@@ -295,14 +296,17 @@ public class RuleEvaluationService {
 
         prev[0] = currentHits;
         prev[1] = currentMisses;
+
+        return new long[]{deltaHits, deltaMisses};
     }
 
     /**
      * Records per-rule evaluation metrics for ALL rules in the model.
      * Every rule gets an evaluation recorded; matched rules also get a match recorded.
-     * This ensures per-rule match rates reflect actual selectivity (not always 100%).
+     * Also distributes per-event cache hit/miss deltas to each rule.
      */
-    private void recordPerRuleMetrics(EngineModel model, MatchResult result, boolean hasMatches, long duration) {
+    private void recordPerRuleMetrics(EngineModel model, MatchResult result, boolean hasMatches,
+                                      long duration, long cacheHits, long cacheMisses) {
         // Build set of matched rule codes for O(1) lookup
         Set<String> matchedCodes;
         if (hasMatches) {
@@ -314,11 +318,14 @@ public class RuleEvaluationService {
             matchedCodes = Set.of();
         }
 
-        // Record evaluation for every rule in the model
+        // Record evaluation and cache stats for every rule in the model
         Collection<RuleMetadata> allRules = model.getAllRuleMetadata();
         for (RuleMetadata meta : allRules) {
-            metricsAggregator.recordEvaluation(
-                meta.ruleCode(), matchedCodes.contains(meta.ruleCode()), duration);
+            String ruleCode = meta.ruleCode();
+            metricsAggregator.recordEvaluation(ruleCode, matchedCodes.contains(ruleCode), duration);
+            if (cacheHits > 0 || cacheMisses > 0) {
+                metricsAggregator.recordRuleCacheAccess(ruleCode, cacheHits, cacheMisses);
+            }
         }
     }
 

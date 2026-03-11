@@ -26,6 +26,8 @@ interface HotRule {
   p99Nanos: number;
   avgNanos: number;
   maxNanos: number;
+  cacheHits: number;
+  cacheMisses: number;
 }
 
 interface SlowRule {
@@ -34,6 +36,10 @@ interface SlowRule {
   avgNanos: number;
   maxNanos: number;
   evaluationCount: number;
+  matchCount: number;
+  matchRate: number;
+  cacheHits: number;
+  cacheMisses: number;
 }
 
 export function MonitoringView() {
@@ -85,6 +91,12 @@ export function MonitoringView() {
     if (ms < 1) return `${(nanos / 1_000).toFixed(0)} μs`;
     if (ms < 1000) return `${ms.toFixed(2)} ms`;
     return `${(ms / 1000).toFixed(2)} s`;
+  };
+
+  const formatCacheHitRate = (hits: number, misses: number): string => {
+    const total = hits + misses;
+    if (total === 0) return '—';
+    return `${((hits / total) * 100).toFixed(1)}%`;
   };
 
   if (loading) {
@@ -237,6 +249,12 @@ export function MonitoringView() {
                     </div>
                     <div className="text-xs text-muted-foreground">Max</div>
                   </div>
+                  <div className="text-right">
+                    <div className="text-sm font-semibold text-blue-600">
+                      {formatCacheHitRate(rule.cacheHits, rule.cacheMisses)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Cache</div>
+                  </div>
                 </div>
               ))}
             </div>
@@ -265,8 +283,15 @@ export function MonitoringView() {
                   <div className="flex-1">
                     <div className="font-medium">{rule.ruleCode}</div>
                     <div className="text-sm text-muted-foreground mt-1">
-                      {formatNumber(rule.evaluationCount)} evaluations
+                      {formatNumber(rule.evaluationCount)} evaluations •{' '}
+                      {formatNumber(rule.matchCount)} matches
                     </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-semibold">
+                      {(rule.matchRate * 100).toFixed(1)}%
+                    </div>
+                    <div className="text-xs text-muted-foreground">match rate</div>
                   </div>
                   <div className="text-right">
                     <div className="text-sm font-semibold text-orange-600">
@@ -285,6 +310,12 @@ export function MonitoringView() {
                       {formatNanos(rule.maxNanos)}
                     </div>
                     <div className="text-xs text-muted-foreground">Max</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-semibold text-blue-600">
+                      {formatCacheHitRate(rule.cacheHits, rule.cacheMisses)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Cache</div>
                   </div>
                 </div>
               ))}

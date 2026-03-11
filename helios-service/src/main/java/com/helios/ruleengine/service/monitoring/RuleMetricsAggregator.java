@@ -46,9 +46,13 @@ public class RuleMetricsAggregator {
     // Global throughput tracking
     private final RingBuffer<ThroughputSample> throughputHistory = new RingBuffer<>(3600);
 
-    // Cache hit tracking
+    // Cache hit tracking (global)
     private final LongAdder cacheHits = new LongAdder();
     private final LongAdder cacheMisses = new LongAdder();
+
+    // Per-rule cache hit tracking
+    private final ConcurrentMap<String, LongAdder> ruleCacheHits = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, LongAdder> ruleCacheMisses = new ConcurrentHashMap<>();
 
     // Throughput sampler
     private static final Logger logger = Logger.getLogger(RuleMetricsAggregator.class.getName());
@@ -164,6 +168,22 @@ public class RuleMetricsAggregator {
     }
 
     /**
+     * Record per-rule cache hits and misses.
+     *
+     * @param ruleCode Rule identifier
+     * @param hits number of cache hits
+     * @param misses number of cache misses
+     */
+    public void recordRuleCacheAccess(String ruleCode, long hits, long misses) {
+        if (hits > 0) {
+            ruleCacheHits.computeIfAbsent(ruleCode, k -> new LongAdder()).add(hits);
+        }
+        if (misses > 0) {
+            ruleCacheMisses.computeIfAbsent(ruleCode, k -> new LongAdder()).add(misses);
+        }
+    }
+
+    /**
      * Get the top N most frequently evaluated rules.
      *
      * @param topN Number of top rules to return
@@ -182,7 +202,10 @@ public class RuleMetricsAggregator {
                 long avg = tracker != null ? tracker.getAvg() : 0;
                 long max = tracker != null ? tracker.getMax() : 0;
 
-                return new HotRule(ruleCode, evaluations, matches, matchRate, p99, avg, max);
+                long ruleHits = ruleCacheHits.getOrDefault(ruleCode, new LongAdder()).sum();
+                long ruleMisses = ruleCacheMisses.getOrDefault(ruleCode, new LongAdder()).sum();
+
+                return new HotRule(ruleCode, evaluations, matches, matchRate, p99, avg, max, ruleHits, ruleMisses);
             })
             .sorted(Comparator.comparingLong(HotRule::evaluationCount).reversed())
             .limit(topN)
@@ -202,7 +225,12 @@ public class RuleMetricsAggregator {
                 LatencyTracker tracker = entry.getValue();
                 long p99 = tracker.getP99();
                 long evaluations = ruleEvaluationCounts.getOrDefault(ruleCode, new LongAdder()).sum();
-                return new SlowRule(ruleCode, p99, tracker.getAvg(), tracker.getMax(), evaluations);
+                long matches = ruleMatchCounts.getOrDefault(ruleCode, new LongAdder()).sum();
+                double matchRate = evaluations > 0 ? (double) matches / evaluations : 0.0;
+                long ruleHits = ruleCacheHits.getOrDefault(ruleCode, new LongAdder()).sum();
+                long ruleMisses = ruleCacheMisses.getOrDefault(ruleCode, new LongAdder()).sum();
+                return new SlowRule(ruleCode, p99, tracker.getAvg(), tracker.getMax(), evaluations,
+                        matches, matchRate, ruleHits, ruleMisses);
             })
             .sorted(Comparator.comparingLong(SlowRule::p99Nanos).reversed())
             .limit(topN)
@@ -233,7 +261,12 @@ public class RuleMetricsAggregator {
 
                 if (p99 > thresholdNanos) {
                     long evaluations = ruleEvaluationCounts.getOrDefault(ruleCode, new LongAdder()).sum();
-                    return new SlowRule(ruleCode, p99, tracker.getAvg(), tracker.getMax(), evaluations);
+                    long matches = ruleMatchCounts.getOrDefault(ruleCode, new LongAdder()).sum();
+                    double matchRate = evaluations > 0 ? (double) matches / evaluations : 0.0;
+                    long ruleHits = ruleCacheHits.getOrDefault(ruleCode, new LongAdder()).sum();
+                    long ruleMisses = ruleCacheMisses.getOrDefault(ruleCode, new LongAdder()).sum();
+                    return new SlowRule(ruleCode, p99, tracker.getAvg(), tracker.getMax(), evaluations,
+                            matches, matchRate, ruleHits, ruleMisses);
                 }
                 return null;
             })
@@ -316,6 +349,8 @@ public class RuleMetricsAggregator {
         throughputHistory.clear();
         cacheHits.reset();
         cacheMisses.reset();
+        ruleCacheHits.clear();
+        ruleCacheMisses.clear();
     }
 
     // ===== Data Structures =====
@@ -416,9 +451,12 @@ public class RuleMetricsAggregator {
     public record ThroughputSample(Instant timestamp, long eventsProcessed) {}
 
     public record HotRule(String ruleCode, long evaluationCount, long matchCount, double matchRate,
-                          long p99Nanos, long avgNanos, long maxNanos) {}
+                          long p99Nanos, long avgNanos, long maxNanos,
+                          long cacheHits, long cacheMisses) {}
 
-    public record SlowRule(String ruleCode, long p99Nanos, long avgNanos, long maxNanos, long evaluationCount) {}
+    public record SlowRule(String ruleCode, long p99Nanos, long avgNanos, long maxNanos, long evaluationCount,
+                           long matchCount, double matchRate,
+                           long cacheHits, long cacheMisses) {}
 
     public record MetricsSummary(
         long totalEvaluations,
